@@ -42,6 +42,7 @@ from app.workers.schemas import (
     WorkerRuntimeHeartbeat,
 )
 
+
 @contextlib.asynccontextmanager
 async def lifespan(_: FastAPI) -> collections.abc.AsyncIterator[None]:
     await initialize_queue()
