@@ -18,7 +18,7 @@ def test_image_to_video_plan_has_ordered_dependencies():
 
 
 def test_glb_to_video_rejects_image_input():
-    with pytest.raises(ValueError, match="\.glb"):
+    with pytest.raises(ValueError, match=r"\.glb"):
         build_pipeline_plan(PipelineRequest(
             workflow=PipelineType.GLB_TO_VIDEO,
             input_asset="character.png",
