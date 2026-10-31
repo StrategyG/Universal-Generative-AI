@@ -9,5 +9,7 @@ class Settings(BaseSettings):
     artifact_dir: str = "artifacts"
     generation_backend: str = "mock"
     gpu_required: bool = False
+    image_model_id: str = ""
+    image_model_revision: str = ""
 
 settings = Settings()
