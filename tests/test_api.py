@@ -81,3 +81,4 @@ def test_external_gpu_worker_claim_and_complete(monkeypatch):
         })
     assert completed.status_code == 200
     assert completed.json()["status"] == "succeeded"
+    assert completed.json()["result_metadata"]["model_revision"] == "0123456789abcdef"
