@@ -42,3 +42,42 @@ def test_pipeline_plan_rejects_wrong_input_type():
 def test_reject_empty_request():
     response = client.post("/api/v1/generate", json={"task": "text_to_image"})
     assert response.status_code == 422
+
+
+def test_external_gpu_routes_require_worker_token(monkeypatch):
+    from app.config import settings
+    monkeypatch.setattr(settings, "external_worker_token", "test-secret")
+    response = client.post("/api/v1/external-gpu/claim", json={
+        "platform": "colab", "worker_id": "colab-worker-test"
+    })
+    assert response.status_code == 401
+
+
+def test_external_gpu_worker_claim_and_complete(monkeypatch):
+    from app.config import settings
+    from app.services import external_gpu_queue
+    monkeypatch.setattr(settings, "external_worker_token", "test-secret")
+    external_gpu_queue._jobs.clear()
+    headers = {"X-Worker-Token": "test-secret"}
+    created = client.post("/api/v1/external-gpu/jobs", headers=headers, json={
+        "platform": "kaggle",
+        "task": "image_to_3d",
+        "input_asset": "s3://private-bucket/input.png",
+        "model_id": "org/model",
+        "model_revision": "0123456789abcdef"
+    })
+    assert created.status_code == 200
+    job_id = created.json()["job_id"]
+    claimed = client.post("/api/v1/external-gpu/claim", headers=headers, json={
+        "platform": "kaggle", "worker_id": "kaggle-worker-test"
+    })
+    assert claimed.status_code == 200
+    assert claimed.json()["job_id"] == job_id
+    completed = client.post(f"/api/v1/external-gpu/jobs/{job_id}/complete",
+        headers=headers, json={
+            "worker_id": "kaggle-worker-test",
+            "output_asset": "s3://private-bucket/output.glb",
+            "metadata": {"model_revision": "0123456789abcdef"}
+        })
+    assert completed.status_code == 200
+    assert completed.json()["status"] == "succeeded"
