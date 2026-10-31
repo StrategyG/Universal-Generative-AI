@@ -38,7 +38,7 @@ class ExternalGPUWorker:
     def complete(self, job_id: str, output_asset: str):
         response = self.session.post(
             f"{self.api_url}/api/v1/external-gpu/jobs/{job_id}/complete",
-            json={"worker_id": self.worker_id, "output_asset": output_asset},
+            json={"worker_id": self.worker_id, "output_asset": output_asset, "metadata": metadata or {}},
             timeout=30,
         )
         response.raise_for_status()
