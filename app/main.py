@@ -109,7 +109,7 @@ async def complete_external_gpu_job(
     x_worker_token: str | None = Header(default=None),
 ):
     require_worker_token(x_worker_token)
-    job = await complete(job_id, request.worker_id, request.output_asset)
+    job = await complete(job_id, request.worker_id, request.output_asset, request.metadata)
     if job is None:
         raise HTTPException(status_code=409, detail="Job lease is not owned by this worker")
     return job
