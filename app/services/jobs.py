@@ -1,0 +1,28 @@
+from uuid import uuid4
+from app.schemas import GenerationRequest, JobResponse, JobStatus
+from app.providers.registry import registry
+from app.config import settings
+
+_jobs: dict[str, JobResponse] = {}
+
+async def submit_job(request: GenerationRequest) -> JobResponse:
+    provider = registry.for_task(settings.generation_backend, request.task)
+    job_id = str(uuid4())
+    _jobs[job_id] = JobResponse(job_id=job_id, task=request.task,
+                                status=JobStatus.RUNNING, message="Inference started")
+    try:
+        result = await provider.generate(request.task, request.prompt,
+                                         request.input_asset, request.options)
+        response = JobResponse(job_id=job_id, task=request.task,
+                               status=JobStatus.SUCCEEDED,
+                               message=("Simulated result" if result.metadata.get("simulated")
+                                        else "Generation completed"),
+                               output_asset=result.output_asset)
+    except Exception as exc:
+        response = JobResponse(job_id=job_id, task=request.task,
+                               status=JobStatus.FAILED, message=str(exc)[:500])
+    _jobs[job_id] = response
+    return response
+
+def get_job(job_id: str) -> JobResponse | None:
+    return _jobs.get(job_id)
