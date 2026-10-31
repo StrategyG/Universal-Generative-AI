@@ -9,12 +9,13 @@
 
 | Area | Status | Evidence / boundary |
 |---|---|---|
-| FastAPI API and health | PARTIAL | Health, generation, job lookup, pipeline planning and external-GPU endpoints exist; PostgreSQL pool uses FastAPI lifespan; general generation jobs remain in memory |
+| FastAPI API and health | PARTIAL | Health, generation, job lookup, pipeline planning and external-GPU endpoints exist; PostgreSQL pool uses FastAPI lifespan; general generation job records persist in PostgreSQL when configured, while inference remains synchronous |
 | Mock provider | PASS (test adapter only) | Simulates the provider contract; it does not generate media |
 | Diffusers text-to-image adapter | PARTIAL | Adapter exists; actual model weights, license, hardware profile and live inference are not validated |
 | Pipeline planner | PARTIAL | Produces ordered stage plans and contracts; does not execute stages |
+| PostgreSQL general generation job history | IMPLEMENTED / CI PENDING | Running and terminal result records persist; inference is still synchronous and interrupted jobs are not resumed |
 | PostgreSQL external-GPU queue | IMPLEMENTED / CI VERIFIED | Durable jobs, transactional `SKIP LOCKED` claim, idempotency, worker registry, leases, retry schedule, dead-letter and cancellation |
-| PostgreSQL migrations | IMPLEMENTED / CI VERIFIED | Ordered migrations `0001`–`0004`; CI applies them against PostgreSQL 16 |
+| PostgreSQL migrations | IMPLEMENTED / CI VERIFIED | Ordered migrations `0001`–`0005`; CI applies them against PostgreSQL 16 |
 | External-GPU idempotency | PASS (CI scope) | Same key/request returns the original job; same key with a different payload is rejected |
 | Worker credentials | PASS (CI scope) | Random worker-specific token, hash-only storage, expiry, re-provisioning/rotation and revocation |
 | Worker capability registration | PASS (CI scope) | Runtime/GPU/VRAM/CUDA/framework/task/RAM/capacity metadata is stored |
@@ -71,7 +72,7 @@
 
 ## Important boundaries
 
-The PostgreSQL queue persists only `/api/v1/external-gpu/*` jobs. General `/api/v1/generate` jobs remain in-memory. Pipeline responses are plans, not executable workflows. A worker-supplied asset URI is metadata only, not proof that a valid file exists or has been verified.
+The PostgreSQL queue persists `/api/v1/external-gpu/*` jobs. General `/api/v1/generate` job records are persisted, but inference still runs synchronously inside the API request and cannot be resumed after process termination. Pipeline responses are plans, not executable workflows. A worker-supplied asset URI is metadata only, not proof that a valid file exists or has been verified.
 
 Cancellation invalidates a server-side job lease and rejects late completion. It does not stop a remote notebook process; cooperative cancellation inside inference handlers is still required.
 

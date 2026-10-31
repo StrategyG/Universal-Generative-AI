@@ -97,8 +97,12 @@ Scope limitation: this PostgreSQL backend currently persists only `/api/v1/exter
 - GLB validation/optimization workers.
 - Character rigging and motion-generation inference.
 - Blender/FFmpeg rendering worker for GLB-to-MP4.
-- Durable storage for general `/api/v1/generate` jobs, object storage, user authentication, tenant isolation, quotas, and observability.
+- General `/api/v1/generate` job history is now persisted in PostgreSQL, but inference remains synchronous in the request process; it is not yet a durable asynchronous generation queue. Object storage, user authentication, tenant isolation, quotas, and observability remain absent.
 - Cooperative cancellation inside active notebook inference, executable pipeline orchestration, object storage/artifact validation, model governance, user/tenant auth, and end-to-end quality evaluation.
+
+## General generation job persistence
+
+When PostgreSQL is configured, `/api/v1/generate` writes its running and terminal job records to `generation_jobs`; `/api/v1/jobs/{job_id}` reads persisted history. This improves status durability but does **not** make inference asynchronous: the provider still runs inside the API request process. A process crash can leave a record in `running`; automated recovery/resumption is not implemented.
 
 ## Status
 

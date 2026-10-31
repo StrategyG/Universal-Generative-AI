@@ -316,3 +316,21 @@ async def claim_for_worker(worker_id: str) -> ExternalJob | None:
     if _postgres_queue is None:
         return None
     return await _postgres_queue.claim_for_worker(worker_id)
+
+
+async def persist_generation_job(job):
+    if _postgres_queue is not None:
+        return await _postgres_queue.create_generation_job(job)
+    return job
+
+
+async def update_generation_job(job):
+    if _postgres_queue is not None:
+        return await _postgres_queue.update_generation_job(job)
+    return job
+
+
+async def get_persisted_generation_job(job_id):
+    if _postgres_queue is not None:
+        return await _postgres_queue.get_generation_job(job_id)
+    return None

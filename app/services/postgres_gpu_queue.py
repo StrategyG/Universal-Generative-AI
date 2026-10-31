@@ -16,6 +16,7 @@ from app.services.queue_utils import (
     RETRY_MAX_SECONDS,
     request_fingerprint,
 )
+from app.schemas import JobResponse, JobStatus, TaskType
 from app.workers.schemas import (
     ExternalJob,
     ExternalJobCreate,
@@ -71,6 +72,7 @@ class PostgresExternalGPUQueue:
                            WHERE table_name = 'external_gpu_jobs'
                              AND column_name = 'next_attempt_at'
                        )
+                       AND to_regclass('generation_jobs') IS NOT NULL
                     """
                 )
             )
@@ -544,6 +546,49 @@ class PostgresExternalGPUQueue:
             job_id,
         )
         return self._to_job(row) if row is not None else None
+
+
+    async def create_generation_job(self, job: JobResponse) -> JobResponse:
+        pool = self._require_pool()
+        row = await pool.fetchrow(
+            """
+            INSERT INTO generation_jobs (job_id, task, status, message, output_asset)
+            VALUES ($1, $2, $3, $4, $5)
+            RETURNING *
+            """,
+            job.job_id, job.task.value, job.status.value, job.message, job.output_asset,
+        )
+        return self._to_generation_job(row)
+
+    async def update_generation_job(self, job: JobResponse) -> JobResponse:
+        pool = self._require_pool()
+        row = await pool.fetchrow(
+            """
+            UPDATE generation_jobs
+            SET status = $2, message = $3, output_asset = $4, updated_at = now()
+            WHERE job_id = $1
+            RETURNING *
+            """,
+            job.job_id, job.status.value, job.message, job.output_asset,
+        )
+        return self._to_generation_job(row) if row is not None else job
+
+    async def get_generation_job(self, job_id: str) -> JobResponse | None:
+        pool = self._require_pool()
+        row = await pool.fetchrow(
+            "SELECT * FROM generation_jobs WHERE job_id = $1", job_id
+        )
+        return self._to_generation_job(row) if row is not None else None
+
+    @staticmethod
+    def _to_generation_job(row: Any) -> JobResponse:
+        return JobResponse(
+            job_id=row["job_id"],
+            task=TaskType(row["task"]),
+            status=JobStatus(row["status"]),
+            message=row["message"],
+            output_asset=row["output_asset"],
+        )
 
     async def get_external_job(self, job_id: str) -> ExternalJob | None:
         pool = self._require_pool()

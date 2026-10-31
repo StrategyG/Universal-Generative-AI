@@ -11,7 +11,7 @@ This is an engineering assessment, not certification or assurance.
 | API health and basic endpoints | PARTIAL | Endpoint tests pass and PostgreSQL pool lifecycle uses FastAPI lifespan; production hosting/load evidence absent |
 | Ruff lint and tests | PASS | CI #71: Ruff PASS, 38 pytest tests passed, 1 warning |
 | PostgreSQL external-GPU persistence | PASS (CI scope) | Migrations and restart/recovery integration tests run against PostgreSQL 16 in CI |
-| General generation-job persistence | BLOCKED | `/api/v1/generate` still uses an in-memory job store |
+| General generation-job history persistence | IMPLEMENTED / CI PENDING | Job state/result records persist in PostgreSQL; inference is synchronous and not recoverable/reschedulable after process termination |
 | External-GPU idempotent submission | PASS (CI scope) | Duplicate request returns existing job; conflicting payload is rejected |
 | Worker credentials and revocation | PASS (CI scope) | Random worker token, hash-only storage, expiry and revocation |
 | Worker capability registration/scheduling | PASS (CI scope) | Task/platform and resource requirements matched; hardware claims are self-reported |
@@ -39,7 +39,7 @@ Engineering estimates, not externally audited ratings:
 
 ## Remaining production blockers
 
-1. Persist general generation jobs and pipeline-stage state, not only external-GPU jobs.
+1. Convert synchronous general generation into a durable asynchronous queue with worker execution and restart recovery; persist pipeline-stage state.
 2. Add tenant-aware user authentication, RBAC, project permissions, rate limits and quotas.
 3. Add cryptographic lease tokens, operator identity/access policy and cooperative notebook-side cancellation.
 4. Add object storage with scoped signed URLs, immutable asset IDs and server-side checksum/MIME/parser validation.
