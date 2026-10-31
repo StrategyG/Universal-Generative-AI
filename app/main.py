@@ -6,7 +6,6 @@ from app.config import settings
 from app.pipelines.planner import build_pipeline_plan
 from app.pipelines.schemas import PipelinePlan, PipelineRequest
 from app.schemas import GenerationRequest, JobResponse
-from app.services.queue_errors import IdempotencyConflictError
 from app.services.external_gpu_queue import (
     claim,
     close_queue,
@@ -18,6 +17,7 @@ from app.services.external_gpu_queue import (
     initialize_queue,
     queue_backend_name,
 )
+from app.services.queue_errors import IdempotencyConflictError
 from app.services.jobs import get_job, submit_job
 from app.workers.schemas import (
     ExternalJob,
