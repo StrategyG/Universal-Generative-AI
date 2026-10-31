@@ -53,8 +53,8 @@ class DiffusersTextToImageProvider(ModelProvider):
         if not (1 <= steps <= 50):
             raise ValueError("steps must be between 1 and 50")
 
-        import torch
         pipeline = self._load_pipeline()
+        import torch
         seed = int(options.get("seed", 0))
         generator = torch.Generator(device="cuda" if torch.cuda.is_available() else "cpu")
         if seed:
