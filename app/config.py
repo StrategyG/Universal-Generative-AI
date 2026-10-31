@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     external_worker_token: str = ""
     worker_admin_token: str = ""
     database_url: str = ""
+    model_registry_enforcement: bool = False
 
 
 settings = Settings()

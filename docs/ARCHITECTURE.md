@@ -19,12 +19,14 @@ Current queue behavior:
 - Job creation is durable across API restarts when PostgreSQL is configured and the migration has been applied.
 
 Important scope boundaries:
-- Only `/api/v1/external-gpu/*` uses this queue. General `/api/v1/generate` requests still use an in-memory job store.
+- The PostgreSQL backend persists external-GPU jobs and general `/api/v1/generate` job history. General inference remains synchronous in the API request and cannot be resumed after process termination.
 - Idempotency keys and payload fingerprint conflict checks are implemented for external-GPU submission. External-GPU cancellation marks queued/running jobs `cancelled`, clears worker/lease ownership, and prevents late completion. Retry scheduling is persisted in `next_attempt_at`; no transactional outbox, tenant scope or pipeline-stage persistence yet.
 - PostgreSQL worker registry supports operator provisioning, one-time random worker tokens stored as SHA-256 hashes, expiry, rotation by re-provisioning, revocation, runtime registration and per-worker identity checks.
 - Capability scheduling matches platform, task allowlist reported at registration, total/free VRAM, available RAM and worker capacity. Capability values are self-reported, not cryptographically attested.
 - `EXTERNAL_WORKER_TOKEN` remains a development-only compatibility path; production requires scoped worker credentials.
-- The PostgreSQL backend is not production-verified until a target environment applies the migration and passes a recovery test.
+- Migration `0006_model_registry.sql` adds the immutable model registry. Production submissions, registered-worker scheduling and non-mock `/api/v1/generate` inference require an approved model record. Disabling a revision cancels unfinished external-GPU jobs tied to it.
+- Registry approval checks operator-supplied license, validation and evaluation evidence. Independent evidence verification, reviewer identity/audit and notebook weight attestation are not implemented.
+- CI uses temporary PostgreSQL; target-environment backup/restore and multi-replica recovery remain unverified.
 
 ## External worker execution
 
@@ -59,4 +61,4 @@ The planner supports image-to-3D, image-to-video, and GLB-to-video plans. It ret
 - Object storage, signed URLs, checksum enforcement, and actual artifact inspection.
 - User authentication, RBAC, project permissions, and tenant isolation.
 - Executable image-to-3D, GLB validation/optimization, rigging, motion, and rendering providers.
-- Model registry/governance, quality evaluation, structured telemetry, audit events, SBOM and security scanning.
+- Independent model source/license verification, benchmark reproduction, signed model manifests/runtime attestation, quality evaluation, structured telemetry, audit events, SBOM and security scanning.

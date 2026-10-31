@@ -237,3 +237,77 @@ def test_external_gpu_cancel_requires_auth_and_rejects_late_worker_completion(mo
     assert cancelled.status_code == 200
     assert cancelled.json()["status"] == "cancelled"
     assert late_completion.status_code == 409
+
+
+
+def test_production_diffusers_generation_requires_approved_registry_revision(monkeypatch):
+    from app.config import settings
+    from app.services import external_gpu_queue
+
+    monkeypatch.setattr(settings, "environment", "production")
+    monkeypatch.setattr(settings, "generation_backend", "diffusers-sdxl")
+    monkeypatch.setattr(settings, "image_model_id", "org/unreviewed-image-model")
+    monkeypatch.setattr(settings, "image_model_revision", "a" * 40)
+    monkeypatch.setattr(settings, "model_registry_enforcement", False)
+    monkeypatch.setattr(external_gpu_queue, "_postgres_queue", None)
+
+    response = client.post(
+        "/api/v1/generate",
+        json={"task": "text_to_image", "prompt": "a test image"},
+    )
+
+    assert response.status_code == 403
+    assert "model registry" in response.json()["detail"].lower()
+
+
+
+def test_model_registry_routes_require_operator_credential(monkeypatch):
+    from app.config import settings
+    from app.services import external_gpu_queue
+
+    monkeypatch.setattr(settings, "worker_admin_token", "operator-model-secret")
+    monkeypatch.setattr(external_gpu_queue, "_postgres_queue", None)
+    body = {
+        "model_id": "org/test-model",
+        "revision": "a" * 40,
+        "model_name": "Test Model",
+        "family": "image_to_3d",
+        "source": "huggingface",
+        "license_id": "Apache-2.0",
+        "intended_use": "CI-only test fixture",
+    }
+
+    denied = client.post("/api/v1/model-registry/versions", json=body)
+    unavailable = client.post(
+        "/api/v1/model-registry/versions",
+        headers={"X-Worker-Admin-Token": "operator-model-secret"},
+        json=body,
+    )
+
+    assert denied.status_code == 401
+    assert unavailable.status_code == 503
+
+
+def test_production_external_gpu_submission_requires_approved_model(monkeypatch):
+    from app.config import settings
+    from app.services import external_gpu_queue
+
+    monkeypatch.setattr(settings, "environment", "production")
+    monkeypatch.setattr(settings, "worker_admin_token", "operator-model-secret")
+    monkeypatch.setattr(settings, "model_registry_enforcement", False)
+    monkeypatch.setattr(external_gpu_queue, "_postgres_queue", None)
+
+    response = client.post(
+        "/api/v1/external-gpu/jobs",
+        headers={"X-Worker-Admin-Token": "operator-model-secret"},
+        json={
+            "platform": "colab",
+            "task": "image_to_3d",
+            "input_asset": "asset://production/input.png",
+            "model_id": "unreviewed/model",
+            "model_revision": "revision-not-approved",
+        },
+    )
+
+    assert response.status_code == 403
+    assert "model registry" in response.json()["detail"].lower()

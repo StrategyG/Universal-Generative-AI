@@ -11,6 +11,10 @@ from typing import Any
 from uuid import uuid4
 
 from app.schemas import JobResponse, JobStatus, TaskType
+from app.services.model_registry_errors import (
+    ModelApprovalRequiredError,
+    ModelRegistryConflictError,
+)
 from app.services.queue_errors import IdempotencyConflictError
 from app.services.queue_utils import (
     RETRY_BASE_SECONDS,
@@ -21,6 +25,10 @@ from app.workers.schemas import (
     ExternalJob,
     ExternalJobCreate,
     ExternalJobStatus,
+    ModelRegistryStatus,
+    ModelVersion,
+    ModelVersionCreate,
+    ModelVersionKey,
     WorkerPlatform,
     WorkerProfile,
     WorkerRegistration,
@@ -73,6 +81,7 @@ class PostgresExternalGPUQueue:
                              AND column_name = 'next_attempt_at'
                        )
                        AND to_regclass('generation_jobs') IS NOT NULL
+                       AND to_regclass('model_registry_versions') IS NOT NULL
                     """
                 )
             )
@@ -435,7 +444,12 @@ class PostgresExternalGPUQueue:
         )
         return result.endswith(" 1")
 
-    async def claim_for_worker(self, worker_id: str) -> ExternalJob | None:
+    async def claim_for_worker(
+        self,
+        worker_id: str,
+        *,
+        enforce_model_registry: bool = False,
+    ) -> ExternalJob | None:
         pool = self._require_pool()
         async with pool.acquire() as connection, connection.transaction():
             worker = await connection.fetchrow(
@@ -497,12 +511,55 @@ class PostgresExternalGPUQueue:
             if not tasks:
                 return None
 
+            if enforce_model_registry:
+                # Fail queued jobs if their pinned model revision is not currently approved.
+                await connection.execute(
+                    """
+                    UPDATE external_gpu_jobs AS jobs
+                    SET status = 'failed',
+                        worker_id = NULL,
+                        lease_expires_at = NULL,
+                        error = 'Model revision is not approved for execution',
+                        updated_at = now()
+                    WHERE jobs.platform = $1
+                      AND jobs.status = 'queued'
+                      AND NOT EXISTS (
+                          SELECT 1 FROM model_registry_versions AS models
+                          WHERE models.model_id = jobs.model_id
+                            AND models.revision = jobs.model_revision
+                            AND models.status = 'approved'
+                            AND models.license_review_status = 'approved'
+                            AND models.validation_status = 'passed'
+                            AND models.evaluation_results->>'status' = 'passed'
+                            AND models.evaluation_results ? 'dataset_version'
+                            AND models.evaluation_results ? 'evaluated_at'
+                            AND models.evaluation_results ? 'metrics'
+                      )
+                    """,
+                    worker["platform"],
+                )
+
             row = await connection.fetchrow(
                 """
                 SELECT * FROM external_gpu_jobs
                 WHERE platform = $1 AND status = 'queued'
                   AND next_attempt_at <= now()
                   AND task = ANY($2::text[])
+                  AND (
+                      NOT $6::boolean
+                      OR EXISTS (
+                          SELECT 1 FROM model_registry_versions AS models
+                          WHERE models.model_id = external_gpu_jobs.model_id
+                            AND models.revision = external_gpu_jobs.model_revision
+                            AND models.status = 'approved'
+                            AND models.license_review_status = 'approved'
+                            AND models.validation_status = 'passed'
+                            AND models.evaluation_results->>'status' = 'passed'
+                            AND models.evaluation_results ? 'dataset_version'
+                            AND models.evaluation_results ? 'evaluated_at'
+                            AND models.evaluation_results ? 'metrics'
+                      )
+                  )
                   AND min_gpu_vram_gb <= $3
                   AND min_gpu_vram_gb <= $4
                   AND min_memory_gb <= $5
@@ -512,6 +569,7 @@ class PostgresExternalGPUQueue:
                 """,
                 worker["platform"], tasks, worker["gpu_vram_gb"],
                 worker["available_gpu_memory_gb"], worker["available_memory_gb"],
+                enforce_model_registry,
             )
             if row is None:
                 return None
@@ -589,6 +647,162 @@ class PostgresExternalGPUQueue:
             message=row["message"],
             output_asset=row["output_asset"],
         )
+
+
+    @classmethod
+    def _to_model_version(cls, row: Any) -> ModelVersion:
+        return ModelVersion(
+            model_id=row["model_id"],
+            model_name=row["model_name"],
+            family=row["family"],
+            revision=row["revision"].strip(),
+            source=row["source"],
+            license_id=row["license_id"],
+            intended_use=row["intended_use"],
+            input_schema=cls._decode_json(row["input_schema"]),
+            output_schema=cls._decode_json(row["output_schema"]),
+            hardware_requirements=cls._decode_json(row["hardware_requirements"]),
+            runtime_dependencies=cls._decode_json(row["runtime_dependencies"]),
+            license_review_status=row["license_review_status"],
+            validation_status=row["validation_status"],
+            evaluation_results=cls._decode_json(row["evaluation_results"]),
+            status=ModelRegistryStatus(row["status"]),
+            approved_at=row["approved_at"],
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+        )
+
+    async def register_model_version(self, request: ModelVersionCreate) -> ModelVersion:
+        """Insert an immutable model revision; updates require a new revision SHA."""
+        pool = self._require_pool()
+        row = await pool.fetchrow(
+            """
+            INSERT INTO model_registry_versions (
+                model_id, revision, model_name, family, source, license_id,
+                intended_use, input_schema, output_schema, hardware_requirements,
+                runtime_dependencies, license_review_status, validation_status,
+                evaluation_results, status
+            )
+            VALUES (
+                $1, $2, $3, $4, $5, $6, $7,
+                $8::jsonb, $9::jsonb, $10::jsonb, $11::jsonb,
+                $12, $13, $14::jsonb, 'pending_review'
+            )
+            ON CONFLICT (model_id, revision) DO NOTHING
+            RETURNING *
+            """,
+            request.model_id,
+            request.revision.lower(),
+            request.model_name,
+            request.family,
+            request.source,
+            request.license_id,
+            request.intended_use,
+            json.dumps(request.input_schema),
+            json.dumps(request.output_schema),
+            json.dumps(request.hardware_requirements),
+            json.dumps(request.runtime_dependencies),
+            request.license_review_status,
+            request.validation_status,
+            json.dumps(request.evaluation_results),
+        )
+        if row is None:
+            raise ModelRegistryConflictError(
+                "This model ID and immutable revision are already registered"
+            )
+        return self._to_model_version(row)
+
+    async def get_model_version(self, key: ModelVersionKey) -> ModelVersion | None:
+        pool = self._require_pool()
+        row = await pool.fetchrow(
+            """
+            SELECT * FROM model_registry_versions
+            WHERE model_id = $1 AND revision = $2
+            """,
+            key.model_id,
+            key.revision.lower(),
+        )
+        return self._to_model_version(row) if row is not None else None
+
+    async def approve_model_version(self, key: ModelVersionKey) -> ModelVersion | None:
+        """Approve only when license, validation and evaluation evidence all pass."""
+        pool = self._require_pool()
+        row = await pool.fetchrow(
+            """
+            UPDATE model_registry_versions
+            SET status = 'approved',
+                approved_at = now(),
+                updated_at = now()
+            WHERE model_id = $1
+              AND revision = $2
+              AND status = 'pending_review'
+              AND license_review_status = 'approved'
+              AND validation_status = 'passed'
+              AND evaluation_results->>'status' = 'passed'
+              AND evaluation_results ? 'dataset_version'
+              AND evaluation_results ? 'evaluated_at'
+              AND evaluation_results ? 'metrics'
+            RETURNING *
+            """,
+            key.model_id,
+            key.revision.lower(),
+        )
+        return self._to_model_version(row) if row is not None else None
+
+    async def disable_model_version(self, key: ModelVersionKey) -> ModelVersion | None:
+        pool = self._require_pool()
+        async with pool.acquire() as connection, connection.transaction():
+            row = await connection.fetchrow(
+                """
+                UPDATE model_registry_versions
+                SET status = 'disabled', updated_at = now()
+                WHERE model_id = $1 AND revision = $2 AND status = 'approved'
+                RETURNING *
+                """,
+                key.model_id,
+                key.revision.lower(),
+            )
+            if row is None:
+                return None
+            # Revoke queued/running work pinned to this model revision.
+            await connection.execute(
+                """
+                UPDATE external_gpu_jobs
+                SET status = 'cancelled',
+                    worker_id = NULL,
+                    lease_expires_at = NULL,
+                    error = 'Model revision disabled by operator',
+                    updated_at = now()
+                WHERE model_id = $1 AND model_revision = $2
+                  AND status IN ('queued', 'running')
+                """,
+                key.model_id,
+                key.revision.lower(),
+            )
+        return self._to_model_version(row)
+
+    async def assert_model_approved(self, model_id: str, revision: str) -> ModelVersion:
+        pool = self._require_pool()
+        row = await pool.fetchrow(
+            """
+            SELECT * FROM model_registry_versions
+            WHERE model_id = $1 AND revision = $2
+              AND status = 'approved'
+              AND license_review_status = 'approved'
+              AND validation_status = 'passed'
+              AND evaluation_results->>'status' = 'passed'
+              AND evaluation_results ? 'dataset_version'
+              AND evaluation_results ? 'evaluated_at'
+              AND evaluation_results ? 'metrics'
+            """,
+            model_id,
+            revision.lower(),
+        )
+        if row is None:
+            raise ModelApprovalRequiredError(
+                f"Model revision '{model_id}@{revision}' is not approved for execution"
+            )
+        return self._to_model_version(row)
 
     async def get_external_job(self, job_id: str) -> ExternalJob | None:
         pool = self._require_pool()

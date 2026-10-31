@@ -9,28 +9,37 @@ from app.pipelines.planner import build_pipeline_plan
 from app.pipelines.schemas import PipelinePlan, PipelineRequest
 from app.schemas import GenerationRequest, JobResponse
 from app.services.external_gpu_queue import (
+    approve_model_version,
+    assert_model_approved,
     authenticate_worker,
     cancel_external_job,
     claim,
     claim_for_worker,
     close_queue,
     complete,
+    disable_model_version,
     enqueue,
     fail,
     get_external_job,
+    get_model_version,
     heartbeat,
     heartbeat_worker,
     initialize_queue,
     provision_worker,
     queue_backend_name,
+    register_model_version,
     register_worker,
     revoke_worker,
 )
 from app.services.jobs import get_job, submit_job
+from app.services.model_registry_errors import ModelApprovalRequiredError, ModelRegistryConflictError
 from app.services.queue_errors import IdempotencyConflictError
 from app.workers.schemas import (
     ExternalJob,
     ExternalJobCreate,
+    ModelVersion,
+    ModelVersionCreate,
+    ModelVersionKey,
     WorkerClaim,
     WorkerCompletion,
     WorkerFailure,
@@ -110,6 +119,18 @@ async def health():
 async def generate(request: GenerationRequest):
     if not request.prompt and not request.input_asset:
         raise HTTPException(status_code=422, detail="prompt or input_asset is required")
+    strict_model_registry = (
+        settings.model_registry_enforcement
+        or settings.environment.lower() in {"production", "prod"}
+    )
+    if strict_model_registry and settings.generation_backend != "mock":
+        try:
+            await assert_model_approved(
+                settings.image_model_id,
+                settings.image_model_revision,
+            )
+        except ModelApprovalRequiredError as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
     try:
         return await submit_job(request)
     except (KeyError, ValueError) as exc:
@@ -131,6 +152,89 @@ async def plan_pipeline(request: PipelineRequest):
         return build_pipeline_plan(request)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+
+@app.post(
+    f"{settings.api_prefix}/model-registry/versions",
+    response_model=ModelVersion,
+)
+async def create_model_registry_version(
+    request: ModelVersionCreate,
+    x_worker_admin_token: str | None = Header(default=None),
+):
+    require_admin_token(x_worker_admin_token)
+    try:
+        return await register_model_version(request)
+    except ModelRegistryConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.post(
+    f"{settings.api_prefix}/model-registry/versions/approve",
+    response_model=ModelVersion,
+)
+async def approve_model_registry_version(
+    request: ModelVersionKey,
+    x_worker_admin_token: str | None = Header(default=None),
+):
+    require_admin_token(x_worker_admin_token)
+    try:
+        model = await approve_model_version(request)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    if model is None:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Model revision is missing or lacks approved license, passed "
+                "validation, and passed evaluation evidence"
+            ),
+        )
+    return model
+
+
+@app.post(
+    f"{settings.api_prefix}/model-registry/versions/disable",
+    response_model=ModelVersion,
+)
+async def disable_model_registry_version(
+    request: ModelVersionKey,
+    x_worker_admin_token: str | None = Header(default=None),
+):
+    require_admin_token(x_worker_admin_token)
+    try:
+        model = await disable_model_version(request)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    if model is None:
+        raise HTTPException(status_code=404, detail="Approved model revision not found")
+    return model
+
+
+@app.get(
+    f"{settings.api_prefix}/model-registry/versions",
+    response_model=ModelVersion,
+)
+async def read_model_registry_version(
+    model_id: str,
+    revision: str,
+    x_worker_admin_token: str | None = Header(default=None),
+):
+    require_admin_token(x_worker_admin_token)
+    try:
+        key = ModelVersionKey(model_id=model_id, revision=revision)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    try:
+        model = await get_model_version(key)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    if model is None:
+        raise HTTPException(status_code=404, detail="Model revision not found")
+    return model
 
 
 @app.post(f"{settings.api_prefix}/external-gpu/jobs", response_model=ExternalJob)
@@ -155,6 +259,8 @@ async def create_external_gpu_job(
         return await enqueue(request)
     except IdempotencyConflictError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ModelApprovalRequiredError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
 
 
 @app.post(

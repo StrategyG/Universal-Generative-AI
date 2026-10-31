@@ -1,7 +1,7 @@
 # Production Readiness Assessment
 
 **Decision: NOT PRODUCTION READY.**  
-**Snapshot commit:** `352a30180c4bfa3798d62634e0e9ef54b92a1afd`  
+**Snapshot:** model registry implementation awaiting CI verification  
 This is an engineering assessment, not certification or assurance.
 
 ## Acceptance matrix
@@ -9,9 +9,9 @@ This is an engineering assessment, not certification or assurance.
 | Criterion | Status | Evidence / remaining gap |
 |---|---|---|
 | API health and basic endpoints | PARTIAL | Endpoint tests pass and PostgreSQL pool lifecycle uses FastAPI lifespan; production hosting/load evidence absent |
-| Ruff lint and tests | PASS | CI #71: Ruff PASS, 38 pytest tests passed, 1 warning |
+| Ruff lint and tests | PASS (baseline) / NOT VERIFIED (current changes) | CI #74 baseline: Ruff PASS, 40 pytest passed, 1 warning; model registry commit not yet tested |
 | PostgreSQL external-GPU persistence | PASS (CI scope) | Migrations and restart/recovery integration tests run against PostgreSQL 16 in CI |
-| General generation-job history persistence | IMPLEMENTED / CI PENDING | Job state/result records persist in PostgreSQL; inference is synchronous and not recoverable/reschedulable after process termination |
+| General generation-job history persistence | PASS (CI #74 scope) | Job state/result records persist in PostgreSQL; inference is synchronous and not recoverable/reschedulable after process termination |
 | External-GPU idempotent submission | PASS (CI scope) | Duplicate request returns existing job; conflicting payload is rejected |
 | Worker credentials and revocation | PASS (CI scope) | Random worker token, hash-only storage, expiry and revocation |
 | Worker capability registration/scheduling | PASS (CI scope) | Task/platform and resource requirements matched; hardware claims are self-reported |
@@ -21,7 +21,7 @@ This is an engineering assessment, not certification or assurance.
 | Cryptographic per-lease tokens | BLOCKED | Lease ownership still relies on worker ID and expiry |
 | Artifact checksum/content verification | BLOCKED | No object store or server-side SHA-256/MIME/parser verification |
 | Executable pipeline dependency engine | BLOCKED | Planner only; no durable stage graph or stage-level execution |
-| Model registry/license gate | BLOCKED | No approved model registry or enforced license review |
+| Model registry/license gate | IMPLEMENTED / NOT VERIFIED | Immutable revision registry, license/validation/evaluation evidence-gated approval, production submission/claim and non-mock generation checks, plus disable cancellation; current change awaits CI |
 | User authentication, RBAC, tenant isolation | BLOCKED | Not implemented |
 | Audit, tracing, metrics and cost attribution | BLOCKED | Not implemented |
 | SBOM / dependency / container scanning | BLOCKED | Not implemented |
@@ -44,7 +44,7 @@ Engineering estimates, not externally audited ratings:
 3. Add cryptographic lease tokens, operator identity/access policy and cooperative notebook-side cancellation.
 4. Add object storage with scoped signed URLs, immutable asset IDs and server-side checksum/MIME/parser validation.
 5. Implement executable pipeline orchestration with typed contracts, dependencies, retry/cancel signals, stage validation and quality gates.
-6. Implement reviewed model registry entries with immutable revisions, source/license review and rollback.
+6. Independently verify model source/license evidence, reproduce evaluation metrics, add reviewer identity/audit and attest model weights actually loaded by notebook workers.
 7. Implement real image-to-3D, GLB validation/optimization, rigging, motion and Blender/FFmpeg render providers.
 8. Test real Kaggle/Colab execution, PNG-to-GLB and GLB-to-MP4 with preserved provenance.
 9. Add audit events, logs, metrics, traces, alerts, cost attribution, SBOM and vulnerability scanning.

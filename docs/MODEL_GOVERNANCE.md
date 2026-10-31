@@ -2,36 +2,49 @@
 
 ## Policy
 
-A model may not be selected for execution merely because a repository name is supplied in a job. Production execution must use a reviewed model registry entry and an immutable revision.
+Production external-GPU jobs and non-mock `/api/v1/generate` inference must reference an approved model registry entry with an immutable 40-character hexadecimal commit revision. Mutable refs such as `main`, `latest`, or a floating branch are not production revisions.
 
-## Required registry record
+## Registry record
 
-Each approved model revision must retain:
-- stable model ID, display name and model family;
-- immutable repository revision/commit or artifact digest;
-- publisher/source and retrieval date;
-- license identifier, license text/reference and review decision;
-- intended use, prohibited use, known limitations and safety notes;
-- typed input/output contracts and supported task identifiers;
-- supported framework/runtime versions and dependency lock;
-- minimum CPU/RAM/GPU/VRAM/CUDA requirements;
-- evaluation dataset/version, configuration, metrics and evidence;
-- status: proposed, under_review, approved, deprecated, revoked;
-- approval actor, timestamp, reason and rollback target.
+The PostgreSQL registry records:
+- stable model ID, model name and family;
+- immutable revision/commit SHA;
+- source identifier, license identifier and intended use;
+- input and output schema metadata;
+- hardware requirements and runtime dependency versions;
+- license review status and validation status;
+- evaluation dataset version, evaluation timestamp and metrics;
+- lifecycle state (`pending_review`, `approved`, `disabled`, `rejected`) and timestamps.
 
-## Required controls
+The source field is metadata only; it is not a URL that the platform automatically fetches.
 
-1. **Allowlist:** execution accepts only model IDs and revisions explicitly reviewed by an operator.
-2. **Immutable pinning:** mutable tags such as `main`, `latest`, or floating model branches are not production pins.
-3. **License review:** record commercial-use permissions, redistribution constraints, attribution obligations and any usage restrictions.
-4. **Provenance:** store source, revision/digest, runtime versions and model parameters with each job and artifact.
-5. **Compatibility:** reject a job when the selected worker lacks the required framework, CUDA version, VRAM or task adapter.
-6. **Evaluation:** record repeatable task-specific validity, quality, latency, failure and cost metrics.
-7. **Rollback:** retain the last approved revision and the evidence needed to disable or revert a model.
-8. **Human approval:** an authorized reviewer approves a model revision before production enablement.
+## Approval gate
 
-## Current implementation status
+A model revision starts in `pending_review`. Approval succeeds only when:
+1. `license_review_status = approved`;
+2. `validation_status = passed`;
+3. `evaluation_results.status = passed`;
+4. `evaluation_results.dataset_version` is present;
+5. `evaluation_results.evaluated_at` is present;
+6. `evaluation_results.metrics` is present.
 
-**BLOCKED.** The repository currently has a model/provider abstraction and an optional Diffusers adapter with an environment-configured model ID and revision. It does not yet enforce a registry allowlist, license review, schema compatibility, evaluation gate, or approval history. A model revision field in a job is provenance metadata, not proof that the model was approved or executed.
+The same predicate is checked during production job submission and registered-worker claim. In production, it also guards non-mock generation through `/api/v1/generate`. In development, `MODEL_REGISTRY_ENFORCEMENT=true` enables the stricter path.
 
-Do not download arbitrary model repositories or train a foundation model from scratch without a separate approved plan, license review, infrastructure design and budget.
+Disabling an approved revision cancels unfinished external-GPU jobs pinned to that revision. A disabled revision cannot be re-enabled in place; register a new immutable revision and repeat review.
+
+## API surface
+
+Every registry administration route requires `X-Worker-Admin-Token`:
+
+- `POST /api/v1/model-registry/versions` — register a revision as pending review.
+- `GET /api/v1/model-registry/versions?model_id=...&revision=...` — inspect a revision.
+- `POST /api/v1/model-registry/versions/approve` — approve if all required evidence fields pass.
+- `POST /api/v1/model-registry/versions/disable` — disable a revision and cancel unfinished jobs.
+
+## Evidence limits and remaining controls
+
+The current API records evidence values supplied by an authorized operator. It does **not** independently determine legal license compatibility, rerun model validation, reproduce benchmark results, verify the model publisher, attest which weights an external notebook loaded, or provide an append-only reviewer identity/audit trail. The shared admin secret authorizes an action but does not identify the human reviewer.
+
+The current registry is an approval control, not a certification or proof of supply-chain integrity. Independent license review, signed model manifests, runtime attestation, a sandboxed model downloader, repeatable evaluation runners and model rollback approval history remain outstanding.
+
+Do not download arbitrary model repositories or train a foundation model from scratch without a separately approved plan, license review, infrastructure design and budget.

@@ -3,6 +3,7 @@ from time import time
 from uuid import uuid4
 
 from app.config import settings
+from app.services.model_registry_errors import ModelApprovalRequiredError
 from app.services.postgres_gpu_queue import PostgresExternalGPUQueue
 from app.services.queue_errors import IdempotencyConflictError
 from app.services.queue_utils import request_fingerprint, retry_delay_seconds
@@ -10,6 +11,9 @@ from app.workers.schemas import (
     ExternalJob,
     ExternalJobCreate,
     ExternalJobStatus,
+    ModelVersion,
+    ModelVersionCreate,
+    ModelVersionKey,
     WorkerPlatform,
     WorkerProfile,
     WorkerRegistration,
@@ -235,6 +239,19 @@ def queue_backend_name() -> str:
 
 
 async def enqueue(request: ExternalJobCreate) -> ExternalJob:
+    strict_model_registry = (
+        settings.model_registry_enforcement
+        or settings.environment.lower() in {"production", "prod"}
+    )
+    if strict_model_registry:
+        if _postgres_queue is None:
+            raise ModelApprovalRequiredError(
+                "Production model execution requires the PostgreSQL model registry"
+            )
+        await _postgres_queue.assert_model_approved(
+            request.model_id,
+            request.model_revision,
+        )
     if _postgres_queue is not None:
         return await _postgres_queue.enqueue(request)
     return await _memory_enqueue(request)
@@ -315,7 +332,14 @@ async def revoke_worker(worker_id: str) -> bool:
 async def claim_for_worker(worker_id: str) -> ExternalJob | None:
     if _postgres_queue is None:
         return None
-    return await _postgres_queue.claim_for_worker(worker_id)
+    enforce_model_registry = (
+        settings.model_registry_enforcement
+        or settings.environment.lower() in {"production", "prod"}
+    )
+    return await _postgres_queue.claim_for_worker(
+        worker_id,
+        enforce_model_registry=enforce_model_registry,
+    )
 
 
 async def persist_generation_job(job):
@@ -334,3 +358,36 @@ async def get_persisted_generation_job(job_id):
     if _postgres_queue is not None:
         return await _postgres_queue.get_generation_job(job_id)
     return None
+
+
+
+async def assert_model_approved(model_id: str, revision: str) -> ModelVersion:
+    if _postgres_queue is None:
+        raise ModelApprovalRequiredError(
+            "Model approval requires the PostgreSQL model registry"
+        )
+    return await _postgres_queue.assert_model_approved(model_id, revision)
+
+
+async def register_model_version(request: ModelVersionCreate) -> ModelVersion:
+    if _postgres_queue is None:
+        raise RuntimeError("Model registry requires the PostgreSQL backend")
+    return await _postgres_queue.register_model_version(request)
+
+
+async def get_model_version(key: ModelVersionKey) -> ModelVersion | None:
+    if _postgres_queue is None:
+        raise RuntimeError("Model registry requires the PostgreSQL backend")
+    return await _postgres_queue.get_model_version(key)
+
+
+async def approve_model_version(key: ModelVersionKey) -> ModelVersion | None:
+    if _postgres_queue is None:
+        raise RuntimeError("Model registry requires the PostgreSQL backend")
+    return await _postgres_queue.approve_model_version(key)
+
+
+async def disable_model_version(key: ModelVersionKey) -> ModelVersion | None:
+    if _postgres_queue is None:
+        raise RuntimeError("Model registry requires the PostgreSQL backend")
+    return await _postgres_queue.disable_model_version(key)

@@ -1,5 +1,6 @@
 from datetime import datetime
 from enum import Enum
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -117,3 +118,58 @@ class WorkerProfile(BaseModel):
     capacity: int = 1
     token_expires_at: datetime
     last_heartbeat_at: datetime | None = None
+
+
+
+class ModelRegistryStatus(str, Enum):
+    PENDING_REVIEW = "pending_review"
+    APPROVED = "approved"
+    DISABLED = "disabled"
+    REJECTED = "rejected"
+
+
+class ModelVersionKey(BaseModel):
+    model_id: str = Field(min_length=3, max_length=256)
+    revision: str = Field(pattern=r"^[0-9a-fA-F]{40}$")
+
+
+class ModelVersionCreate(ModelVersionKey):
+    model_name: str = Field(min_length=1, max_length=256)
+    family: str = Field(min_length=1, max_length=100)
+    source: str = Field(min_length=1, max_length=256)
+    license_id: str = Field(min_length=1, max_length=128)
+    intended_use: str = Field(min_length=1, max_length=2000)
+    input_schema: dict[str, Any] = Field(default_factory=dict)
+    output_schema: dict[str, Any] = Field(default_factory=dict)
+    hardware_requirements: dict[str, str | int | float | bool] = Field(default_factory=dict)
+    runtime_dependencies: dict[str, str] = Field(default_factory=dict)
+    license_review_status: str = Field(
+        default="pending",
+        pattern=r"^(pending|approved|rejected)$",
+    )
+    validation_status: str = Field(
+        default="not_run",
+        pattern=r"^(not_run|passed|failed)$",
+    )
+    evaluation_results: dict[str, Any] = Field(default_factory=dict)
+
+
+class ModelVersion(BaseModel):
+    model_id: str
+    model_name: str
+    family: str
+    revision: str
+    source: str
+    license_id: str
+    intended_use: str
+    input_schema: dict[str, Any] = Field(default_factory=dict)
+    output_schema: dict[str, Any] = Field(default_factory=dict)
+    hardware_requirements: dict[str, str | int | float | bool] = Field(default_factory=dict)
+    runtime_dependencies: dict[str, str] = Field(default_factory=dict)
+    license_review_status: str
+    validation_status: str
+    evaluation_results: dict[str, Any] = Field(default_factory=dict)
+    status: ModelRegistryStatus
+    approved_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime

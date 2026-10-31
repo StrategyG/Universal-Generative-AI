@@ -14,10 +14,14 @@ Protected assets include user prompts and source media, generated files, model w
 | Worker → API | Token theft, impersonation, stale worker, replay | Per-worker random credentials, token hash, expiry/revocation, worker-ID binding and TLS | PARTIAL / CI verified; no cryptographic per-lease token |
 | Worker → scheduler | Falsified GPU or task capability claims | Capability allowlist, hardware attestation, measured runtime identity and server-side policy | BLOCKED; worker metadata is self-reported |
 | Worker → storage | Arbitrary URL fetch, broad credentials, malicious output | Server-issued signed URLs, storage-origin allowlist, scoped access and content validation | BLOCKED |
-| Model source → runtime | Malicious/changed model code or license mismatch | Immutable revision pinning, model source allowlist, license approval and runtime isolation | BLOCKED |
+| Model source → runtime | Malicious/changed model code or license mismatch | Immutable revision registry, evidence-gated approval, model source allowlist and runtime isolation | PARTIAL; production gate added, but evidence is operator-supplied and weights are not attested |
 | Artifact → pipeline | Parser exploit, path traversal, malformed GLB/ZIP/video | Sandboxed parsers, archive path checks, size bounds, MIME/signature/checksum and format validation | BLOCKED |
 | CI → release artifact | Dependency compromise or poisoned container | Pinned dependencies, SBOM, scanners, build provenance and protected release workflow | BLOCKED |
 | Operator → production | Accidental or unauthorized release/destructive change | Separation of duties, human approval, audit record and rollback | PARTIAL |
+
+## Model governance controls
+
+The model registry stores immutable model revisions and license/validation/evaluation evidence. Production external-GPU submission, registered-worker scheduling and non-mock generation inference require an approved record. Disabling a revision cancels queued/running jobs pinned to it. The evidence is supplied by the operator, not independently reproduced; the platform does not identify the reviewer or attest weights loaded by an external notebook. This is a workflow gate, not proof of model supply-chain integrity.
 
 ## Implemented worker credential controls
 

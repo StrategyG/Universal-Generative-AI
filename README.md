@@ -89,7 +89,7 @@ The external GPU queue supports a PostgreSQL backend for durable job state.
 
 When `DATABASE_URL` is empty, the external GPU queue uses in-memory development mode. That mode loses jobs on restart and is **not production-safe**.
 
-Scope limitation: this PostgreSQL backend currently persists only `/api/v1/external-gpu/*` jobs. The general `/api/v1/generate` job store and pipeline planner are still in-memory/planning-only and are not yet connected to this durable queue. External-GPU idempotency, per-worker credentials and capability-based scheduling are implemented. Tenant-scoped user authorization and artifact verification remain outstanding.
+Scope limitation: the PostgreSQL backend persists both `/api/v1/external-gpu/*` jobs and `/api/v1/generate` job history. General generation inference remains synchronous in the request process and cannot be resumed after process termination. The pipeline planner remains planning-only. External-GPU idempotency, worker-scoped credentials and capability-based scheduling are implemented. Tenant-scoped user authorization and artifact verification remain outstanding.
 
 ## Not yet implemented
 
@@ -98,7 +98,21 @@ Scope limitation: this PostgreSQL backend currently persists only `/api/v1/exter
 - Character rigging and motion-generation inference.
 - Blender/FFmpeg rendering worker for GLB-to-MP4.
 - General `/api/v1/generate` job history is now persisted in PostgreSQL, but inference remains synchronous in the request process; it is not yet a durable asynchronous generation queue. Object storage, user authentication, tenant isolation, quotas, and observability remain absent.
-- Cooperative cancellation inside active notebook inference, executable pipeline orchestration, object storage/artifact validation, model governance, user/tenant auth, and end-to-end quality evaluation.
+- Cooperative cancellation inside active notebook inference, executable pipeline orchestration, object storage/artifact validation, independent model-evidence verification, user/tenant auth, and end-to-end quality evaluation.
+
+## Model registry and production approval gate
+
+The PostgreSQL model registry stores immutable 40-character commit revisions. New revisions enter `pending_review`; production execution requires an `approved` record with license review, validation and evaluation evidence marked passed. Approval also requires an evaluation dataset version, timestamp and metrics record.
+
+Admin-only registry routes use `X-Worker-Admin-Token`:
+- `POST /api/v1/model-registry/versions` — register a model revision.
+- `GET /api/v1/model-registry/versions?model_id=...&revision=...` — inspect it.
+- `POST /api/v1/model-registry/versions/approve` — approve an evidence-complete pending revision.
+- `POST /api/v1/model-registry/versions/disable` — disable a revision and cancel its queued/running external-GPU jobs.
+
+The model approval gate applies to production external-GPU submissions and registered-worker scheduling. It also guards non-mock `/api/v1/generate` inference in production. Set `MODEL_REGISTRY_ENFORCEMENT=true` to exercise the gate in development; production enforces it regardless of this flag.
+
+The registry stores evidence supplied by the operator. It does not independently determine legal license compatibility, rerun model validation, reproduce benchmark results, attest weights loaded by an external notebook, or provide reviewer identity/append-only approval audit. It is a control gate, not a certification or proof of model runtime integrity.
 
 ## General generation job persistence
 
