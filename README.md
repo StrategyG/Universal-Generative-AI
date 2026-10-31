@@ -1,30 +1,53 @@
 # Universal Generative AI
 
-A modular platform for generative AI workflows, designed to support multimodal generation pipelines and extensible model providers.
+A modular platform and API for multimodal generative workflows.
 
-## Repository status
+## Implemented in v0.1 scaffold
 
-This repository is being initialized. No production capability is claimed until implementation, automated tests, security checks, and deployment validation are completed.
+- FastAPI generation API and job lookup.
+- Provider registry with a deterministic mock adapter for contract tests.
+- Optional local Diffusers/Stable Diffusion XL text-to-image inference adapter.
+- Configurable model repository and immutable model revision.
+- Artifact output to a local directory.
+- Docker packaging and GitHub Actions lint/test workflow.
 
-## Engineering principles
+## Run the API
 
-- Modular architecture with explicit interfaces for model providers.
-- Configuration through environment variables; never commit secrets.
-- Reproducible development and test workflows.
-- Input validation, resource limits, and safe failure handling.
-- Automated tests and CI before production release.
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
+uvicorn app.main:app --reload
+```
 
-## Planned capability areas
+Health: `GET /health`
 
-- Image generation and image asset processing.
-- 3D asset generation and conversion (for example, PNG to GLB) through validated model/tool integrations.
-- 3D rendering and video generation (for example, GLB to video) through explicit rendering backends.
-- Job orchestration, artifact storage, and observability.
+Submit a mock job: `POST /api/v1/generate`
 
-These are roadmap areas, not implemented features yet.
+```json
+{"task":"text_to_image","prompt":"a cinematic red sports car"}
+```
+
+The default backend is `mock`. It simulates the provider contract and does not generate an image.
+
+## Enable real text-to-image inference
+
+Install the optional runtime:
+
+```bash
+pip install -e ".[image]"
+```
+
+Set `GENERATION_BACKEND=diffusers-sdxl`, `GPU_REQUIRED=true`, `IMAGE_MODEL_ID`, and `IMAGE_MODEL_REVISION` in the environment. Use a model revision pinned to an immutable commit and verify the model license and hardware requirements before downloading weights. The first inference may download model weights and require substantial GPU VRAM.
+
+## Roadmap — not yet implemented
+
+- PNG/JPG/WebP to GLB using a separately provisioned 3D generation model.
+- GLB validation, optimization, rigging, and motion generation.
+- GLB to MP4 rendering using an isolated Blender/FFmpeg worker.
+- Text/image to video.
+- Persistent queues, object storage, authentication, tenant isolation, quotas, and observability.
 
 ## Status
 
-**Initialization only — not production-ready.**
-
-Next steps: define requirements, inspect available compute/model providers, implement a minimal vertical slice, add tests, and evaluate quality, latency, cost, and security.
+**Prototype scaffold, not production-ready.** The repository does not contain newly trained foundation-model weights. The Diffusers adapter loads a configured pretrained checkpoint; the mock adapter is for tests only. 3D and video tasks currently have no real inference providers.
