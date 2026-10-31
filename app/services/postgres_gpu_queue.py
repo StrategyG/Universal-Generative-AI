@@ -60,8 +60,8 @@ class PostgresExternalGPUQueue:
                 await pool.close()
         if not migration_ready:
             raise RuntimeError(
-                "Database migration is missing; apply "
-                "migrations/0001_create_external_gpu_jobs.sql before startup"
+                "Database migrations are incomplete; apply all ordered SQL files "
+                "in migrations/ before startup"
             )
         self._pool = pool
 
