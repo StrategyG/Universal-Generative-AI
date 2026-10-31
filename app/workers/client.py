@@ -98,11 +98,14 @@ class ExternalGPUWorker:
                     response.raise_for_status()
                     backoff = 2
                 except requests.RequestException as exc:
-                    if isinstance(exc, requests.HTTPError) and exc.response is not None:
-                        if exc.response.status_code in {401, 403, 404, 409}:
-                            lease_lost.set()
-                            stop_event.set()
-                            return
+                    if (
+                        isinstance(exc, requests.HTTPError)
+                        and exc.response is not None
+                        and exc.response.status_code in {401, 403, 404, 409}
+                    ):
+                        lease_lost.set()
+                        stop_event.set()
+                        return
                     if stop_event.wait(backoff):
                         return
                     backoff = min(backoff * 2, 60)
