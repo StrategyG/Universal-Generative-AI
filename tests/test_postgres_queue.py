@@ -7,6 +7,7 @@ from uuid import uuid4
 
 import pytest
 
+from app.services import postgres_gpu_queue as postgres_queue
 from app.services.postgres_gpu_queue import PostgresExternalGPUQueue
 from app.services.queue_errors import IdempotencyConflictError
 from app.workers.schemas import ExternalJobCreate, ExternalJobStatus, WorkerPlatform
@@ -33,6 +34,7 @@ def test_postgres_row_conversion_preserves_model_provenance():
         "attempts": 1,
         "worker_id": None,
         "lease_expires_at": None,
+        "next_attempt_at": None,
         "output_asset": "asset://output.glb",
         "result_metadata": '{"model_revision": "0123456789abcdef"}',
         "idempotency_key": None,
@@ -53,7 +55,9 @@ def test_postgres_queue_rejects_operations_before_initialization():
         asyncio.run(queue.get_external_job("job-1"))
 
 
-def test_postgres_queue_persists_jobs_and_recovers_expired_leases():
+def test_postgres_queue_persists_jobs_and_recovers_expired_leases(monkeypatch):
+    monkeypatch.setattr(postgres_queue, "RETRY_BASE_SECONDS", 0)
+    monkeypatch.setattr(postgres_queue, "RETRY_MAX_SECONDS", 0)
     database_url = os.getenv("TEST_DATABASE_URL")
     if not database_url:
         pytest.skip("TEST_DATABASE_URL not configured; PostgreSQL integration test not run")
@@ -117,6 +121,34 @@ def test_postgres_queue_persists_jobs_and_recovers_expired_leases():
             assert reclaimed.job_id == created.job_id
             assert reclaimed.attempts == 2
             assert reclaimed.status is ExternalJobStatus.RUNNING
+
+            failed = await restarted.fail(
+                created.job_id,
+                "colab-it-worker-2",
+                "test retry",
+            )
+            assert failed is not None
+            assert failed.status is ExternalJobStatus.QUEUED
+            assert failed.next_attempt_at is not None
+
+            cancelled_request = request.model_copy(
+                update={
+                    "input_asset": "asset://integration/cancel.png",
+                    "idempotency_key": f"pg-cancel-{uuid4().hex}",
+                }
+            )
+            cancel_job = await restarted.enqueue(cancelled_request)
+            cancelled = await restarted.cancel(cancel_job.job_id)
+            assert cancelled is not None
+            assert cancelled.status is ExternalJobStatus.CANCELLED
+            assert await restarted.cancel(cancel_job.job_id) is None
+
+            blocked_completion = await restarted.complete(
+                created.job_id,
+                "colab-it-worker-2",
+                "asset://integration/late.glb",
+            )
+            assert blocked_completion is None
         finally:
             await restarted.close()
 

@@ -5,7 +5,7 @@ from uuid import uuid4
 from app.config import settings
 from app.services.postgres_gpu_queue import PostgresExternalGPUQueue
 from app.services.queue_errors import IdempotencyConflictError
-from app.services.queue_utils import request_fingerprint
+from app.services.queue_utils import request_fingerprint, retry_delay_seconds
 from app.workers.schemas import (
     ExternalJob,
     ExternalJobCreate,
@@ -39,6 +39,7 @@ async def _memory_enqueue(request: ExternalJobCreate) -> ExternalJob:
         min_gpu_vram_gb=request.min_gpu_vram_gb,
         min_memory_gb=request.min_memory_gb,
         idempotency_key=request.idempotency_key,
+        next_attempt_at=time(),
     )
     async with _lock:
         if request.idempotency_key:
@@ -77,6 +78,7 @@ async def _memory_claim(platform: WorkerPlatform, worker_id: str) -> ExternalJob
                         "error": "Worker lease expired; retry limit reached",
                         "worker_id": None,
                         "lease_expires_at": None,
+                        "next_attempt_at": now,
                     }
                 )
             else:
@@ -85,11 +87,19 @@ async def _memory_claim(platform: WorkerPlatform, worker_id: str) -> ExternalJob
                         "status": ExternalJobStatus.QUEUED,
                         "worker_id": None,
                         "lease_expires_at": None,
+                        "next_attempt_at": now + retry_delay_seconds(job.attempts),
                     }
                 )
 
         for job_id, job in _jobs.items():
-            if job.platform != platform or job.status != ExternalJobStatus.QUEUED:
+            if (
+                job.platform != platform
+                or job.status != ExternalJobStatus.QUEUED
+                or (
+                    job.next_attempt_at is not None
+                    and job.next_attempt_at > now
+                )
+            ):
                 continue
             claimed = job.model_copy(
                 update={
@@ -159,6 +169,30 @@ async def _memory_fail(job_id: str, worker_id: str, error: str) -> ExternalJob |
             update={
                 "status": ExternalJobStatus.QUEUED if retry else ExternalJobStatus.DEAD_LETTER,
                 "error": error,
+                "worker_id": None,
+                "lease_expires_at": None,
+                "next_attempt_at": (
+                    time() + retry_delay_seconds(job.attempts)
+                    if retry
+                    else time()
+                ),
+            }
+        )
+        _jobs[job_id] = updated
+        return updated
+
+
+async def _memory_cancel(job_id: str) -> ExternalJob | None:
+    async with _lock:
+        job = _jobs.get(job_id)
+        if job is None or job.status not in {
+            ExternalJobStatus.QUEUED,
+            ExternalJobStatus.RUNNING,
+        }:
+            return None
+        updated = job.model_copy(
+            update={
+                "status": ExternalJobStatus.CANCELLED,
                 "worker_id": None,
                 "lease_expires_at": None,
             }
@@ -239,6 +273,12 @@ async def get_external_job(job_id: str) -> ExternalJob | None:
     if _postgres_queue is not None:
         return await _postgres_queue.get_external_job(job_id)
     return await _memory_get_external_job(job_id)
+
+
+async def cancel_external_job(job_id: str) -> ExternalJob | None:
+    if _postgres_queue is not None:
+        return await _postgres_queue.cancel(job_id)
+    return await _memory_cancel(job_id)
 
 async def provision_worker(worker_id: str, platform: WorkerPlatform, ttl_seconds: int):
     if _postgres_queue is None:

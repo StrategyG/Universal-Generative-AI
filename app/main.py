@@ -8,6 +8,7 @@ from app.pipelines.schemas import PipelinePlan, PipelineRequest
 from app.schemas import GenerationRequest, JobResponse
 from app.services.external_gpu_queue import (
     authenticate_worker,
+    cancel_external_job,
     claim,
     claim_for_worker,
     close_queue,
@@ -270,6 +271,30 @@ async def fail_external_gpu_job(
     if job is None:
         raise HTTPException(status_code=409, detail="Job lease is not owned by this worker")
     return job
+
+
+@app.post(
+    f"{settings.api_prefix}/external-gpu/jobs/{{job_id}}/cancel",
+    response_model=ExternalJob,
+)
+async def cancel_external_gpu_job(
+    job_id: str,
+    x_worker_token: str | None = Header(default=None),
+    x_worker_admin_token: str | None = Header(default=None),
+):
+    # There is no end-user RBAC yet; cancellation is restricted to the operator
+    # credential in production and the development-only compatibility token locally.
+    authorize_job_submission(x_worker_token, x_worker_admin_token)
+    job = await cancel_external_job(job_id)
+    if job is not None:
+        return job
+    existing = await get_external_job(job_id)
+    if existing is None:
+        raise HTTPException(status_code=404, detail="External GPU job not found")
+    raise HTTPException(
+        status_code=409,
+        detail=f"Job in terminal state '{existing.status.value}' cannot be cancelled",
+    )
 
 
 @app.get(f"{settings.api_prefix}/external-gpu/jobs/{{job_id}}", response_model=ExternalJob)

@@ -15,6 +15,7 @@ class ExternalJobStatus(str, Enum):
     SUCCEEDED = "succeeded"
     FAILED = "failed"
     DEAD_LETTER = "dead_letter"
+    CANCELLED = "cancelled"
 
 
 class ExternalJobCreate(BaseModel):
@@ -43,6 +44,7 @@ class ExternalJob(BaseModel):
     attempts: int = 0
     worker_id: str | None = None
     lease_expires_at: float | None = None
+    next_attempt_at: float | None = None
     output_asset: str | None = None
     result_metadata: dict[str, str | int | float | bool] = Field(default_factory=dict)
     min_gpu_vram_gb: float = 0

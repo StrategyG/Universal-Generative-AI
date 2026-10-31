@@ -188,3 +188,52 @@ def test_worker_provision_requires_admin_credential(monkeypatch):
 
     assert denied.status_code == 401
     assert unavailable.status_code == 503
+
+
+
+def test_external_gpu_cancel_requires_auth_and_rejects_late_worker_completion(monkeypatch):
+    from app.config import settings
+    from app.services import external_gpu_queue
+
+    monkeypatch.setattr(settings, "external_worker_token", "test-secret")
+    monkeypatch.setattr(settings, "environment", "development")
+    external_gpu_queue._jobs.clear()
+    headers = {"X-Worker-Token": "test-secret"}
+    created = client.post(
+        "/api/v1/external-gpu/jobs",
+        headers=headers,
+        json={
+            "platform": "colab",
+            "task": "image_to_3d",
+            "input_asset": "asset://cancel/source.png",
+            "model_id": "test/model",
+            "model_revision": "revision-1",
+        },
+    )
+    assert created.status_code == 200
+    job_id = created.json()["job_id"]
+    claimed = client.post(
+        "/api/v1/external-gpu/claim",
+        headers=headers,
+        json={"platform": "colab", "worker_id": "colab-worker-cancel"},
+    )
+    assert claimed.status_code == 200
+
+    denied = client.post(f"/api/v1/external-gpu/jobs/{job_id}/cancel")
+    cancelled = client.post(
+        f"/api/v1/external-gpu/jobs/{job_id}/cancel",
+        headers=headers,
+    )
+    late_completion = client.post(
+        f"/api/v1/external-gpu/jobs/{job_id}/complete",
+        headers=headers,
+        json={
+            "worker_id": "colab-worker-cancel",
+            "output_asset": "asset://cancel/output.glb",
+        },
+    )
+
+    assert denied.status_code == 401
+    assert cancelled.status_code == 200
+    assert cancelled.json()["status"] == "cancelled"
+    assert late_completion.status_code == 409

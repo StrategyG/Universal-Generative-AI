@@ -11,7 +11,11 @@ from typing import Any
 from uuid import uuid4
 
 from app.services.queue_errors import IdempotencyConflictError
-from app.services.queue_utils import request_fingerprint
+from app.services.queue_utils import (
+    RETRY_BASE_SECONDS,
+    RETRY_MAX_SECONDS,
+    request_fingerprint,
+)
 from app.workers.schemas import (
     ExternalJob,
     ExternalJobCreate,
@@ -62,6 +66,11 @@ class PostgresExternalGPUQueue:
                            WHERE table_name = 'external_gpu_jobs'
                              AND column_name = 'min_gpu_vram_gb'
                        )
+                       AND EXISTS (
+                           SELECT 1 FROM information_schema.columns
+                           WHERE table_name = 'external_gpu_jobs'
+                             AND column_name = 'next_attempt_at'
+                       )
                     """
                 )
             )
@@ -94,6 +103,7 @@ class PostgresExternalGPUQueue:
     @classmethod
     def _to_job(cls, row: Any) -> ExternalJob:
         lease = row["lease_expires_at"]
+        next_attempt = row["next_attempt_at"]
         return ExternalJob(
             job_id=row["job_id"],
             platform=WorkerPlatform(row["platform"]),
@@ -109,6 +119,7 @@ class PostgresExternalGPUQueue:
             attempts=row["attempts"],
             worker_id=row["worker_id"],
             lease_expires_at=lease.timestamp() if lease is not None else None,
+            next_attempt_at=(next_attempt.timestamp() if next_attempt is not None else None),
             output_asset=row["output_asset"],
             result_metadata=cls._decode_json(row["result_metadata"]),
             idempotency_key=row["idempotency_key"],
@@ -156,18 +167,30 @@ class PostgresExternalGPUQueue:
                     END,
                     worker_id = NULL,
                     lease_expires_at = NULL,
+                    next_attempt_at = CASE
+                        WHEN attempts >= $1 THEN now()
+                        ELSE now() + (
+                            LEAST(
+                                $2 * POWER(2::double precision, GREATEST(attempts - 1, 0)),
+                                $3
+                            ) * interval '1 second'
+                        )
+                    END,
                     updated_at = now()
                 WHERE status = 'running'
                   AND lease_expires_at IS NOT NULL
                   AND lease_expires_at <= now()
                 """,
                 MAX_ATTEMPTS,
+                RETRY_BASE_SECONDS,
+                RETRY_MAX_SECONDS,
             )
             row = await connection.fetchrow(
                 """
                 SELECT *
                 FROM external_gpu_jobs
                 WHERE platform = $1 AND status = 'queued'
+                  AND next_attempt_at <= now()
                 ORDER BY created_at ASC
                 LIMIT 1
                 FOR UPDATE SKIP LOCKED
@@ -235,13 +258,25 @@ class PostgresExternalGPUQueue:
             """
             UPDATE external_gpu_jobs
             SET status = CASE WHEN attempts < $3 THEN 'queued' ELSE 'dead_letter' END,
-                error = $4, worker_id = NULL, lease_expires_at = NULL,
+                error = $4,
+                worker_id = NULL,
+                lease_expires_at = NULL,
+                next_attempt_at = CASE
+                    WHEN attempts < $3 THEN now() + (
+                        LEAST(
+                            $5 * POWER(2::double precision, GREATEST(attempts - 1, 0)),
+                            $6
+                        ) * interval '1 second'
+                    )
+                    ELSE now()
+                END,
                 updated_at = now()
             WHERE job_id = $1 AND worker_id = $2
               AND status = 'running' AND lease_expires_at > now()
             RETURNING *
             """,
             job_id, worker_id, MAX_ATTEMPTS, error[:1000],
+            RETRY_BASE_SECONDS, RETRY_MAX_SECONDS,
         )
         return self._to_job(row) if row is not None else None
 
@@ -425,12 +460,23 @@ class PostgresExternalGPUQueue:
                     END,
                     worker_id = NULL,
                     lease_expires_at = NULL,
+                    next_attempt_at = CASE
+                        WHEN attempts >= $1 THEN now()
+                        ELSE now() + (
+                            LEAST(
+                                $2 * POWER(2::double precision, GREATEST(attempts - 1, 0)),
+                                $3
+                            ) * interval '1 second'
+                        )
+                    END,
                     updated_at = now()
                 WHERE status = 'running'
                   AND lease_expires_at IS NOT NULL
                   AND lease_expires_at <= now()
                 """,
                 MAX_ATTEMPTS,
+                RETRY_BASE_SECONDS,
+                RETRY_MAX_SECONDS,
             )
 
             active_count = await connection.fetchval(
@@ -453,6 +499,7 @@ class PostgresExternalGPUQueue:
                 """
                 SELECT * FROM external_gpu_jobs
                 WHERE platform = $1 AND status = 'queued'
+                  AND next_attempt_at <= now()
                   AND task = ANY($2::text[])
                   AND min_gpu_vram_gb <= $3
                   AND min_gpu_vram_gb <= $4
@@ -481,6 +528,22 @@ class PostgresExternalGPUQueue:
                 row["job_id"], worker_id, LEASE_SECONDS,
             )
         return self._to_job(claimed)
+
+    async def cancel(self, job_id: str) -> ExternalJob | None:
+        pool = self._require_pool()
+        row = await pool.fetchrow(
+            """
+            UPDATE external_gpu_jobs
+            SET status = 'cancelled',
+                worker_id = NULL,
+                lease_expires_at = NULL,
+                updated_at = now()
+            WHERE job_id = $1 AND status IN ('queued', 'running')
+            RETURNING *
+            """,
+            job_id,
+        )
+        return self._to_job(row) if row is not None else None
 
     async def get_external_job(self, job_id: str) -> ExternalJob | None:
         pool = self._require_pool()
