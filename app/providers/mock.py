@@ -1,6 +1,7 @@
 from app.providers.base import ModelProvider, GenerationResult
 from app.schemas import TaskType
 
+
 class MockProvider(ModelProvider):
     name = "mock"
     supported_tasks = set(TaskType)

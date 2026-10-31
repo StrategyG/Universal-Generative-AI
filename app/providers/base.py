@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from app.schemas import TaskType
 
+
 @dataclass
 class GenerationResult:
     output_asset: str | None

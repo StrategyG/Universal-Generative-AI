@@ -8,7 +8,6 @@ from app.pipelines.schemas import (
     PipelineType,
 )
 
-
 _IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
 _GLTF_EXTENSIONS = {".glb"}
 

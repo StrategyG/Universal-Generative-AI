@@ -6,9 +6,9 @@ Never print credentials or commit them to a notebook.
 from __future__ import annotations
 
 import os
-import time
+from collections.abc import Callable
 from threading import Event
-from typing import Any, Callable
+from typing import Any
 
 import requests
 
@@ -113,7 +113,7 @@ class ExternalGPUWorker:
                 else:
                     output_asset, metadata = result, {}
                 self.complete(job_id, output_asset, metadata)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - report arbitrary model-handler failures to the queue
                 try:
                     self.fail(job_id, str(exc))
                 except requests.RequestException:

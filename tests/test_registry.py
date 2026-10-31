@@ -3,6 +3,7 @@ from app.providers.registry import ProviderRegistry
 from app.providers.mock import MockProvider
 from app.schemas import TaskType
 
+
 def test_registry_task_capabilities():
     registry = ProviderRegistry()
     registry.register(MockProvider())

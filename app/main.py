@@ -4,7 +4,7 @@ from fastapi import FastAPI, Header, HTTPException
 
 from app.config import settings
 from app.pipelines.planner import build_pipeline_plan
-from app.pipelines.schemas import PipelineRequest, PipelinePlan
+from app.pipelines.schemas import PipelinePlan, PipelineRequest
 from app.schemas import GenerationRequest, JobResponse
 from app.services.external_gpu_queue import (
     claim,

@@ -36,58 +36,86 @@ async def enqueue(request: ExternalJobCreate) -> ExternalJob:
 async def claim(platform: WorkerPlatform, worker_id: str) -> ExternalJob | None:
     now = time()
     async with _lock:
-        # Expired leases are retried, with a bounded attempt count.
         for job_id, job in list(_jobs.items()):
-            if (\n                job.status == ExternalJobStatus.RUNNING\n                and job.lease_expires_at\n                and job.lease_expires_at <= now\n            ):
-                if job.attempts >= MAX_ATTEMPTS:
-                    _jobs[job_id] = job.model_copy(update={
+            lease_expired = (
+                job.status == ExternalJobStatus.RUNNING
+                and job.lease_expires_at is not None
+                and job.lease_expires_at <= now
+            )
+            if not lease_expired:
+                continue
+
+            if job.attempts >= MAX_ATTEMPTS:
+                _jobs[job_id] = job.model_copy(
+                    update={
                         "status": ExternalJobStatus.FAILED,
                         "error": "Worker lease expired; retry limit reached",
                         "worker_id": None,
                         "lease_expires_at": None,
-                    })
-                else:
-                    _jobs[job_id] = job.model_copy(update={
+                    }
+                )
+            else:
+                _jobs[job_id] = job.model_copy(
+                    update={
                         "status": ExternalJobStatus.QUEUED,
                         "worker_id": None,
                         "lease_expires_at": None,
-                    })
+                    }
+                )
 
         for job_id, job in _jobs.items():
-            if job.platform == platform and job.status == ExternalJobStatus.QUEUED:
-                claimed = job.model_copy(update={
+            if job.platform != platform or job.status != ExternalJobStatus.QUEUED:
+                continue
+            claimed = job.model_copy(
+                update={
                     "status": ExternalJobStatus.RUNNING,
                     "worker_id": worker_id,
                     "attempts": job.attempts + 1,
                     "lease_expires_at": now + LEASE_SECONDS,
-                })
-                _jobs[job_id] = claimed
-                return claimed
+                }
+            )
+            _jobs[job_id] = claimed
+            return claimed
     return None
 
 
 async def heartbeat(job_id: str, worker_id: str) -> ExternalJob | None:
     async with _lock:
         job = _jobs.get(job_id)
-        if not job or job.status != ExternalJobStatus.RUNNING or job.worker_id != worker_id:
+        if (
+            job is None
+            or job.status != ExternalJobStatus.RUNNING
+            or job.worker_id != worker_id
+        ):
             return None
         updated = job.model_copy(update={"lease_expires_at": time() + LEASE_SECONDS})
         _jobs[job_id] = updated
         return updated
 
 
-async def complete(\n    job_id: str,\n    worker_id: str,\n    output_asset: str,\n    metadata: dict[str, str | int | float | bool] | None = None,\n) -> ExternalJob | None:
+async def complete(
+    job_id: str,
+    worker_id: str,
+    output_asset: str,
+    metadata: dict[str, str | int | float | bool] | None = None,
+) -> ExternalJob | None:
     async with _lock:
         job = _jobs.get(job_id)
-        if not job or job.status != ExternalJobStatus.RUNNING or job.worker_id != worker_id:
+        if (
+            job is None
+            or job.status != ExternalJobStatus.RUNNING
+            or job.worker_id != worker_id
+        ):
             return None
-        updated = job.model_copy(update={
-            "status": ExternalJobStatus.SUCCEEDED,
-            "output_asset": output_asset,
-            "result_metadata": metadata or {},
-            "worker_id": None,
-            "lease_expires_at": None,
-        })
+        updated = job.model_copy(
+            update={
+                "status": ExternalJobStatus.SUCCEEDED,
+                "output_asset": output_asset,
+                "result_metadata": metadata or {},
+                "worker_id": None,
+                "lease_expires_at": None,
+            }
+        )
         _jobs[job_id] = updated
         return updated
 
@@ -95,15 +123,21 @@ async def complete(\n    job_id: str,\n    worker_id: str,\n    output_asset: st
 async def fail(job_id: str, worker_id: str, error: str) -> ExternalJob | None:
     async with _lock:
         job = _jobs.get(job_id)
-        if not job or job.status != ExternalJobStatus.RUNNING or job.worker_id != worker_id:
+        if (
+            job is None
+            or job.status != ExternalJobStatus.RUNNING
+            or job.worker_id != worker_id
+        ):
             return None
         retry = job.attempts < MAX_ATTEMPTS
-        updated = job.model_copy(update={
-            "status": ExternalJobStatus.QUEUED if retry else ExternalJobStatus.FAILED,
-            "error": error,
-            "worker_id": None,
-            "lease_expires_at": None,
-        })
+        updated = job.model_copy(
+            update={
+                "status": ExternalJobStatus.QUEUED if retry else ExternalJobStatus.FAILED,
+                "error": error,
+                "worker_id": None,
+                "lease_expires_at": None,
+            }
+        )
         _jobs[job_id] = updated
         return updated
 

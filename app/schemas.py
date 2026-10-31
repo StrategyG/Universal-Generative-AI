@@ -1,5 +1,7 @@
 from enum import Enum
+
 from pydantic import BaseModel, Field
+
 
 class TaskType(str, Enum):
     TEXT_TO_IMAGE = "text_to_image"

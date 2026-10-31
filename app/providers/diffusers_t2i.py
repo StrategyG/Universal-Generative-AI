@@ -12,7 +12,7 @@ class DiffusersTextToImageProvider(ModelProvider):
     """Local GPU inference adapter for a pinned Diffusers/SDXL checkpoint."""
 
     name = "diffusers-sdxl"
-    supported_tasks = {TaskType.TEXT_TO_IMAGE}
+    supported_tasks = frozenset({TaskType.TEXT_TO_IMAGE})
 
     def __init__(self):
         self._pipeline = None

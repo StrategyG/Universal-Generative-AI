@@ -1,7 +1,8 @@
 from uuid import uuid4
-from app.schemas import GenerationRequest, JobResponse, JobStatus
-from app.providers.registry import registry
+
 from app.config import settings
+from app.providers.registry import registry
+from app.schemas import GenerationRequest, JobResponse, JobStatus
 
 _jobs: dict[str, JobResponse] = {}
 
@@ -18,7 +19,7 @@ async def submit_job(request: GenerationRequest) -> JobResponse:
                                message=("Simulated result" if result.metadata.get("simulated")
                                         else "Generation completed"),
                                output_asset=result.output_asset)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - persist any provider inference failure as a failed job
         response = JobResponse(job_id=job_id, task=request.task,
                                status=JobStatus.FAILED, message=str(exc)[:500])
     _jobs[job_id] = response
