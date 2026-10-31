@@ -12,7 +12,7 @@
 | Mock provider | PASS (test adapter only) | Simulates contract; does not generate media |
 | Diffusers text-to-image adapter | PARTIAL | Adapter exists; real model weights, license and GPU inference have not been validated |
 | Pipeline planner | PARTIAL | Plans stage dependencies; execution is not wired |
-| External worker HTTP client | PARTIAL | Outbound polling, claim, heartbeat, completion, failure, backoff and metadata transport |
+| External worker HTTP client | PARTIAL | Outbound polling, automatic heartbeat thread during handlers, completion/failure reporting, backoff and metadata transport; no registration or scoped credentials |
 | PostgreSQL external queue | IMPLEMENTED / NOT VERIFIED | Backend, ordered migrations, queue facade, idempotency and CI PostgreSQL integration test committed; no target environment evidence yet |
 | In-memory queue | DEVELOPMENT ONLY | Fallback for local development; never a production persistence guarantee |
 | Queue state machine | PARTIAL | queued/running/succeeded/dead_letter, idempotency conflict detection and lease retry; not full pipeline state machine |

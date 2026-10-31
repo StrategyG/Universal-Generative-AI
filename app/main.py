@@ -17,8 +17,8 @@ from app.services.external_gpu_queue import (
     initialize_queue,
     queue_backend_name,
 )
-from app.services.queue_errors import IdempotencyConflictError
 from app.services.jobs import get_job, submit_job
+from app.services.queue_errors import IdempotencyConflictError
 from app.workers.schemas import (
     ExternalJob,
     ExternalJobCreate,

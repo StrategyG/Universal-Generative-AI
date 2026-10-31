@@ -34,7 +34,7 @@ Expected flow:
 3. A reviewed task handler downloads authorized input, runs a pinned model revision, uploads the artifact, and reports its asset reference and provenance.
 4. The control plane verifies the artifact before allowing downstream pipeline stages.
 
-Current worker client is a polling transport helper; it does not supply model handlers, storage integration, or an independent heartbeat thread during long inference. Work exceeding the lease window can be reclaimed unless the handler explicitly sends heartbeats.
+Current worker client supplies outbound polling and a dedicated heartbeat thread during long handlers. It does not supply model handlers, storage integration, per-worker scoped credentials, or capability registration. Extended network outages can still outlast the lease.
 
 ## Pipeline contracts
 

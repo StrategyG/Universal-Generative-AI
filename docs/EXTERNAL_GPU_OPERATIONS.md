@@ -39,7 +39,7 @@ The current protocol authenticates with one shared prototype token and associate
 
 ## Lease and heartbeat caution
 
-The configured lease duration is 15 minutes. The current polling client exposes `heartbeat(job_id)`, but `run_forever()` does not run an independent heartbeat while a long inference handler is executing. Long-running jobs must therefore implement heartbeat calls during inference, or they may be reclaimed by the API after lease expiry. Do not assume an active notebook session means the job lease is valid.
+The configured lease duration is 15 minutes. `run_forever()` starts a dedicated heartbeat thread while a handler runs (default interval: 300 seconds) and stops it before reporting completion. Keep the interval below the lease duration. If the server rejects a heartbeat with an authorization or lease conflict response, the client treats the lease as lost and does not report success. Temporary network failures use bounded backoff; an extended outage can still outlast the lease.
 
 ## Failure handling
 
