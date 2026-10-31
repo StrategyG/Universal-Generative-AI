@@ -3,7 +3,7 @@
 **Snapshot:** 2026-10-31  
 **Repository:** `StrategyG/Universal-Generative-AI`  
 **Branch:** `feature/multimodal-platform-v1`  
-**Snapshot:** working model-registry implementation; CI verification pending
+**Snapshot commit:** `530d0c418f04e3154e1e0055536f4fdf9da443f3`
 
 ## Implemented in repository
 
@@ -15,7 +15,7 @@
 | Pipeline planner | PARTIAL | Produces ordered stage plans and contracts; does not execute stages |
 | PostgreSQL general generation job history | PASS (CI #74 scope) | Running and terminal result records persist across queue recreation; inference is still synchronous and interrupted jobs are not resumed |
 | PostgreSQL external-GPU queue | IMPLEMENTED / CI VERIFIED | Durable jobs, transactional `SKIP LOCKED` claim, idempotency, worker registry, leases, retry schedule, dead-letter and cancellation |
-| PostgreSQL migrations | IMPLEMENTED / CI PENDING | Ordered migrations `0001`–`0006`; migration 0006 adds the model registry, not yet verified by CI |
+| PostgreSQL migrations | PASS (CI #76 scope) | Ordered migrations `0001`–`0006`; PostgreSQL 16 integration tests apply them |
 | External-GPU idempotency | PASS (CI scope) | Same key/request returns the original job; same key with a different payload is rejected |
 | Worker credentials | PASS (CI scope) | Random worker-specific token, hash-only storage, expiry, re-provisioning/rotation and revocation |
 | Worker capability registration | PASS (CI scope) | Runtime/GPU/VRAM/CUDA/framework/task/RAM/capacity metadata is stored |
@@ -30,12 +30,15 @@
 | GLB validation / optimization | BLOCKED | No executable provider |
 | Rigging / skin weighting / motion / retargeting | BLOCKED | No executable providers |
 | Blender / FFmpeg rendering | BLOCKED | No executable renderer |
-| Model registry / license gate | IMPLEMENTED / CI PENDING | Immutable revision records, license/validation/evaluation evidence gate, production submit/worker-claim and non-mock generation enforcement, disable/revoke flow; evidence is operator-supplied |
+| Model registry / approval gate | PASS (CI #76 scope) | Immutable revision, evidence-gated approval, production external-GPU/non-mock generation enforcement, worker claim filter and disable cancellation. Evidence is operator-supplied, not independently verified |
 | User AuthN/AuthZ, RBAC, tenancy | BLOCKED | No end-user identity, project permissions or tenant isolation |
 | Audit / observability | BLOCKED | No durable actor event log, distributed tracing, metrics, alerts or cost attribution |
 | Supply-chain security | BLOCKED | SBOM, dependency/container scanning and signed build provenance absent |
 
 ## Recent engineering commits
+
+- `530d0c4` — correct model-registry import ordering for Ruff; CI #76 passes.
+- `2d5c5ef` — immutable model registry, production approval enforcement and model-disable cancellation.
 
 - `352a301` — align FastAPI lifespan import block with Ruff.
 - `7926655` — use module imports for FastAPI lifespan.
@@ -55,16 +58,17 @@
 
 ## Verification evidence
 
-- **CI #74 baseline: PASS** — commit `a55dc7bd889026991465af446399bc464010ac3d`.
+- **CI #76: PASS** — commit `530d0c418f04e3154e1e0055536f4fdf9da443f3`.
   - Dependency installation: PASS.
-  - Ruff: PASS.
-  - Pytest: **40 passed**, 1 warning, 0 failed.
-  - [Workflow run #74](https://github.com/StrategyG/Universal-Generative-AI/actions/runs/41190809778).
-- Model registry migration/API/tests in the current working tree: **NOT VERIFIED** until CI completes against the new commit.
+  - Ruff: PASS (`All checks passed!`).
+  - Pytest: **45 passed**, 1 warning, 0 failed.
+  - PostgreSQL 16 integration: PASS for migration application, model revision registration/immutability, evidence-gated approval, production enforcement, worker capability claim, model disable and job cancellation.
+  - [Workflow run #76](https://github.com/StrategyG/Universal-Generative-AI/actions/runs/41191817485).
+- CI #74: PASS baseline — 40 passed, 1 warning. [Workflow run #74](https://github.com/StrategyG/Universal-Generative-AI/actions/runs/41190809778).
 - CI #66: PASS on the queue cancellation/retry implementation, 38 tests, 5 warnings.
 - CI #63: PASS, 35 tests.
 - Earlier CI #64 and #65 failed on a test-isolation bug and then a fixture-scope lint error; the fixture correction is verified by CI #66.
-- PostgreSQL CI baseline covers migrations 0001–0005, general job-history persistence, queue persistence, idempotency conflicts, expired lease recovery, worker registration, token authentication/revocation, capability matching and cancellation/retry paths. Migration 0006 and model approval gate are pending verification.
+- PostgreSQL CI #76 covers migrations 0001–0006, general job-history persistence, external queue persistence, idempotency conflicts, expired lease recovery, worker registration/token revocation, capability matching, cancellation/retry, and the model registry evidence-gate flow.
 - CI uses temporary PostgreSQL infrastructure. Target-environment backup/restore and production multi-replica behavior have not been tested.
 - Actual Kaggle/Colab GPU sessions: **NOT RUN**.
 - Actual PNG-to-GLB inference: **NOT RUN**.
