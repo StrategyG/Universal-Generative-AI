@@ -38,6 +38,7 @@ class ExternalJob(BaseModel):
     worker_id: str | None = None
     lease_expires_at: float | None = None
     output_asset: str | None = None
+    result_metadata: dict[str, str | int | float | bool] = Field(default_factory=dict)
     error: str | None = None
 
 
