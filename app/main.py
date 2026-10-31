@@ -1,4 +1,6 @@
 import hmac
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Header, HTTPException
 
@@ -40,17 +42,16 @@ from app.workers.schemas import (
     WorkerRuntimeHeartbeat,
 )
 
-app = FastAPI(title=settings.app_name, version="0.4.0")
-
-
-@app.on_event("startup")
-async def startup_queue() -> None:
+@asynccontextmanager
+async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     await initialize_queue()
+    try:
+        yield
+    finally:
+        await close_queue()
 
 
-@app.on_event("shutdown")
-async def shutdown_queue() -> None:
-    await close_queue()
+app = FastAPI(title=settings.app_name, version="0.4.0", lifespan=lifespan)
 
 
 def require_worker_token(token: str | None) -> None:
