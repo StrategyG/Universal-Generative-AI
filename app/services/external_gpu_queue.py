@@ -76,7 +76,7 @@ async def heartbeat(job_id: str, worker_id: str) -> ExternalJob | None:
         return updated
 
 
-async def complete(job_id: str, worker_id: str, output_asset: str) -> ExternalJob | None:
+async def complete(job_id: str, worker_id: str, output_asset: str, metadata: dict | None = None) -> ExternalJob | None:
     async with _lock:
         job = _jobs.get(job_id)
         if not job or job.status != ExternalJobStatus.RUNNING or job.worker_id != worker_id:
