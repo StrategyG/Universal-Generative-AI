@@ -38,6 +38,23 @@ The planner emits dependencies, expected artifacts, resource profiles, and accep
 6. Object storage retains artifacts with checksums, provenance, retention policy, and signed access.
 7. Telemetry captures stage duration, GPU/VRAM, retries, cost, model revision, and quality metrics.
 
+## External GPU execution model
+
+Kaggle and Google Colab are external pull workers, not permanent GPU servers. The control plane enqueues a task tagged with its target platform. A notebook runtime polls the API over outbound HTTPS, claims a leased task, downloads the authorized input, executes a pinned model revision, uploads the output artifact, and reports completion with provenance metadata. The API does not assume it can start, stop, or keep a notebook session alive.
+
+Current protocol routes are under `/api/v1/external-gpu`. They require the configured shared `EXTERNAL_WORKER_TOKEN`. A worker can only heartbeat or complete a job currently leased to its worker ID. Leases expire after 15 minutes and claims are retried at most three times.
+
+The worker client is a transport helper only. Model-specific handlers must be supplied by a notebook runtime. The protocol is not yet connected to the multimodal pipeline planner or the existing generation endpoint.
+
+### External worker lifecycle
+
+1. User submits a generation request to the control plane.
+2. Control plane persists an immutable job envelope and routes it to Kaggle or Colab.
+3. Notebook worker polls and claims a lease.
+4. Worker validates input, loads a pinned model revision, and performs inference.
+5. Worker uploads output to object storage and reports its URI plus provenance metadata.
+6. Control plane validates the artifact and advances the next dependent pipeline stage.
+
 ## Production gaps
 
 - Persistent queue and database; current jobs are in process memory.
