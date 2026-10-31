@@ -118,3 +118,38 @@ def test_worker_rejects_localhost_prefix_spoofing():
             api_url="http://localhost.attacker.test",
             token="test-token",
         )
+
+
+
+def test_worker_register_sends_capability_report():
+    worker = ExternalGPUWorker(
+        "colab",
+        "colab-worker-01",
+        api_url="https://api.example.test",
+        token="scoped-worker-token",
+    )
+    fake = FakeSession()
+    worker.session.close()
+    worker.session = fake
+
+    capabilities = {
+        "runtime_version": "Python 3.11.8",
+        "gpu_model": "NVIDIA T4",
+        "gpu_vram_gb": 16,
+        "available_gpu_memory_gb": 12,
+        "cuda_version": "12.4",
+        "frameworks": ["torch==2.5.1"],
+        "supported_tasks": ["image_to_3d"],
+        "available_memory_gb": 24,
+        "capacity": 1,
+    }
+    result = worker.register(capabilities)
+
+    assert result["status"] == "succeeded"
+    assert fake.payload["url"].endswith("/workers/register")
+    assert fake.payload["json"] == capabilities
+    assert worker._worker_telemetry == {
+        "available_gpu_memory_gb": 12.0,
+        "available_memory_gb": 24.0,
+    }
+    worker.close()

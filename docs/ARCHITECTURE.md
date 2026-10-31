@@ -20,8 +20,10 @@ Current queue behavior:
 
 Important scope boundaries:
 - Only `/api/v1/external-gpu/*` uses this queue. General `/api/v1/generate` requests still use an in-memory job store.
-- There is no idempotency key, transactional outbox, tenant scope, job cancellation, or worker-scoped credential system yet.
-- The configured shared worker token remains a prototype control.
+- Idempotency keys and payload fingerprint conflict checks are implemented for external-GPU submission; no transactional outbox, tenant scope or cancellation yet.
+- PostgreSQL worker registry supports operator provisioning, one-time random worker tokens stored as SHA-256 hashes, expiry, rotation by re-provisioning, revocation, runtime registration and per-worker identity checks.
+- Capability scheduling matches platform, task allowlist reported at registration, total/free VRAM, available RAM and worker capacity. Capability values are self-reported, not cryptographically attested.
+- `EXTERNAL_WORKER_TOKEN` remains a development-only compatibility path; production requires scoped worker credentials.
 - The PostgreSQL backend is not production-verified until a target environment applies the migration and passes a recovery test.
 
 ## External worker execution
@@ -34,7 +36,7 @@ Expected flow:
 3. A reviewed task handler downloads authorized input, runs a pinned model revision, uploads the artifact, and reports its asset reference and provenance.
 4. The control plane verifies the artifact before allowing downstream pipeline stages.
 
-Current worker client supplies outbound polling and a dedicated heartbeat thread during long handlers. It does not supply model handlers, storage integration, per-worker scoped credentials, or capability registration. Extended network outages can still outlast the lease.
+Current worker client supplies outbound polling, explicit capability registration, telemetry refresh and a dedicated heartbeat thread during long handlers. It does not supply model handlers, storage integration, or trusted hardware attestation. Extended network outages can still outlast the lease.
 
 ## Pipeline contracts
 
@@ -52,7 +54,7 @@ The planner supports image-to-3D, image-to-video, and GLB-to-video plans. It ret
 
 ## Current production gaps
 
-- Per-worker authentication, worker registration, revocation, capability matching, and lease tokens.
+- Cryptographic lease tokens and stronger worker-side attestation; current per-worker token identity is scoped by worker ID but the active lease still uses worker ID plus time expiry.
 - Queue idempotency, cancellation, scheduling priority, and pipeline-stage persistence.
 - Object storage, signed URLs, checksum enforcement, and actual artifact inspection.
 - User authentication, RBAC, project permissions, and tenant isolation.

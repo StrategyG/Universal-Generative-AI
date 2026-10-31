@@ -118,3 +118,74 @@ def test_external_gpu_job_idempotency(monkeypatch):
         json=changed_payload,
     )
     assert conflict.status_code == 409
+
+
+
+def test_registered_worker_claim_is_bound_to_credential(monkeypatch):
+    from datetime import datetime, timedelta, timezone
+
+    from app.workers.schemas import WorkerProfile
+
+    profile = WorkerProfile(
+        worker_id="colab-worker-registered",
+        platform="colab",
+        status="active",
+        supported_tasks=["image_to_3d"],
+        token_expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+    )
+
+    async def authenticate(token):
+        assert token == "per-worker-secret"
+        return profile
+
+    async def claim_for(worker_id):
+        assert worker_id == profile.worker_id
+        return None
+
+    monkeypatch.setattr("app.main.authenticate_worker", authenticate)
+    monkeypatch.setattr("app.main.claim_for_worker", claim_for)
+
+    allowed = client.post(
+        "/api/v1/external-gpu/claim",
+        headers={"X-Worker-Token": "per-worker-secret"},
+        json={"platform": "colab", "worker_id": "colab-worker-registered"},
+    )
+    denied = client.post(
+        "/api/v1/external-gpu/claim",
+        headers={"X-Worker-Token": "per-worker-secret"},
+        json={"platform": "colab", "worker_id": "attacker-worker"},
+    )
+
+    assert allowed.status_code == 200
+    assert denied.status_code == 403
+
+
+def test_production_rejects_legacy_shared_worker_token(monkeypatch):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "environment", "production")
+    monkeypatch.setattr(settings, "external_worker_token", "legacy-shared-token")
+    response = client.post(
+        "/api/v1/external-gpu/claim",
+        headers={"X-Worker-Token": "legacy-shared-token"},
+        json={"platform": "kaggle", "worker_id": "kaggle-worker-legacy"},
+    )
+    assert response.status_code == 401
+
+
+def test_worker_provision_requires_admin_credential(monkeypatch):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "worker_admin_token", "operator-admin-secret")
+    denied = client.post(
+        "/api/v1/external-gpu/workers/provision",
+        json={"worker_id": "kaggle-worker-new", "platform": "kaggle"},
+    )
+    unavailable = client.post(
+        "/api/v1/external-gpu/workers/provision",
+        headers={"X-Worker-Admin-Token": "operator-admin-secret"},
+        json={"worker_id": "kaggle-worker-new", "platform": "kaggle"},
+    )
+
+    assert denied.status_code == 401
+    assert unavailable.status_code == 503

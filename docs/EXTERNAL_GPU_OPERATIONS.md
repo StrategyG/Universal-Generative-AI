@@ -11,16 +11,16 @@ Kaggle and Colab runtimes are ephemeral GPU workers. The notebook initiates outb
 2. Set `DATABASE_URL` in the API host using a secret manager.
 3. Apply every ordered SQL migration in `migrations/` to the target database before starting the API. Startup checks for the queue table and idempotency column.
 4. Set `ENVIRONMENT=production`; startup then fails closed if `DATABASE_URL` is absent.
-5. Set the prototype `EXTERNAL_WORKER_TOKEN` in the API environment. Do not commit it.
+5. Set `WORKER_ADMIN_TOKEN` in the API environment. Use it only for trusted operator actions. `EXTERNAL_WORKER_TOKEN` is a development-only shared-token compatibility setting and must not be used in production.
 
 The database migration is not applied automatically. Use a dedicated migration identity with least privilege. Restrict the application DB role to required table operations.
 
 ## Notebook setup
 
 1. Open the corresponding template under `notebooks/` in Kaggle or Colab.
-2. Configure `API_URL`, `EXTERNAL_WORKER_TOKEN`, and `WORKER_ID` in the notebook's secret/environment facility.
+2. Have an operator provision the worker using `POST /api/v1/external-gpu/workers/provision` with `X-Worker-Admin-Token`. Store the returned one-time token as `EXTERNAL_WORKER_TOKEN`, then set `API_URL`, `WORKER_ID`, and `WORKER_SUPPORTED_TASKS` (comma-separated approved task names) in the notebook's secret/environment facility.
 3. Install the optional client: `pip install requests` or `pip install -e ".[worker]"`.
-4. Install only reviewed, version-pinned framework/model dependencies.
+4. Install only reviewed, version-pinned framework/model dependencies. The template discovers runtime/GPU details and registers them before it begins polling.
 5. Implement a reviewed `handle_job(job)` function that checks task/model compatibility, fetches input only through a trusted signed URL, executes inference, uploads output to approved storage, and returns the immutable asset reference plus provenance metadata.
 6. Call the template's `run_with_handler(handle_job)` function only after the handler and storage path have been tested.
 
@@ -35,7 +35,7 @@ The templates do not contain model inference code, storage credentials, model we
 - `POST /api/v1/external-gpu/jobs/{job_id}/fail`: report an execution failure.
 - `GET /api/v1/external-gpu/jobs/{job_id}`: inspect job state.
 
-The current protocol authenticates with one shared prototype token and associates a lease with a worker ID. It does not yet issue per-worker scoped credentials or cryptographic lease tokens.
+In production, the protocol authenticates workers with unique short-lived random tokens. The API stores token hashes, checks expiry/revocation, binds authenticated requests to the provisioned worker ID, and schedules tasks by the registered platform, supported task list, VRAM/RAM availability and capacity. Operators can re-provision a worker to rotate its token or revoke it explicitly. The legacy shared token is development-only. The lease still uses worker ID and an expiry timestamp; cryptographic per-lease tokens are not yet implemented.
 
 ## Lease and heartbeat caution
 
@@ -52,4 +52,4 @@ The configured lease duration is 15 minutes. `run_forever()` starts a dedicated 
 
 ## Operational limitations
 
-The queue can use PostgreSQL when configured and migrated; otherwise it runs in development-only memory mode. General `/api/v1/generate` jobs are not yet stored in the PostgreSQL external queue. Actual Kaggle/Colab inference, object storage upload, image-to-3D and GLB-to-MP4 execution remain **NOT RUN**.
+The PostgreSQL backend stores jobs and worker credential/capability records when configured and fully migrated; otherwise it runs in development-only memory mode. General `/api/v1/generate` jobs are not yet stored in the PostgreSQL external queue. Actual Kaggle/Colab inference, object storage upload, image-to-3D and GLB-to-MP4 execution remain **NOT RUN**.

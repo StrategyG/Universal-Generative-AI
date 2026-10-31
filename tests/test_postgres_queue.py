@@ -28,6 +28,8 @@ def test_postgres_row_conversion_preserves_model_provenance():
         "model_id": "org/model",
         "model_revision": "0123456789abcdef",
         "options": '{"seed": 42}',
+        "min_gpu_vram_gb": 0,
+        "min_memory_gb": 0,
         "attempts": 1,
         "worker_id": None,
         "lease_expires_at": None,

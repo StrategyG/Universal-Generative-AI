@@ -11,6 +11,9 @@ from app.workers.schemas import (
     ExternalJobCreate,
     ExternalJobStatus,
     WorkerPlatform,
+    WorkerProfile,
+    WorkerRegistration,
+    WorkerRuntimeHeartbeat,
 )
 
 LEASE_SECONDS = 900
@@ -33,6 +36,8 @@ async def _memory_enqueue(request: ExternalJobCreate) -> ExternalJob:
         model_id=request.model_id,
         model_revision=request.model_revision,
         options=request.options,
+        min_gpu_vram_gb=request.min_gpu_vram_gb,
+        min_memory_gb=request.min_memory_gb,
         idempotency_key=request.idempotency_key,
     )
     async with _lock:
@@ -234,3 +239,40 @@ async def get_external_job(job_id: str) -> ExternalJob | None:
     if _postgres_queue is not None:
         return await _postgres_queue.get_external_job(job_id)
     return await _memory_get_external_job(job_id)
+
+async def provision_worker(worker_id: str, platform: WorkerPlatform, ttl_seconds: int):
+    if _postgres_queue is None:
+        raise RuntimeError("Worker credential provisioning requires the PostgreSQL queue")
+    return await _postgres_queue.provision_worker(worker_id, platform, ttl_seconds)
+
+
+async def register_worker(token: str, registration: WorkerRegistration) -> WorkerProfile | None:
+    if _postgres_queue is None:
+        return None
+    return await _postgres_queue.register_worker(token, registration)
+
+
+async def authenticate_worker(token: str) -> WorkerProfile | None:
+    if _postgres_queue is None:
+        return None
+    return await _postgres_queue.authenticate_worker(token)
+
+
+async def heartbeat_worker(
+    token: str, telemetry: WorkerRuntimeHeartbeat
+) -> WorkerProfile | None:
+    if _postgres_queue is None:
+        return None
+    return await _postgres_queue.heartbeat_worker(token, telemetry)
+
+
+async def revoke_worker(worker_id: str) -> bool:
+    if _postgres_queue is None:
+        raise RuntimeError("Worker revocation requires the PostgreSQL queue")
+    return await _postgres_queue.revoke_worker(worker_id)
+
+
+async def claim_for_worker(worker_id: str) -> ExternalJob | None:
+    if _postgres_queue is None:
+        return None
+    return await _postgres_queue.claim_for_worker(worker_id)

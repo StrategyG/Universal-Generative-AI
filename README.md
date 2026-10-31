@@ -59,11 +59,15 @@ Set `GENERATION_BACKEND=diffusers-sdxl`, `GPU_REQUIRED=true`, `IMAGE_MODEL_ID`, 
 
 The intended compute model is external GPU execution. The API/control plane does not require a local GPU for these worker tasks. Kaggle and Colab notebooks initiate outbound polling requests to the API; the API does not attempt to remotely control notebook runtimes.
 
-Configure `EXTERNAL_WORKER_TOKEN` on the API host and store the same value as a notebook secret/environment variable. Do not commit credentials or print them in notebook output. Install the optional worker client with `pip install -e ".[worker]"`.
+Configure `WORKER_ADMIN_TOKEN` on the API host. In production, use the admin credential only from a trusted operator/orchestrator to provision and revoke workers or submit jobs. Provision a unique, short-lived worker token with `POST /api/v1/external-gpu/workers/provision` using the `X-Worker-Admin-Token` header and a body containing `worker_id`, `platform`, and `ttl_seconds`. The response contains the worker token once; store it in that notebook's secret store as `EXTERNAL_WORKER_TOKEN`. Also set `API_URL`, `WORKER_ID`, and an explicitly approved comma-separated `WORKER_SUPPORTED_TASKS`. The notebook registers detected runtime/GPU capabilities before polling. Never commit or print credentials. Install the optional client with `pip install -e ".[worker]"`.
 
 Worker protocol:
 - `POST /api/v1/external-gpu/jobs`: enqueue a task for a selected platform.
-- `POST /api/v1/external-gpu/claim`: worker claims one matching task.
+- `POST /api/v1/external-gpu/workers/provision`: operator issues a short-lived, worker-specific credential.
+- `POST /api/v1/external-gpu/workers/register`: worker registers runtime, GPU/VRAM, CUDA, framework and task capabilities.
+- `POST /api/v1/external-gpu/workers/heartbeat`: worker refreshes available RAM/VRAM telemetry.
+- `DELETE /api/v1/external-gpu/workers/{worker_id}`: operator revokes a worker credential.
+- `POST /api/v1/external-gpu/claim`: authenticated worker claims a task matched against its registered platform, supported tasks, VRAM, RAM and capacity.
 - `POST /api/v1/external-gpu/jobs/{job_id}/heartbeat`: renew the 15-minute lease.
 - `POST /api/v1/external-gpu/jobs/{job_id}/complete`: report an artifact reference and model metadata.
 - `POST /api/v1/external-gpu/jobs/{job_id}/fail`: report failure; retry up to three claims.
@@ -71,7 +75,7 @@ Worker protocol:
 
 A worker must download only trusted, authorized input assets and upload outputs to approved object storage before reporting the resulting asset URI. The worker protocol does not implement model handlers, object storage, or notebook provisioning yet.
 
-**Prototype limitation:** when `DATABASE_URL` is blank the external GPU queue falls back to in-process memory, which is development-only. Configure PostgreSQL and apply the migration for durable external-GPU jobs. The shared worker token remains a prototype control; replace it with per-worker credentials before production. Kaggle/Colab sessions are ephemeral and subject to platform availability, quotas, idle shutdown, and runtime limits; workers must tolerate interruption and resume from queued jobs.
+**Prototype limitation:** when `DATABASE_URL` is blank the external GPU queue falls back to in-process memory, which is development-only. Configure PostgreSQL and apply every ordered migration for durable jobs and worker credentials. `EXTERNAL_WORKER_TOKEN` is accepted only for development compatibility; production requires the provisioned, expiring, revocable per-worker token. Runtime capabilities are self-reported by an external notebook and are scheduling hints, not hardware attestation. Kaggle/Colab sessions remain ephemeral and subject to platform availability, quotas, idle shutdown, and runtime limits.
 
 ## Persistent external GPU queue
 
@@ -93,7 +97,7 @@ Scope limitation: this PostgreSQL backend currently persists only `/api/v1/exter
 - Character rigging and motion-generation inference.
 - Blender/FFmpeg rendering worker for GLB-to-MP4.
 - Durable storage for general `/api/v1/generate` jobs, object storage, user authentication, tenant isolation, quotas, and observability.
-- Capability-aware GPU scheduling, worker-scoped credentials, idempotency, cancellation, pipeline execution, and end-to-end quality evaluation.
+- Cancellation and exponential retry backoff, pipeline execution, object storage/artifact validation, model governance, user/tenant auth, and end-to-end quality evaluation.
 
 ## Status
 

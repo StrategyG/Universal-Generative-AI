@@ -11,13 +11,14 @@ from collections.abc import Callable
 from typing import Any
 
 from app.workers.client import ExternalGPUWorker
+from app.workers.runtime import detect_runtime_capabilities
 
 
 def run_with_handler(
     handler: Callable[[dict[str, Any]], str | tuple[str, dict[str, Any]]],
 ) -> None:
     """Run a separately reviewed model handler against the external GPU queue."""
-    required = ("API_URL", "EXTERNAL_WORKER_TOKEN", "WORKER_ID")
+    required = ("API_URL", "EXTERNAL_WORKER_TOKEN", "WORKER_ID", "WORKER_SUPPORTED_TASKS")
     missing = [key for key in required if not os.getenv(key)]
     if missing:
         raise RuntimeError(f"Missing notebook secrets/environment values: {', '.join(missing)}")
@@ -26,7 +27,10 @@ def run_with_handler(
         platform="colab",
         worker_id=os.environ["WORKER_ID"],
     )
+    tasks = [item.strip() for item in os.environ["WORKER_SUPPORTED_TASKS"].split(",") if item.strip()]
+    capabilities = detect_runtime_capabilities(tasks)
     try:
+        worker.register(capabilities)
         worker.run_forever(handler)
     finally:
         worker.close()

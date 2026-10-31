@@ -49,6 +49,7 @@ class ExternalGPUWorker:
         self.worker_id = worker_id
         self.request_timeout = request_timeout
         self.heartbeat_interval = heartbeat_interval
+        self._worker_telemetry: dict[str, float] | None = None
         self.session = requests.Session()
         self.session.headers.update({"X-Worker-Token": self.token})
 
@@ -61,7 +62,32 @@ class ExternalGPUWorker:
         response.raise_for_status()
         return response.json()
 
+    def register(self, capabilities: dict[str, Any]) -> dict[str, Any]:
+        """Register this provisioned worker and cache its latest resource telemetry."""
+        result = self._post("workers/register", capabilities)
+        self._worker_telemetry = {
+            "available_gpu_memory_gb": float(capabilities.get("available_gpu_memory_gb", 0)),
+            "available_memory_gb": float(capabilities.get("available_memory_gb", 0)),
+        }
+        return result
+
+    def update_telemetry(
+        self,
+        *,
+        available_gpu_memory_gb: float,
+        available_memory_gb: float,
+    ) -> dict[str, Any]:
+        telemetry = {
+            "available_gpu_memory_gb": available_gpu_memory_gb,
+            "available_memory_gb": available_memory_gb,
+        }
+        result = self._post("workers/heartbeat", telemetry)
+        self._worker_telemetry = telemetry
+        return result
+
     def claim(self) -> dict[str, Any] | None:
+        if self._worker_telemetry is not None:
+            self._post("workers/heartbeat", self._worker_telemetry)
         return self._post(
             "claim",
             {"platform": self.platform, "worker_id": self.worker_id},
@@ -96,6 +122,17 @@ class ExternalGPUWorker:
                         stop_event.set()
                         return
                     response.raise_for_status()
+                    if self._worker_telemetry is not None:
+                        telemetry_response = session.post(
+                            f"{self.api_url}/api/v1/external-gpu/workers/heartbeat",
+                            json=self._worker_telemetry,
+                            timeout=self.request_timeout,
+                        )
+                        if telemetry_response.status_code in {401, 403, 404, 409}:
+                            lease_lost.set()
+                            stop_event.set()
+                            return
+                        telemetry_response.raise_for_status()
                     backoff = 2
                 except requests.RequestException as exc:
                     if (
