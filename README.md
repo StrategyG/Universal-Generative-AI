@@ -71,7 +71,7 @@ Worker protocol:
 
 A worker must download only trusted, authorized input assets and upload outputs to approved object storage before reporting the resulting asset URI. The worker protocol does not implement model handlers, object storage, or notebook provisioning yet.
 
-**Prototype limitation:** queue state and leases currently live in process memory. Restarting the API loses queued jobs; multiple API replicas do not share state. Replace this with a durable queue/database and per-worker credentials before production. Kaggle/Colab sessions are ephemeral and subject to platform availability, quotas, idle shutdown, and runtime limits; workers must tolerate interruption and resume from queued jobs.
+**Prototype limitation:** when `DATABASE_URL` is blank the external GPU queue falls back to in-process memory, which is development-only. Configure PostgreSQL and apply the migration for durable external-GPU jobs. The shared worker token remains a prototype control; replace it with per-worker credentials before production. Kaggle/Colab sessions are ephemeral and subject to platform availability, quotas, idle shutdown, and runtime limits; workers must tolerate interruption and resume from queued jobs.
 
 ## Persistent external GPU queue
 
@@ -92,8 +92,8 @@ Scope limitation: this PostgreSQL backend currently persists only `/api/v1/exter
 - GLB validation/optimization workers.
 - Character rigging and motion-generation inference.
 - Blender/FFmpeg rendering worker for GLB-to-MP4.
-- Persistent queue, database, object storage, authentication, tenant isolation, quotas, and observability.
-- GPU scheduling, retries, cancellation, and end-to-end quality evaluation.
+- Durable storage for general `/api/v1/generate` jobs, object storage, user authentication, tenant isolation, quotas, and observability.
+- Capability-aware GPU scheduling, worker-scoped credentials, idempotency, cancellation, pipeline execution, and end-to-end quality evaluation.
 
 ## Status
 

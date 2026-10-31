@@ -96,54 +96,53 @@ class PostgresExternalGPUQueue:
 
     async def claim(self, platform: WorkerPlatform, worker_id: str) -> ExternalJob | None:
         pool = self._require_pool()
-        async with pool.acquire() as connection:
-            async with connection.transaction():
-                await connection.execute(
-                    """
-                    UPDATE external_gpu_jobs
-                    SET
-                        status = CASE WHEN attempts >= $1 THEN 'dead_letter' ELSE 'queued' END,
-                        error = CASE
-                            WHEN attempts >= $1
-                                THEN 'Worker lease expired; retry limit reached'
-                            ELSE error
-                        END,
-                        worker_id = NULL,
-                        lease_expires_at = NULL,
-                        updated_at = now()
-                    WHERE status = 'running'
-                      AND lease_expires_at IS NOT NULL
-                      AND lease_expires_at <= now()
-                    """,
-                    MAX_ATTEMPTS,
-                )
-                row = await connection.fetchrow(
-                    """
-                    SELECT *
-                    FROM external_gpu_jobs
-                    WHERE platform = $1 AND status = 'queued'
-                    ORDER BY created_at ASC
-                    LIMIT 1
-                    FOR UPDATE SKIP LOCKED
-                    """,
-                    platform.value,
-                )
-                if row is None:
-                    return None
-                claimed = await connection.fetchrow(
-                    """
-                    UPDATE external_gpu_jobs
-                    SET
-                        status = 'running',
-                        worker_id = $2,
-                        attempts = attempts + 1,
-                        lease_expires_at = now() + ($3 * interval '1 second'),
-                        updated_at = now()
-                    WHERE job_id = $1
-                    RETURNING *
-                    """,
-                    row["job_id"], worker_id, LEASE_SECONDS,
-                )
+        async with pool.acquire() as connection, connection.transaction():
+            await connection.execute(
+                """
+                UPDATE external_gpu_jobs
+                SET
+                    status = CASE WHEN attempts >= $1 THEN 'dead_letter' ELSE 'queued' END,
+                    error = CASE
+                        WHEN attempts >= $1
+                            THEN 'Worker lease expired; retry limit reached'
+                        ELSE error
+                    END,
+                    worker_id = NULL,
+                    lease_expires_at = NULL,
+                    updated_at = now()
+                WHERE status = 'running'
+                  AND lease_expires_at IS NOT NULL
+                  AND lease_expires_at <= now()
+                """,
+                MAX_ATTEMPTS,
+            )
+            row = await connection.fetchrow(
+                """
+                SELECT *
+                FROM external_gpu_jobs
+                WHERE platform = $1 AND status = 'queued'
+                ORDER BY created_at ASC
+                LIMIT 1
+                FOR UPDATE SKIP LOCKED
+                """,
+                platform.value,
+            )
+            if row is None:
+                return None
+            claimed = await connection.fetchrow(
+                """
+                UPDATE external_gpu_jobs
+                SET
+                    status = 'running',
+                    worker_id = $2,
+                    attempts = attempts + 1,
+                    lease_expires_at = now() + ($3 * interval '1 second'),
+                    updated_at = now()
+                WHERE job_id = $1
+                RETURNING *
+                """,
+                row["job_id"], worker_id, LEASE_SECONDS,
+            )
         return self._to_job(claimed)
 
     async def heartbeat(self, job_id: str, worker_id: str) -> ExternalJob | None:
