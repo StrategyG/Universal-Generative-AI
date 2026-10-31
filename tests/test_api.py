@@ -122,7 +122,7 @@ def test_external_gpu_job_idempotency(monkeypatch):
 
 
 def test_registered_worker_claim_is_bound_to_credential(monkeypatch):
-    from datetime import datetime, timedelta, timezone
+    from datetime import UTC, datetime, timedelta
 
     from app.workers.schemas import WorkerProfile
 
@@ -131,7 +131,7 @@ def test_registered_worker_claim_is_bound_to_credential(monkeypatch):
         platform="colab",
         status="active",
         supported_tasks=["image_to_3d"],
-        token_expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+        token_expires_at=datetime.now(UTC) + timedelta(hours=1),
     )
 
     async def authenticate(token):
@@ -140,7 +140,6 @@ def test_registered_worker_claim_is_bound_to_credential(monkeypatch):
 
     async def claim_for(worker_id):
         assert worker_id == profile.worker_id
-        return None
 
     monkeypatch.setattr("app.main.authenticate_worker", authenticate)
     monkeypatch.setattr("app.main.claim_for_worker", claim_for)

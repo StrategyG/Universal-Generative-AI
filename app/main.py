@@ -18,8 +18,8 @@ from app.services.external_gpu_queue import (
     heartbeat,
     heartbeat_worker,
     initialize_queue,
-    queue_backend_name,
     provision_worker,
+    queue_backend_name,
     register_worker,
     revoke_worker,
 )
