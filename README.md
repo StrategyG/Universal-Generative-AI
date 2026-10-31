@@ -80,7 +80,7 @@ The external GPU queue supports a PostgreSQL backend for durable job state.
 1. Install the optional dependency: `pip install -e ".[postgres]"`.
 2. Set `DATABASE_URL` in the API environment (never commit a real credential).
 3. Apply the initial migration: `psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/0001_create_external_gpu_jobs.sql`.
-4. Start the API. The startup hook opens the PostgreSQL pool; `GET /health` reports `queue_backend=postgresql` when active.
+4. Start the API. The startup hook opens the PostgreSQL pool and verifies that `external_gpu_jobs` exists; startup fails with a migration-specific error when it does not. `GET /health` reports `queue_backend=postgresql` only after the queue has initialized.
 
 When `DATABASE_URL` is empty, the external GPU queue uses in-memory development mode. That mode loses jobs on restart and is **not production-safe**.
 

@@ -1,6 +1,8 @@
 import asyncio
 import os
+import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -107,3 +109,28 @@ def test_postgres_queue_persists_jobs_and_recovers_expired_leases():
             await restarted.close()
 
     asyncio.run(scenario())
+
+
+
+def test_postgres_startup_fails_when_migration_is_missing(monkeypatch):
+    class MissingMigrationPool:
+        closed = False
+
+        async def fetchval(self, query):
+            assert "to_regclass" in query
+            return False
+
+        async def close(self):
+            self.closed = True
+
+    pool = MissingMigrationPool()
+    fake_asyncpg = SimpleNamespace(
+        create_pool=lambda *args, **kwargs: pool,
+    )
+    monkeypatch.setitem(sys.modules, "asyncpg", fake_asyncpg)
+    queue = PostgresExternalGPUQueue("postgresql://localhost/test")
+
+    with pytest.raises(RuntimeError, match="migration is missing"):
+        asyncio.run(queue.open())
+
+    assert pool.closed is True

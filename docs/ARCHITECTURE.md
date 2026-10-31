@@ -5,7 +5,7 @@
 - FastAPI API for health, basic generation requests, job inspection, and workflow planning.
 - Provider registry with an explicitly simulated mock adapter and an optional Diffusers/SDXL adapter.
 - External GPU queue facade selects PostgreSQL when `DATABASE_URL` is configured; otherwise it uses an in-memory development backend.
-- Production startup rejects a missing `DATABASE_URL` rather than silently starting with volatile external-GPU job storage.
+- Production startup rejects a missing `DATABASE_URL` rather than silently starting with volatile external-GPU job storage. When PostgreSQL is selected, startup also checks that `external_gpu_jobs` exists and fails if migration `0001` has not been applied.
 
 ## External GPU queue
 

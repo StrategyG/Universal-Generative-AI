@@ -36,9 +36,23 @@ class PostgresExternalGPUQueue:
                 "PostgreSQL queue requires asyncpg; install with "
                 "pip install -e '.[postgres]'"
             ) from exc
-        self._pool = await asyncpg.create_pool(
+        pool = await asyncpg.create_pool(
             self.database_url, min_size=1, max_size=10, command_timeout=30
         )
+        migration_ready = False
+        try:
+            migration_ready = bool(
+                await pool.fetchval("SELECT to_regclass('external_gpu_jobs') IS NOT NULL")
+            )
+        finally:
+            if not migration_ready:
+                await pool.close()
+        if not migration_ready:
+            raise RuntimeError(
+                "Database migration is missing; apply "
+                "migrations/0001_create_external_gpu_jobs.sql before startup"
+            )
+        self._pool = pool
 
     async def close(self) -> None:
         if self._pool is not None:
