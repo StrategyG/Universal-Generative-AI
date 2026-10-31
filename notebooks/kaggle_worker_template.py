@@ -29,6 +29,7 @@ def run_with_handler(
     )
     tasks = [item.strip() for item in os.environ["WORKER_SUPPORTED_TASKS"].split(",") if item.strip()]
     capabilities = detect_runtime_capabilities(tasks)
+    worker.set_telemetry_provider(lambda: detect_runtime_capabilities(tasks))
     try:
         worker.register(capabilities)
         worker.run_forever(handler)

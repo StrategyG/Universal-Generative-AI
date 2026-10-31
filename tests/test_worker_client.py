@@ -1,6 +1,8 @@
 from threading import Event
+from types import SimpleNamespace
 
 import pytest
+import requests
 
 from app.workers.client import ExternalGPUWorker
 
@@ -152,4 +154,66 @@ def test_worker_register_sends_capability_report():
         "available_gpu_memory_gb": 12.0,
         "available_memory_gb": 24.0,
     }
+    worker.close()
+
+
+
+def test_worker_claim_refreshes_available_runtime_memory():
+    worker = ExternalGPUWorker(
+        "colab",
+        "colab-worker-01",
+        api_url="https://api.example.test",
+        token="test-token",
+    )
+    fake = FakeSession()
+    worker.session.close()
+    worker.session = fake
+    worker._worker_telemetry = {
+        "available_gpu_memory_gb": 5.0,
+        "available_memory_gb": 2.0,
+    }
+    worker.set_telemetry_provider(
+        lambda: {
+            "available_gpu_memory_gb": 3.5,
+            "available_memory_gb": 1.25,
+        }
+    )
+
+    worker.claim()
+
+    telemetry_call = next(
+        call for call in fake.calls if call["url"].endswith("/workers/heartbeat")
+    )
+    assert telemetry_call["json"] == {
+        "available_gpu_memory_gb": 3.5,
+        "available_memory_gb": 1.25,
+    }
+    worker.close()
+
+
+
+def test_worker_stops_polling_after_revoked_credential(monkeypatch):
+    worker = ExternalGPUWorker(
+        "colab",
+        "colab-worker-01",
+        api_url="https://api.example.test",
+        token="revoked-token",
+    )
+    calls = 0
+
+    def rejected_claim():
+        nonlocal calls
+        calls += 1
+        response = SimpleNamespace(status_code=401)
+        raise requests.HTTPError("worker credential revoked", response=response)
+
+    def unexpected_handler(job):
+        raise AssertionError("Handler must not run without a claimed job")
+
+    monkeypatch.setattr(worker, "claim", rejected_claim)
+    stop_event = Event()
+    worker.run_forever(unexpected_handler, poll_seconds=1, stop_event=stop_event)
+
+    assert calls == 1
+    assert stop_event.is_set()
     worker.close()

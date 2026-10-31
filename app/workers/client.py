@@ -50,6 +50,7 @@ class ExternalGPUWorker:
         self.request_timeout = request_timeout
         self.heartbeat_interval = heartbeat_interval
         self._worker_telemetry: dict[str, float] | None = None
+        self._telemetry_provider: Callable[[], dict[str, Any]] | None = None
         self.session = requests.Session()
         self.session.headers.update({"X-Worker-Token": self.token})
 
@@ -71,6 +72,29 @@ class ExternalGPUWorker:
         }
         return result
 
+    def set_telemetry_provider(
+        self, provider: Callable[[], dict[str, Any]]
+    ) -> None:
+        """Set a callback that refreshes available RAM/VRAM for scheduler decisions."""
+        self._telemetry_provider = provider
+
+    def _refresh_worker_telemetry(self) -> dict[str, float] | None:
+        if self._telemetry_provider is not None:
+            try:
+                capabilities = self._telemetry_provider()
+                self._worker_telemetry = {
+                    "available_gpu_memory_gb": float(
+                        capabilities.get("available_gpu_memory_gb", 0)
+                    ),
+                    "available_memory_gb": float(
+                        capabilities.get("available_memory_gb", 0)
+                    ),
+                }
+            except (OSError, RuntimeError, ValueError):
+                # Preserve the last known telemetry; the next heartbeat will retry.
+                pass
+        return self._worker_telemetry
+
     def update_telemetry(
         self,
         *,
@@ -86,8 +110,9 @@ class ExternalGPUWorker:
         return result
 
     def claim(self) -> dict[str, Any] | None:
-        if self._worker_telemetry is not None:
-            self._post("workers/heartbeat", self._worker_telemetry)
+        telemetry = self._refresh_worker_telemetry()
+        if telemetry is not None:
+            self._post("workers/heartbeat", telemetry)
         return self._post(
             "claim",
             {"platform": self.platform, "worker_id": self.worker_id},
@@ -122,10 +147,11 @@ class ExternalGPUWorker:
                         stop_event.set()
                         return
                     response.raise_for_status()
-                    if self._worker_telemetry is not None:
+                    telemetry = self._refresh_worker_telemetry()
+                    if telemetry is not None:
                         telemetry_response = session.post(
                             f"{self.api_url}/api/v1/external-gpu/workers/heartbeat",
-                            json=self._worker_telemetry,
+                            json=telemetry,
                             timeout=self.request_timeout,
                         )
                         if telemetry_response.status_code in {401, 403, 404, 409}:
@@ -184,6 +210,18 @@ class ExternalGPUWorker:
             try:
                 job = self.claim()
                 backoff = poll_seconds
+            except requests.HTTPError as exc:
+                if (
+                    exc.response is not None
+                    and exc.response.status_code in {401, 403, 404, 409}
+                ):
+                    # Expired/revoked credentials or rejected worker identity require
+                    # operator action; do not poll forever with invalid credentials.
+                    stop.set()
+                    return
+                stop.wait(backoff)
+                backoff = min(backoff * 2, 300)
+                continue
             except requests.RequestException:
                 stop.wait(backoff)
                 backoff = min(backoff * 2, 300)
