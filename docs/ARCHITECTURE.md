@@ -14,13 +14,13 @@ The PostgreSQL backend is implemented in `app/services/postgres_gpu_queue.py`. I
 Current queue behavior:
 - Job creation persists platform, task, input reference, prompt, model ID/revision, options, idempotency key and request fingerprint, attempts, lease, result reference, metadata, and error.
 - Claim uses a transaction and `SELECT ... FOR UPDATE SKIP LOCKED` to avoid two workers claiming the same available row.
-- Expired leases are returned to the queued state until the retry limit; exhausted jobs move to `dead_letter`.
+- Expired leases are returned to the queued state with persisted exponential backoff (5 seconds initially, doubling per attempt and capped at 300 seconds); exhausted jobs move to `dead_letter`.
 - Heartbeat, completion, and failure require matching worker ID and an unexpired lease.
 - Job creation is durable across API restarts when PostgreSQL is configured and the migration has been applied.
 
 Important scope boundaries:
 - Only `/api/v1/external-gpu/*` uses this queue. General `/api/v1/generate` requests still use an in-memory job store.
-- Idempotency keys and payload fingerprint conflict checks are implemented for external-GPU submission; no transactional outbox, tenant scope or cancellation yet.
+- Idempotency keys and payload fingerprint conflict checks are implemented for external-GPU submission. External-GPU cancellation marks queued/running jobs `cancelled`, clears worker/lease ownership, and prevents late completion. Retry scheduling is persisted in `next_attempt_at`; no transactional outbox, tenant scope or pipeline-stage persistence yet.
 - PostgreSQL worker registry supports operator provisioning, one-time random worker tokens stored as SHA-256 hashes, expiry, rotation by re-provisioning, revocation, runtime registration and per-worker identity checks.
 - Capability scheduling matches platform, task allowlist reported at registration, total/free VRAM, available RAM and worker capacity. Capability values are self-reported, not cryptographically attested.
 - `EXTERNAL_WORKER_TOKEN` remains a development-only compatibility path; production requires scoped worker credentials.
@@ -55,7 +55,7 @@ The planner supports image-to-3D, image-to-video, and GLB-to-video plans. It ret
 ## Current production gaps
 
 - Cryptographic lease tokens and stronger worker-side attestation; current per-worker token identity is scoped by worker ID but the active lease still uses worker ID plus time expiry.
-- Queue idempotency, cancellation, scheduling priority, and pipeline-stage persistence.
+- Scheduling priority, cooperative cancellation inside notebook handlers, transactional outbox, and pipeline-stage persistence.
 - Object storage, signed URLs, checksum enforcement, and actual artifact inspection.
 - User authentication, RBAC, project permissions, and tenant isolation.
 - Executable image-to-3D, GLB validation/optimization, rigging, motion, and rendering providers.

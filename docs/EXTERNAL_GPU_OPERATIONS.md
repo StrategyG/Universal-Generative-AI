@@ -32,12 +32,15 @@ The templates do not contain model inference code, storage credentials, model we
 - `POST /api/v1/external-gpu/claim`: claim a job for the notebook worker.
 - `POST /api/v1/external-gpu/jobs/{job_id}/heartbeat`: renew the current lease.
 - `POST /api/v1/external-gpu/jobs/{job_id}/complete`: report output reference and metadata.
-- `POST /api/v1/external-gpu/jobs/{job_id}/fail`: report an execution failure.
+- `POST /api/v1/external-gpu/jobs/{job_id}/fail`: report an execution failure; retries use persisted exponential backoff (5 seconds initially, doubling to a 300-second cap; three attempts maximum).
+- `POST /api/v1/external-gpu/jobs/{job_id}/cancel`: operator cancels a queued/running job.
 - `GET /api/v1/external-gpu/jobs/{job_id}`: inspect job state.
 
 In production, the protocol authenticates workers with unique short-lived random tokens. The API stores token hashes, checks expiry/revocation, binds authenticated requests to the provisioned worker ID, and schedules tasks by the registered platform, supported task list, VRAM/RAM availability and capacity. Operators can re-provision a worker to rotate its token or revoke it explicitly. The legacy shared token is development-only. The lease still uses worker ID and an expiry timestamp; cryptographic per-lease tokens are not yet implemented.
 
 ## Lease and heartbeat caution
+
+Cancellation is currently a control-plane operation: it marks the job cancelled, clears its lease/worker ownership and rejects late completion. It does **not** terminate a Python process or CUDA kernel already running in a Kaggle/Colab notebook. A model handler must add cooperative cancellation checks or periodically poll job state before long stages; this is not implemented by the current template.
 
 The configured lease duration is 15 minutes. `run_forever()` starts a dedicated heartbeat thread while a handler runs (default interval: 300 seconds) and stops it before reporting completion. Keep the interval below the lease duration. If the server rejects a heartbeat with an authorization or lease conflict response, the client treats the lease as lost and does not report success. Temporary network failures use bounded backoff; an extended outage can still outlast the lease.
 
@@ -48,8 +51,8 @@ The configured lease duration is 15 minutes. `run_forever()` starts a dedicated 
 - Model download failure: stop the handler; verify revision/source/license before retry.
 - Storage failure: do not report success; retry upload safely using an idempotent asset strategy.
 - Invalid artifact: keep the job failed/quarantined; do not pass it downstream.
-- Credential suspected compromised: disable worker access and rotate the shared prototype secret.
+- Credential suspected compromised: revoke the affected worker ID and provision a replacement worker token; rotate the operator admin secret through the secret-management process if it may also be compromised.
 
 ## Operational limitations
 
-The PostgreSQL backend stores jobs and worker credential/capability records when configured and fully migrated; otherwise it runs in development-only memory mode. General `/api/v1/generate` jobs are not yet stored in the PostgreSQL external queue. Actual Kaggle/Colab inference, object storage upload, image-to-3D and GLB-to-MP4 execution remain **NOT RUN**.
+The PostgreSQL backend stores jobs, retry scheduling and worker credential/capability records when configured and fully migrated; otherwise it runs in development-only memory mode. General `/api/v1/generate` jobs are not yet stored in the PostgreSQL external queue. Actual Kaggle/Colab inference, object storage upload, image-to-3D and GLB-to-MP4 execution remain **NOT RUN**.

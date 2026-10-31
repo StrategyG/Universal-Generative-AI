@@ -31,6 +31,10 @@ The PostgreSQL worker registry currently:
 
 The external worker client requires HTTPS for remote API hosts, keeps credentials in request headers, refreshes reported available VRAM/RAM, renews job leases while inference runs, and stops polling after credential/identity rejection.
 
+## Job cancellation boundary
+
+The control plane can mark a queued/running external-GPU job as cancelled, clear worker/lease ownership and reject a late completion. This prevents a stale worker from committing a successful queue result after cancellation. It does not send a kill signal into a remote Kaggle/Colab Python process or terminate an active CUDA kernel. Until cooperative cancellation checks are implemented in the notebook handler, an active inference task may continue consuming resources after server-side cancellation.
+
 ## Residual high-risk abuse cases
 
 1. **Compromised operator secret:** an attacker with `WORKER_ADMIN_TOKEN` can provision or revoke workers and create production external-GPU jobs. Use a managed secret store, strict operator access, rotation and external audit controls.
@@ -49,4 +53,4 @@ Revoke affected worker tokens, disable worker access if compromise is suspected,
 
 ## Current residual risk
 
-**NOT PRODUCTION READY.** Worker-scoped credentials and capability scheduling materially improve the external-GPU trust boundary, but the platform still lacks user/tenant isolation, signed leases, artifact verification, hardware attestation, model governance, full auditability and live multimodal validation.
+**NOT PRODUCTION READY.** Worker-scoped credentials, capability scheduling, server-side cancellation and retry backoff improve queue control. The platform still lacks user/tenant isolation, signed leases, artifact verification, hardware attestation, model governance, full auditability, cooperative notebook cancellation and live multimodal validation.

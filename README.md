@@ -70,10 +70,11 @@ Worker protocol:
 - `POST /api/v1/external-gpu/claim`: authenticated worker claims a task matched against its registered platform, supported tasks, VRAM, RAM and capacity.
 - `POST /api/v1/external-gpu/jobs/{job_id}/heartbeat`: renew the 15-minute lease.
 - `POST /api/v1/external-gpu/jobs/{job_id}/complete`: report an artifact reference and model metadata.
-- `POST /api/v1/external-gpu/jobs/{job_id}/fail`: report failure; retry up to three claims.
+- `POST /api/v1/external-gpu/jobs/{job_id}/fail`: report failure; bounded retries use persisted exponential backoff (5 seconds initially, capped at 300 seconds; maximum three attempts).
+- `POST /api/v1/external-gpu/jobs/{job_id}/cancel`: operator cancels a queued/running external-GPU job; late worker completion is rejected.
 - `GET /api/v1/external-gpu/jobs/{job_id}`: inspect job state.
 
-A worker must download only trusted, authorized input assets and upload outputs to approved object storage before reporting the resulting asset URI. The worker protocol does not implement model handlers, object storage, or notebook provisioning yet.
+A worker must download only trusted, authorized input assets and upload outputs to approved object storage before reporting the resulting asset URI. The worker protocol does not implement model handlers, object storage, or notebook provisioning yet. Server-side cancellation invalidates the lease and rejects a late result; it does not forcibly stop a running GPU process inside Kaggle/Colab.
 
 **Prototype limitation:** when `DATABASE_URL` is blank the external GPU queue falls back to in-process memory, which is development-only. Configure PostgreSQL and apply every ordered migration for durable jobs and worker credentials. `EXTERNAL_WORKER_TOKEN` is accepted only for development compatibility; production requires the provisioned, expiring, revocable per-worker token. Runtime capabilities are self-reported by an external notebook and are scheduling hints, not hardware attestation. Kaggle/Colab sessions remain ephemeral and subject to platform availability, quotas, idle shutdown, and runtime limits.
 
@@ -88,7 +89,7 @@ The external GPU queue supports a PostgreSQL backend for durable job state.
 
 When `DATABASE_URL` is empty, the external GPU queue uses in-memory development mode. That mode loses jobs on restart and is **not production-safe**.
 
-Scope limitation: this PostgreSQL backend currently persists only `/api/v1/external-gpu/*` jobs. The general `/api/v1/generate` job store and pipeline planner are still in-memory/planning-only and are not yet connected to this durable queue. Idempotency keys are supported for external-GPU job submission; tenant-scoped authorization, per-worker credentials, and artifact verification remain outstanding.
+Scope limitation: this PostgreSQL backend currently persists only `/api/v1/external-gpu/*` jobs. The general `/api/v1/generate` job store and pipeline planner are still in-memory/planning-only and are not yet connected to this durable queue. External-GPU idempotency, per-worker credentials and capability-based scheduling are implemented. Tenant-scoped user authorization and artifact verification remain outstanding.
 
 ## Not yet implemented
 
@@ -97,7 +98,7 @@ Scope limitation: this PostgreSQL backend currently persists only `/api/v1/exter
 - Character rigging and motion-generation inference.
 - Blender/FFmpeg rendering worker for GLB-to-MP4.
 - Durable storage for general `/api/v1/generate` jobs, object storage, user authentication, tenant isolation, quotas, and observability.
-- Cancellation and exponential retry backoff, pipeline execution, object storage/artifact validation, model governance, user/tenant auth, and end-to-end quality evaluation.
+- Cooperative cancellation inside active notebook inference, executable pipeline orchestration, object storage/artifact validation, model governance, user/tenant auth, and end-to-end quality evaluation.
 
 ## Status
 
