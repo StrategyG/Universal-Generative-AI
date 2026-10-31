@@ -23,7 +23,7 @@ def test_worker_registration_rejects_invalid_capacity():
     with pytest.raises(ValueError):
         WorkerRegistration(
             runtime_version="Python 3.11",
-            supported_tasks=[test_task],
+            supported_tasks=["image_to_3d"],
             capacity=0,
         )
 
