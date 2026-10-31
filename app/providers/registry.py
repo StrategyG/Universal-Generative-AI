@@ -1,7 +1,6 @@
 from app.providers.base import ModelProvider
 from app.providers.diffusers_t2i import DiffusersTextToImageProvider
 from app.providers.mock import MockProvider
-from app.schemas import TaskType
 
 class ProviderRegistry:
     def __init__(self):
