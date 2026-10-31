@@ -55,6 +55,24 @@ pip install -e ".[image]"
 
 Set `GENERATION_BACKEND=diffusers-sdxl`, `GPU_REQUIRED=true`, `IMAGE_MODEL_ID`, and `IMAGE_MODEL_REVISION`. Pin the model revision to an immutable commit and verify the model license and hardware requirements before downloading weights. The first inference may download model weights and require substantial GPU VRAM.
 
+## External GPU workers: Kaggle and Google Colab
+
+The intended compute model is external GPU execution. The API/control plane does not require a local GPU for these worker tasks. Kaggle and Colab notebooks initiate outbound polling requests to the API; the API does not attempt to remotely control notebook runtimes.
+
+Configure `EXTERNAL_WORKER_TOKEN` on the API host and store the same value as a notebook secret/environment variable. Do not commit credentials or print them in notebook output. Install the optional worker client with `pip install -e ".[worker]"`.
+
+Worker protocol:
+- `POST /api/v1/external-gpu/jobs`: enqueue a task for a selected platform.
+- `POST /api/v1/external-gpu/claim`: worker claims one matching task.
+- `POST /api/v1/external-gpu/jobs/{job_id}/heartbeat`: renew the 15-minute lease.
+- `POST /api/v1/external-gpu/jobs/{job_id}/complete`: report an artifact reference and model metadata.
+- `POST /api/v1/external-gpu/jobs/{job_id}/fail`: report failure; retry up to three claims.
+- `GET /api/v1/external-gpu/jobs/{job_id}`: inspect job state.
+
+A worker must download only trusted, authorized input assets and upload outputs to approved object storage before reporting the resulting asset URI. The worker protocol does not implement model handlers, object storage, or notebook provisioning yet.
+
+**Prototype limitation:** queue state and leases currently live in process memory. Restarting the API loses queued jobs; multiple API replicas do not share state. Replace this with a durable queue/database and per-worker credentials before production. Kaggle/Colab sessions are ephemeral and subject to platform availability, quotas, idle shutdown, and runtime limits; workers must tolerate interruption and resume from queued jobs.
+
 ## Not yet implemented
 
 - Real PNG/JPG/WebP-to-GLB inference.
