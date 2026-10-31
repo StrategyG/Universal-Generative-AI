@@ -2,6 +2,8 @@ import asyncio
 from time import time
 from uuid import uuid4
 
+from app.config import settings
+from app.services.postgres_gpu_queue import PostgresExternalGPUQueue
 from app.workers.schemas import (
     ExternalJob,
     ExternalJobCreate,
@@ -16,7 +18,7 @@ _jobs: dict[str, ExternalJob] = {}
 _lock = asyncio.Lock()
 
 
-async def enqueue(request: ExternalJobCreate) -> ExternalJob:
+async def _memory_enqueue(request: ExternalJobCreate) -> ExternalJob:
     job = ExternalJob(
         job_id=str(uuid4()),
         platform=request.platform,
@@ -33,7 +35,7 @@ async def enqueue(request: ExternalJobCreate) -> ExternalJob:
     return job
 
 
-async def claim(platform: WorkerPlatform, worker_id: str) -> ExternalJob | None:
+async def _memory_claim(platform: WorkerPlatform, worker_id: str) -> ExternalJob | None:
     now = time()
     async with _lock:
         for job_id, job in list(_jobs.items()):
@@ -44,11 +46,10 @@ async def claim(platform: WorkerPlatform, worker_id: str) -> ExternalJob | None:
             )
             if not lease_expired:
                 continue
-
             if job.attempts >= MAX_ATTEMPTS:
                 _jobs[job_id] = job.model_copy(
                     update={
-                        "status": ExternalJobStatus.FAILED,
+                        "status": ExternalJobStatus.DEAD_LETTER,
                         "error": "Worker lease expired; retry limit reached",
                         "worker_id": None,
                         "lease_expires_at": None,
@@ -79,7 +80,7 @@ async def claim(platform: WorkerPlatform, worker_id: str) -> ExternalJob | None:
     return None
 
 
-async def heartbeat(job_id: str, worker_id: str) -> ExternalJob | None:
+async def _memory_heartbeat(job_id: str, worker_id: str) -> ExternalJob | None:
     async with _lock:
         job = _jobs.get(job_id)
         if (
@@ -93,7 +94,7 @@ async def heartbeat(job_id: str, worker_id: str) -> ExternalJob | None:
         return updated
 
 
-async def complete(
+async def _memory_complete(
     job_id: str,
     worker_id: str,
     output_asset: str,
@@ -120,7 +121,7 @@ async def complete(
         return updated
 
 
-async def fail(job_id: str, worker_id: str, error: str) -> ExternalJob | None:
+async def _memory_fail(job_id: str, worker_id: str, error: str) -> ExternalJob | None:
     async with _lock:
         job = _jobs.get(job_id)
         if (
@@ -132,7 +133,7 @@ async def fail(job_id: str, worker_id: str, error: str) -> ExternalJob | None:
         retry = job.attempts < MAX_ATTEMPTS
         updated = job.model_copy(
             update={
-                "status": ExternalJobStatus.QUEUED if retry else ExternalJobStatus.FAILED,
+                "status": ExternalJobStatus.QUEUED if retry else ExternalJobStatus.DEAD_LETTER,
                 "error": error,
                 "worker_id": None,
                 "lease_expires_at": None,
@@ -142,6 +143,75 @@ async def fail(job_id: str, worker_id: str, error: str) -> ExternalJob | None:
         return updated
 
 
-async def get_external_job(job_id: str) -> ExternalJob | None:
+async def _memory_get_external_job(job_id: str) -> ExternalJob | None:
     async with _lock:
         return _jobs.get(job_id)
+
+
+_postgres_queue: PostgresExternalGPUQueue | None = None
+
+
+async def initialize_queue() -> None:
+    """Initialize PostgreSQL when configured; memory mode is development-only."""
+    global _postgres_queue
+    if not settings.database_url:
+        if settings.environment.lower() in {"production", "prod"}:
+            raise RuntimeError("DATABASE_URL is required in production; refusing volatile queue mode")
+        return
+    if _postgres_queue is not None:
+        return
+    backend = PostgresExternalGPUQueue(settings.database_url)
+    await backend.open()
+    _postgres_queue = backend
+
+
+async def close_queue() -> None:
+    global _postgres_queue
+    if _postgres_queue is not None:
+        await _postgres_queue.close()
+        _postgres_queue = None
+
+
+def queue_backend_name() -> str:
+    return "postgresql" if _postgres_queue is not None else "memory"
+
+
+async def enqueue(request: ExternalJobCreate) -> ExternalJob:
+    if _postgres_queue is not None:
+        return await _postgres_queue.enqueue(request)
+    return await _memory_enqueue(request)
+
+
+async def claim(platform: WorkerPlatform, worker_id: str) -> ExternalJob | None:
+    if _postgres_queue is not None:
+        return await _postgres_queue.claim(platform, worker_id)
+    return await _memory_claim(platform, worker_id)
+
+
+async def heartbeat(job_id: str, worker_id: str) -> ExternalJob | None:
+    if _postgres_queue is not None:
+        return await _postgres_queue.heartbeat(job_id, worker_id)
+    return await _memory_heartbeat(job_id, worker_id)
+
+
+async def complete(
+    job_id: str,
+    worker_id: str,
+    output_asset: str,
+    metadata: dict[str, str | int | float | bool] | None = None,
+) -> ExternalJob | None:
+    if _postgres_queue is not None:
+        return await _postgres_queue.complete(job_id, worker_id, output_asset, metadata)
+    return await _memory_complete(job_id, worker_id, output_asset, metadata)
+
+
+async def fail(job_id: str, worker_id: str, error: str) -> ExternalJob | None:
+    if _postgres_queue is not None:
+        return await _postgres_queue.fail(job_id, worker_id, error)
+    return await _memory_fail(job_id, worker_id, error)
+
+
+async def get_external_job(job_id: str) -> ExternalJob | None:
+    if _postgres_queue is not None:
+        return await _postgres_queue.get_external_job(job_id)
+    return await _memory_get_external_job(job_id)

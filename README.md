@@ -73,6 +73,19 @@ A worker must download only trusted, authorized input assets and upload outputs 
 
 **Prototype limitation:** queue state and leases currently live in process memory. Restarting the API loses queued jobs; multiple API replicas do not share state. Replace this with a durable queue/database and per-worker credentials before production. Kaggle/Colab sessions are ephemeral and subject to platform availability, quotas, idle shutdown, and runtime limits; workers must tolerate interruption and resume from queued jobs.
 
+## Persistent external GPU queue
+
+The external GPU queue supports a PostgreSQL backend for durable job state.
+
+1. Install the optional dependency: `pip install -e ".[postgres]"`.
+2. Set `DATABASE_URL` in the API environment (never commit a real credential).
+3. Apply the initial migration: `psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/0001_create_external_gpu_jobs.sql`.
+4. Start the API. The startup hook opens the PostgreSQL pool; `GET /health` reports `queue_backend=postgresql` when active.
+
+When `DATABASE_URL` is empty, the external GPU queue uses in-memory development mode. That mode loses jobs on restart and is **not production-safe**.
+
+Scope limitation: this PostgreSQL backend currently persists only `/api/v1/external-gpu/*` jobs. The general `/api/v1/generate` job store and pipeline planner are still in-memory/planning-only and are not yet connected to this durable queue. Idempotency keys, tenant-scoped authorization, per-worker credentials, and artifact verification remain outstanding.
+
 ## Not yet implemented
 
 - Real PNG/JPG/WebP-to-GLB inference.

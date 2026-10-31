@@ -1,4 +1,5 @@
 import pytest
+
 from app.providers.mock import MockProvider
 from app.providers.registry import ProviderRegistry
 from app.schemas import TaskType

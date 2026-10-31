@@ -8,11 +8,14 @@ from app.pipelines.schemas import PipelinePlan, PipelineRequest
 from app.schemas import GenerationRequest, JobResponse
 from app.services.external_gpu_queue import (
     claim,
+    close_queue,
     complete,
     enqueue,
     fail,
     get_external_job,
     heartbeat,
+    initialize_queue,
+    queue_backend_name,
 )
 from app.services.jobs import get_job, submit_job
 from app.workers.schemas import (
@@ -24,7 +27,17 @@ from app.workers.schemas import (
     WorkerHeartbeat,
 )
 
-app = FastAPI(title=settings.app_name, version="0.3.0")
+app = FastAPI(title=settings.app_name, version="0.4.0")
+
+
+@app.on_event("startup")
+async def startup_queue() -> None:
+    await initialize_queue()
+
+
+@app.on_event("shutdown")
+async def shutdown_queue() -> None:
+    await close_queue()
 
 
 def require_worker_token(token: str | None) -> None:
@@ -37,10 +50,13 @@ def require_worker_token(token: str | None) -> None:
 
 @app.get("/health")
 async def health():
+    backend = queue_backend_name()
     return {
         "status": "ok",
         "environment": settings.environment,
         "external_gpu_workers_enabled": bool(settings.external_worker_token),
+        "queue_backend": backend,
+        "queue_persistent": backend == "postgresql",
     }
 
 

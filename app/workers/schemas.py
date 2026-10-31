@@ -13,6 +13,7 @@ class ExternalJobStatus(str, Enum):
     RUNNING = "running"
     SUCCEEDED = "succeeded"
     FAILED = "failed"
+    DEAD_LETTER = "dead_letter"
 
 
 class ExternalJobCreate(BaseModel):

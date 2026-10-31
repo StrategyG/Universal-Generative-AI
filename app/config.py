@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     image_model_id: str = ""
     image_model_revision: str = ""
     external_worker_token: str = ""
+    database_url: str = ""
 
 
 settings = Settings()
