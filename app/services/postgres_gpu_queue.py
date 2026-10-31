@@ -8,6 +8,8 @@ import json
 from typing import Any
 from uuid import uuid4
 
+from app.services.queue_errors import IdempotencyConflictError
+from app.services.queue_utils import request_fingerprint
 from app.workers.schemas import (
     ExternalJob,
     ExternalJobCreate,
@@ -42,7 +44,16 @@ class PostgresExternalGPUQueue:
         migration_ready = False
         try:
             migration_ready = bool(
-                await pool.fetchval("SELECT to_regclass('external_gpu_jobs') IS NOT NULL")
+                await pool.fetchval(
+                    """
+                    SELECT to_regclass('external_gpu_jobs') IS NOT NULL
+                       AND EXISTS (
+                           SELECT 1 FROM information_schema.columns
+                           WHERE table_name = 'external_gpu_jobs'
+                             AND column_name = 'idempotency_key'
+                       )
+                    """
+                )
             )
         finally:
             if not migration_ready:
@@ -88,24 +99,32 @@ class PostgresExternalGPUQueue:
             lease_expires_at=lease.timestamp() if lease is not None else None,
             output_asset=row["output_asset"],
             result_metadata=cls._decode_json(row["result_metadata"]),
+            idempotency_key=row["idempotency_key"],
             error=row["error"],
         )
 
     async def enqueue(self, request: ExternalJobCreate) -> ExternalJob:
         pool = self._require_pool()
+        request_hash = request_fingerprint(request)
         row = await pool.fetchrow(
             """
             INSERT INTO external_gpu_jobs (
                 job_id, platform, task, status, input_asset, prompt,
-                model_id, model_revision, options
+                model_id, model_revision, options, idempotency_key, request_hash
             )
-            VALUES ($1, $2, $3, 'queued', $4, $5, $6, $7, $8::jsonb)
+            VALUES ($1, $2, $3, 'queued', $4, $5, $6, $7, $8::jsonb, $9, $10)
+            ON CONFLICT (idempotency_key) WHERE idempotency_key IS NOT NULL
+            DO UPDATE SET request_hash = external_gpu_jobs.request_hash
             RETURNING *
             """,
             str(uuid4()), request.platform.value, request.task, request.input_asset,
             request.prompt, request.model_id, request.model_revision,
-            json.dumps(request.options),
+            json.dumps(request.options), request.idempotency_key, request_hash,
         )
+        if request.idempotency_key and row["request_hash"] != request_hash:
+            raise IdempotencyConflictError(
+                "Idempotency-Key was already used with a different request"
+            )
         return self._to_job(row)
 
     async def claim(self, platform: WorkerPlatform, worker_id: str) -> ExternalJob | None:

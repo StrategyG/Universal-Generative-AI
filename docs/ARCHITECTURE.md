@@ -12,7 +12,7 @@
 The PostgreSQL backend is implemented in `app/services/postgres_gpu_queue.py`. Its migration is `migrations/0001_create_external_gpu_jobs.sql`.
 
 Current queue behavior:
-- Job creation persists platform, task, input reference, prompt, model ID/revision, options, attempts, lease, result reference, metadata, and error.
+- Job creation persists platform, task, input reference, prompt, model ID/revision, options, idempotency key and request fingerprint, attempts, lease, result reference, metadata, and error.
 - Claim uses a transaction and `SELECT ... FOR UPDATE SKIP LOCKED` to avoid two workers claiming the same available row.
 - Expired leases are returned to the queued state until the retry limit; exhausted jobs move to `dead_letter`.
 - Heartbeat, completion, and failure require matching worker ID and an unexpired lease.

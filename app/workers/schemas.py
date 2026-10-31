@@ -24,6 +24,7 @@ class ExternalJobCreate(BaseModel):
     model_id: str = Field(min_length=1, max_length=256)
     model_revision: str = Field(min_length=1, max_length=128)
     options: dict[str, str | int | float | bool] = Field(default_factory=dict)
+    idempotency_key: str | None = Field(default=None, min_length=8, max_length=128)
 
 
 class ExternalJob(BaseModel):
@@ -41,6 +42,7 @@ class ExternalJob(BaseModel):
     lease_expires_at: float | None = None
     output_asset: str | None = None
     result_metadata: dict[str, str | int | float | bool] = Field(default_factory=dict)
+    idempotency_key: str | None = None
     error: str | None = None
 
 

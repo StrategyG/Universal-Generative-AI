@@ -13,9 +13,9 @@
 | Diffusers text-to-image adapter | PARTIAL | Adapter exists; real model weights, license and GPU inference have not been validated |
 | Pipeline planner | PARTIAL | Plans stage dependencies; execution is not wired |
 | External worker HTTP client | PARTIAL | Outbound polling, claim, heartbeat, completion, failure, backoff and metadata transport |
-| PostgreSQL external queue | IMPLEMENTED / NOT VERIFIED | Backend, migration, queue facade and CI integration test committed; no target environment evidence yet |
+| PostgreSQL external queue | IMPLEMENTED / NOT VERIFIED | Backend, ordered migrations, queue facade, idempotency and CI PostgreSQL integration test committed; no target environment evidence yet |
 | In-memory queue | DEVELOPMENT ONLY | Fallback for local development; never a production persistence guarantee |
-| Queue state machine | PARTIAL | queued/running/succeeded/dead_letter plus lease retry; not full pipeline state machine |
+| Queue state machine | PARTIAL | queued/running/succeeded/dead_letter, idempotency conflict detection and lease retry; not full pipeline state machine |
 | Worker credentials | BLOCKED | Shared token, not scoped worker identity |
 | Worker capability scheduler | BLOCKED | Platform routing only; no runtime/GPU capability matching |
 | Artifact storage and validation | BLOCKED | No trusted object storage/checksum verification |

@@ -9,7 +9,7 @@ Kaggle and Colab runtimes are ephemeral GPU workers. The notebook initiates outb
 1. Install the base application and optional PostgreSQL dependency:
    `pip install -e ".[postgres]"`
 2. Set `DATABASE_URL` in the API host using a secret manager.
-3. Apply `migrations/0001_create_external_gpu_jobs.sql` to the target database before starting the API.
+3. Apply every ordered SQL migration in `migrations/` to the target database before starting the API. Startup checks for the queue table and idempotency column.
 4. Set `ENVIRONMENT=production`; startup then fails closed if `DATABASE_URL` is absent.
 5. Set the prototype `EXTERNAL_WORKER_TOKEN` in the API environment. Do not commit it.
 

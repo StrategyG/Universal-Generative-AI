@@ -11,7 +11,7 @@
 | Ruff lint | NOT VERIFIED | Earlier failures are fixed in later commits; run on current head required |
 | PostgreSQL durable external queue | IMPLEMENTED / NOT VERIFIED | Backend and migration exist; verify current CI integration and independent restart/recovery in target environment |
 | General generation job persistence | BLOCKED | `/api/v1/generate` still uses in-memory storage |
-| Duplicate submission idempotency | BLOCKED | No idempotency key or deduplication constraint |
+| External-GPU duplicate submission idempotency | PARTIAL | Idempotency key with payload fingerprint and conflict rejection; general generation jobs remain non-idempotent |
 | Worker authentication/revocation | BLOCKED | Shared token only; no per-worker credentials or revocation |
 | Capability registration/scheduling | BLOCKED | Platform-only routing; no GPU/VRAM/runtime capability registry |
 | Lease recovery | PARTIAL | Lease expiry and bounded retry exist; multi-worker integration and operational recovery test required |

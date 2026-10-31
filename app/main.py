@@ -6,6 +6,7 @@ from app.config import settings
 from app.pipelines.planner import build_pipeline_plan
 from app.pipelines.schemas import PipelinePlan, PipelineRequest
 from app.schemas import GenerationRequest, JobResponse
+from app.services.queue_errors import IdempotencyConflictError
 from app.services.external_gpu_queue import (
     claim,
     close_queue,
@@ -91,9 +92,23 @@ async def plan_pipeline(request: PipelineRequest):
 async def create_external_gpu_job(
     request: ExternalJobCreate,
     x_worker_token: str | None = Header(default=None),
+    idempotency_key: str | None = Header(
+        default=None, alias="Idempotency-Key", min_length=8, max_length=128
+    ),
 ):
     require_worker_token(x_worker_token)
-    return await enqueue(request)
+    if (
+        idempotency_key
+        and request.idempotency_key
+        and idempotency_key != request.idempotency_key
+    ):
+        raise HTTPException(status_code=422, detail="Conflicting idempotency keys")
+    if idempotency_key:
+        request = request.model_copy(update={"idempotency_key": idempotency_key})
+    try:
+        return await enqueue(request)
+    except IdempotencyConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @app.post(f"{settings.api_prefix}/external-gpu/claim", response_model=ExternalJob | None)

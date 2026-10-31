@@ -4,6 +4,8 @@ from uuid import uuid4
 
 from app.config import settings
 from app.services.postgres_gpu_queue import PostgresExternalGPUQueue
+from app.services.queue_errors import IdempotencyConflictError
+from app.services.queue_utils import request_fingerprint
 from app.workers.schemas import (
     ExternalJob,
     ExternalJobCreate,
@@ -15,10 +17,12 @@ LEASE_SECONDS = 900
 MAX_ATTEMPTS = 3
 
 _jobs: dict[str, ExternalJob] = {}
+_memory_idempotency: dict[str, tuple[str, str]] = {}
 _lock = asyncio.Lock()
 
 
 async def _memory_enqueue(request: ExternalJobCreate) -> ExternalJob:
+    request_hash = request_fingerprint(request)
     job = ExternalJob(
         job_id=str(uuid4()),
         platform=request.platform,
@@ -29,9 +33,24 @@ async def _memory_enqueue(request: ExternalJobCreate) -> ExternalJob:
         model_id=request.model_id,
         model_revision=request.model_revision,
         options=request.options,
+        idempotency_key=request.idempotency_key,
     )
     async with _lock:
+        if request.idempotency_key:
+            previous = _memory_idempotency.get(request.idempotency_key)
+            if previous is not None:
+                previous_job_id, previous_hash = previous
+                existing = _jobs.get(previous_job_id)
+                if existing is not None:
+                    if previous_hash != request_hash:
+                        raise IdempotencyConflictError(
+                            "Idempotency-Key was already used with a different request"
+                        )
+                    return existing
+                _memory_idempotency.pop(request.idempotency_key, None)
         _jobs[job.job_id] = job
+        if request.idempotency_key:
+            _memory_idempotency[request.idempotency_key] = (job.job_id, request_hash)
     return job
 
 

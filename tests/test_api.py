@@ -83,3 +83,38 @@ def test_external_gpu_worker_claim_and_complete(monkeypatch):
     assert completed.status_code == 200
     assert completed.json()["status"] == "succeeded"
     assert completed.json()["result_metadata"]["model_revision"] == "0123456789abcdef"
+
+
+
+def test_external_gpu_job_idempotency(monkeypatch):
+    from app.config import settings
+    from app.services import external_gpu_queue
+
+    monkeypatch.setattr(settings, "external_worker_token", "test-secret")
+    external_gpu_queue._jobs.clear()
+    external_gpu_queue._memory_idempotency.clear()
+    headers = {
+        "X-Worker-Token": "test-secret",
+        "Idempotency-Key": "external-job-idempotency-01",
+    }
+    payload = {
+        "platform": "kaggle",
+        "task": "image_to_3d",
+        "input_asset": "asset://uploads/source.png",
+        "model_id": "org/model",
+        "model_revision": "0123456789abcdef",
+    }
+
+    first = client.post("/api/v1/external-gpu/jobs", headers=headers, json=payload)
+    repeated = client.post("/api/v1/external-gpu/jobs", headers=headers, json=payload)
+    assert first.status_code == 200
+    assert repeated.status_code == 200
+    assert first.json()["job_id"] == repeated.json()["job_id"]
+
+    changed_payload = {**payload, "input_asset": "asset://uploads/other.png"}
+    conflict = client.post(
+        "/api/v1/external-gpu/jobs",
+        headers=headers,
+        json=changed_payload,
+    )
+    assert conflict.status_code == 409

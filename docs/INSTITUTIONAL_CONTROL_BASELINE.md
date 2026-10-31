@@ -20,7 +20,7 @@ This is an engineering control baseline, not a certification, regulatory attesta
 | Worker authentication | PARTIAL | Shared token with constant-time comparison; no per-worker scopes, rotation, expiry or revocation |
 | Worker capability registry | BLOCKED | No registration/discovery/scheduler implementation |
 | User authentication / RBAC / tenant isolation | BLOCKED | No trusted user identity, tenant boundary, project ACL or asset authorization |
-| Idempotency / cancellation | BLOCKED | No idempotency key, cancellation state or replay-safe completion |
+| Idempotency / cancellation | PARTIAL | External-GPU submissions deduplicate by key and reject payload mismatches; generation jobs and cancellation remain outstanding |
 | Artifact integrity | BLOCKED | No storage checksum verification, signed URL enforcement or server-side content inspection |
 | Model provenance | PARTIAL | Model ID/revision may be recorded; registry, license verification and attestation absent |
 | Audit trail | BLOCKED | No append-only actor/action log |

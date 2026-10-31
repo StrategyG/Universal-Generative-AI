@@ -3,10 +3,12 @@ import os
 import sys
 from pathlib import Path
 from types import SimpleNamespace
+from uuid import uuid4
 
 import pytest
 
 from app.services.postgres_gpu_queue import PostgresExternalGPUQueue
+from app.services.queue_errors import IdempotencyConflictError
 from app.workers.schemas import ExternalJobCreate, ExternalJobStatus, WorkerPlatform
 
 
@@ -31,6 +33,7 @@ def test_postgres_row_conversion_preserves_model_provenance():
         "lease_expires_at": None,
         "output_asset": "asset://output.glb",
         "result_metadata": '{"model_revision": "0123456789abcdef"}',
+        "idempotency_key": None,
         "error": None,
     }
 
@@ -56,10 +59,11 @@ def test_postgres_queue_persists_jobs_and_recovers_expired_leases():
     async def scenario():
         import asyncpg
 
-        migration_path = Path(__file__).parents[1] / "migrations" / "0001_create_external_gpu_jobs.sql"
+        migration_dir = Path(__file__).parents[1] / "migrations"
         connection = await asyncpg.connect(database_url)
         try:
-            await connection.execute(migration_path.read_text(encoding="utf-8"))
+            for migration_path in sorted(migration_dir.glob("*.sql")):
+                await connection.execute(migration_path.read_text(encoding="utf-8"))
         finally:
             await connection.close()
 
@@ -71,8 +75,14 @@ def test_postgres_queue_persists_jobs_and_recovers_expired_leases():
             input_asset="asset://integration/input.png",
             model_id="test/model",
             model_revision="0123456789abcdef",
+            idempotency_key=f"pg-it-{uuid4().hex}",
         )
         created = await first.enqueue(request)
+        repeated = await first.enqueue(request)
+        assert repeated.job_id == created.job_id
+        mismatched = request.model_copy(update={"input_asset": "asset://integration/other.png"})
+        with pytest.raises(IdempotencyConflictError):
+            await first.enqueue(mismatched)
         await first.close()
 
         restarted = PostgresExternalGPUQueue(database_url)
@@ -124,13 +134,14 @@ def test_postgres_startup_fails_when_migration_is_missing(monkeypatch):
             self.closed = True
 
     pool = MissingMigrationPool()
-    fake_asyncpg = SimpleNamespace(
-        create_pool=lambda *args, **kwargs: pool,
-    )
+    async def create_pool(*args, **kwargs):
+        return pool
+
+    fake_asyncpg = SimpleNamespace(create_pool=create_pool)
     monkeypatch.setitem(sys.modules, "asyncpg", fake_asyncpg)
     queue = PostgresExternalGPUQueue("postgresql://localhost/test")
 
-    with pytest.raises(RuntimeError, match="migration is missing"):
+    with pytest.raises(RuntimeError, match="migrations are incomplete"):
         asyncio.run(queue.open())
 
     assert pool.closed is True
