@@ -1,15 +1,15 @@
 # Production Readiness Assessment
 
 **Decision: NOT PRODUCTION READY.**  
-**Snapshot commit:** `9bfa484388062c5dfc4a9fd32b021ae29f0fb15c`  
+**Snapshot commit:** `352a30180c4bfa3798d62634e0e9ef54b92a1afd`  
 This is an engineering assessment, not certification or assurance.
 
 ## Acceptance matrix
 
 | Criterion | Status | Evidence / remaining gap |
 |---|---|---|
-| API health and basic endpoints | PARTIAL | Endpoint tests pass; production hosting/load evidence absent |
-| Ruff lint and tests | PASS | CI #66: Ruff PASS, 38 pytest tests passed |
+| API health and basic endpoints | PARTIAL | Endpoint tests pass and PostgreSQL pool lifecycle uses FastAPI lifespan; production hosting/load evidence absent |
+| Ruff lint and tests | PASS | CI #71: Ruff PASS, 38 pytest tests passed, 1 warning |
 | PostgreSQL external-GPU persistence | PASS (CI scope) | Migrations and restart/recovery integration tests run against PostgreSQL 16 in CI |
 | General generation-job persistence | BLOCKED | `/api/v1/generate` still uses an in-memory job store |
 | External-GPU idempotent submission | PASS (CI scope) | Duplicate request returns existing job; conflicting payload is rejected |

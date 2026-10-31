@@ -3,13 +3,13 @@
 **Snapshot:** 2026-10-31  
 **Repository:** `StrategyG/Universal-Generative-AI`  
 **Branch:** `feature/multimodal-platform-v1`  
-**Snapshot commit:** `9bfa484388062c5dfc4a9fd32b021ae29f0fb15c`
+**Snapshot commit:** `352a30180c4bfa3798d62634e0e9ef54b92a1afd`
 
 ## Implemented in repository
 
 | Area | Status | Evidence / boundary |
 |---|---|---|
-| FastAPI API and health | PARTIAL | Health, generation, job lookup, pipeline planning and external-GPU endpoints exist; general generation jobs remain in memory |
+| FastAPI API and health | PARTIAL | Health, generation, job lookup, pipeline planning and external-GPU endpoints exist; PostgreSQL pool uses FastAPI lifespan; general generation jobs remain in memory |
 | Mock provider | PASS (test adapter only) | Simulates the provider contract; it does not generate media |
 | Diffusers text-to-image adapter | PARTIAL | Adapter exists; actual model weights, license, hardware profile and live inference are not validated |
 | Pipeline planner | PARTIAL | Produces ordered stage plans and contracts; does not execute stages |
@@ -36,6 +36,9 @@
 
 ## Recent engineering commits
 
+- `352a301` — align FastAPI lifespan import block with Ruff.
+- `7926655` — use module imports for FastAPI lifespan.
+- `ae46f05` — migrate FastAPI queue lifecycle to lifespan.
 - `9bfa484` — fix worker-registry test fixture scope for shared PostgreSQL CI.
 - `ac24cf6` — isolate worker registry PostgreSQL integration fixtures.
 - `e6391c4` — add job cancellation and exponential retry scheduling.
@@ -51,11 +54,12 @@
 
 ## Verification evidence
 
-- **CI #66: PASS** — commit `9bfa484388062c5dfc4a9fd32b021ae29f0fb15c`.
+- **CI #71: PASS** — commit `352a30180c4bfa3798d62634e0e9ef54b92a1afd`.
   - Dependency installation: PASS.
   - Ruff: PASS.
-  - Pytest: **38 passed**, 5 warnings, 0 failed.
-  - [Workflow run #66](https://github.com/StrategyG/Universal-Generative-AI/actions/runs/41188882825).
+  - Pytest: **38 passed**, 1 warning, 0 failed.
+  - [Workflow run #71](https://github.com/StrategyG/Universal-Generative-AI/actions/runs/41189466164).
+- CI #66: PASS on the queue cancellation/retry implementation, 38 tests, 5 warnings.
 - CI #63: PASS, 35 tests.
 - Earlier CI #64 and #65 failed on a test-isolation bug and then a fixture-scope lint error; the fixture correction is verified by CI #66.
 - PostgreSQL CI covers migrations, persistence across queue object recreation, idempotency conflicts, expired lease recovery, worker registration, token authentication/revocation, capability matching and cancellation/retry paths.
