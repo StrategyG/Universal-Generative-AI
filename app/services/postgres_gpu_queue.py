@@ -10,13 +10,13 @@ import secrets
 from typing import Any
 from uuid import uuid4
 
+from app.schemas import JobResponse, JobStatus, TaskType
 from app.services.queue_errors import IdempotencyConflictError
 from app.services.queue_utils import (
     RETRY_BASE_SECONDS,
     RETRY_MAX_SECONDS,
     request_fingerprint,
 )
-from app.schemas import JobResponse, JobStatus, TaskType
 from app.workers.schemas import (
     ExternalJob,
     ExternalJobCreate,
