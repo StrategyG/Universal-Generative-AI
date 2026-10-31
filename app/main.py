@@ -1,5 +1,5 @@
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+import collections.abc
+import contextlib
 import hmac
 
 from fastapi import FastAPI, Header, HTTPException
@@ -42,8 +42,8 @@ from app.workers.schemas import (
     WorkerRuntimeHeartbeat,
 )
 
-@asynccontextmanager
-async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+@contextlib.asynccontextmanager
+async def lifespan(_: FastAPI) -> collections.abc.AsyncIterator[None]:
     await initialize_queue()
     try:
         yield
