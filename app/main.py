@@ -32,7 +32,10 @@ from app.services.external_gpu_queue import (
     revoke_worker,
 )
 from app.services.jobs import get_job, submit_job
-from app.services.model_registry_errors import ModelApprovalRequiredError, ModelRegistryConflictError
+from app.services.model_registry_errors import (
+    ModelApprovalRequiredError,
+    ModelRegistryConflictError,
+)
 from app.services.queue_errors import IdempotencyConflictError
 from app.workers.schemas import (
     ExternalJob,
