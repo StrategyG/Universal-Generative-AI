@@ -23,7 +23,7 @@ def test_worker_registration_rejects_invalid_capacity():
     with pytest.raises(ValueError):
         WorkerRegistration(
             runtime_version="Python 3.11",
-            supported_tasks=["image_to_3d"],
+            supported_tasks=[test_task],
             capacity=0,
         )
 
@@ -47,6 +47,7 @@ def test_postgres_worker_credentials_revoke_and_schedule_by_capability():
         queue = PostgresExternalGPUQueue(database_url)
         await queue.open()
         worker_id = f"ci-worker-{uuid4().hex}"
+        test_task = f"worker_registry_test_{uuid4().hex}"
         try:
             issued = await queue.provision_worker(
                 worker_id,
@@ -63,7 +64,7 @@ def test_postgres_worker_credentials_revoke_and_schedule_by_capability():
                 available_gpu_memory_gb=8,
                 cuda_version="12.4",
                 frameworks=["torch==2.5.1"],
-                supported_tasks=["image_to_3d"],
+                supported_tasks=[test_task],
                 available_memory_gb=4,
                 capacity=1,
             )
@@ -71,7 +72,7 @@ def test_postgres_worker_credentials_revoke_and_schedule_by_capability():
             assert profile is not None
             assert profile.worker_id == worker_id
             assert profile.gpu_model == "NVIDIA T4"
-            assert profile.supported_tasks == ["image_to_3d"]
+            assert profile.supported_tasks == [test_task]
 
             authenticated = await queue.authenticate_worker(token)
             assert authenticated is not None
@@ -96,7 +97,7 @@ def test_postgres_worker_credentials_revoke_and_schedule_by_capability():
             too_large = await queue.enqueue(
                 ExternalJobCreate(
                     platform=WorkerPlatform.COLAB,
-                    task="image_to_3d",
+                    task=test_task,
                     input_asset="asset://test/too-large.png",
                     model_id="test/model",
                     model_revision="revision-1",
@@ -107,7 +108,7 @@ def test_postgres_worker_credentials_revoke_and_schedule_by_capability():
             compatible = await queue.enqueue(
                 ExternalJobCreate(
                     platform=WorkerPlatform.COLAB,
-                    task="image_to_3d",
+                    task=test_task,
                     input_asset="asset://test/compatible.png",
                     model_id="test/model",
                     model_revision="revision-1",
