@@ -1,5 +1,6 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
     app_name: str = "Universal Generative AI"
@@ -11,5 +12,7 @@ class Settings(BaseSettings):
     gpu_required: bool = False
     image_model_id: str = ""
     image_model_revision: str = ""
+    external_worker_token: str = ""
+
 
 settings = Settings()
