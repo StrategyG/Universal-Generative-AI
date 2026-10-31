@@ -84,6 +84,7 @@ async def complete(\n    job_id: str,\n    worker_id: str,\n    output_asset: st
         updated = job.model_copy(update={
             "status": ExternalJobStatus.SUCCEEDED,
             "output_asset": output_asset,
+            "result_metadata": metadata or {},
             "worker_id": None,
             "lease_expires_at": None,
         })
