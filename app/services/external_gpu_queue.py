@@ -38,7 +38,7 @@ async def claim(platform: WorkerPlatform, worker_id: str) -> ExternalJob | None:
     async with _lock:
         # Expired leases are retried, with a bounded attempt count.
         for job_id, job in list(_jobs.items()):
-            if job.status == ExternalJobStatus.RUNNING and job.lease_expires_at and job.lease_expires_at <= now:
+            if (\n                job.status == ExternalJobStatus.RUNNING\n                and job.lease_expires_at\n                and job.lease_expires_at <= now\n            ):
                 if job.attempts >= MAX_ATTEMPTS:
                     _jobs[job_id] = job.model_copy(update={
                         "status": ExternalJobStatus.FAILED,
@@ -76,7 +76,7 @@ async def heartbeat(job_id: str, worker_id: str) -> ExternalJob | None:
         return updated
 
 
-async def complete(job_id: str, worker_id: str, output_asset: str, metadata: dict | None = None) -> ExternalJob | None:
+async def complete(\n    job_id: str,\n    worker_id: str,\n    output_asset: str,\n    metadata: dict[str, str | int | float | bool] | None = None,\n) -> ExternalJob | None:
     async with _lock:
         job = _jobs.get(job_id)
         if not job or job.status != ExternalJobStatus.RUNNING or job.worker_id != worker_id:
