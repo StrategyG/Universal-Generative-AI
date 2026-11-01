@@ -11,7 +11,8 @@ The shared workflow contract supports three project domains: software engineerin
 3. A server-owned action policy derives risk and side-effect classification. Client-provided risk and side-effect hints never authorize or downgrade an action.
 4. Known actions receive reviewed risk/side-effect classifications. Unknown actions default to risk 5, external-write semantics, and mandatory human approval.
 5. The plan is returned in stable topological order with an explicit not_configured execution state.
-6. Execution is disabled until a trusted executor, tenant/project-scoped tool permissions, durable job state, artifact trust, and audit events are implemented and verified.
+6. Plans receive stable IDs and timestamps. PostgreSQL mode persists them in `workflow_plans` and enforces tenant/owner/project scope on retrieval; in-memory development mode is volatile.
+7. Execution is disabled until a trusted executor, tenant/project-scoped tool permissions, durable step state, artifact trust, and audit events are implemented and verified.
 
 ## Domain mapping
 
@@ -35,4 +36,4 @@ Risk is currently derived from a server-owned static action registry. Before pro
 
 ## Current limitations
 
-This is a planning and validation control plane only. It does not persist plans, execute steps, call tools, run code, generate media, store artifacts, or provide approval endpoints. The API returns execution_enabled=false and each step as not_configured to prevent a plan from being mistaken for completed work.
+This is a planning and validation control plane only. Plans are persisted when PostgreSQL is configured and can be retrieved through a scoped read endpoint; local memory mode is volatile. The system does not execute steps, call tools, run code, generate media, store output artifacts, or provide approval endpoints. The API returns execution_enabled=false and each step as not_configured to prevent a plan from being mistaken for completed work.
