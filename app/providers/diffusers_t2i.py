@@ -55,10 +55,13 @@ class DiffusersTextToImageProvider(ModelProvider):
 
         pipeline = self._load_pipeline()
         import torch
+
         seed = int(options.get("seed", 0))
-        generator = torch.Generator(device="cuda" if torch.cuda.is_available() else "cpu")
-        if seed:
-            generator.manual_seed(seed)
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        generator = torch.Generator(device=device)
+        # Seed zero is valid. Always seed the generator so the recorded seed
+        # matches the value actually supplied to the inference pipeline.
+        generator.manual_seed(seed)
         image = pipeline(
             prompt=prompt,
             width=width,
@@ -82,7 +85,7 @@ class DiffusersTextToImageProvider(ModelProvider):
                 "width": width,
                 "height": height,
                 "steps": steps,
-                "device": "cuda" if torch.cuda.is_available() else "cpu",
+                "device": device,
             },
         )
 
