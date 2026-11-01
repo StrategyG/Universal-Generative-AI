@@ -101,6 +101,19 @@ def test_generation_requires_authorized_role():
     assert exc.value.status_code == 403
 
 
+def test_job_read_requires_an_explicit_read_role():
+    principal = Principal(
+        subject="unassigned-1",
+        tenant_id="tenant-1",
+        roles=frozenset(),
+        project_ids=frozenset({"project-1"}),
+        auth_mode="oidc",
+    )
+    with pytest.raises(HTTPException) as exc:
+        auth.require_job_read_role(principal)
+    assert exc.value.status_code == 403
+
+
 def test_project_membership_is_enforced():
     principal = Principal(
         subject="developer-1",
