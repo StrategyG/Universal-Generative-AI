@@ -30,12 +30,14 @@ from app.services.external_gpu_queue import (
     enqueue,
     fail,
     get_external_job,
+    get_persisted_workflow_plan,
     get_model_version,
     heartbeat,
     heartbeat_worker,
     initialize_queue,
     provision_worker,
     queue_backend_name,
+    persist_workflow_plan,
     register_model_version,
     register_worker,
     revoke_worker,
@@ -201,7 +203,15 @@ async def create_institutional_workflow_template(
     """Build a deterministic starter plan for a supported project domain."""
     require_generation_role(principal)
     ensure_project_access(principal, request.project_id)
-    return build_domain_template(domain, request)
+    try:
+        plan = build_domain_template(domain, request)
+        return await persist_workflow_plan(
+            plan,
+            tenant_id=principal.tenant_id,
+            owner_subject=principal.subject,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail="Workflow plan persistence is unavailable") from exc
 
 
 @app.post(
@@ -216,9 +226,38 @@ async def plan_institutional_workflow(
     require_generation_role(principal)
     ensure_project_access(principal, request.project_id)
     try:
-        return build_workflow_plan(request)
+        plan = build_workflow_plan(request)
+        return await persist_workflow_plan(
+            plan,
+            tenant_id=principal.tenant_id,
+            owner_subject=principal.subject,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.get(
+    f"{settings.api_prefix}/workflows/plans/{plan_id}",
+    response_model=WorkflowPlan,
+)
+async def read_institutional_workflow_plan(
+    plan_id: str,
+    principal: Principal = Depends(get_current_principal),
+):
+    require_job_read_role(principal)
+    try:
+        plan = await get_persisted_workflow_plan(
+            plan_id,
+            tenant_id=principal.tenant_id,
+            owner_subject=principal.subject,
+            project_ids=sorted(principal.project_ids - {"*"}),
+            tenant_admin=principal.is_tenant_admin,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail="Workflow plan storage is unavailable") from exc
+    if plan is None:
+        raise HTTPException(status_code=404, detail="Workflow plan not found")
+    return plan
 
 
 @app.post(
