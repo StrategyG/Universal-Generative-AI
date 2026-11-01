@@ -16,6 +16,13 @@ class Settings(BaseSettings):
     worker_admin_token: str = ""
     database_url: str = ""
     model_registry_enforcement: bool = False
+    auth_mode: str = "disabled"
+    oidc_issuer: str = ""
+    oidc_audience: str = ""
+    oidc_jwks_url: str = ""
+    oidc_tenant_claim: str = "tenant_id"
+    oidc_roles_claim: str = "roles"
+    oidc_projects_claim: str = "project_ids"
 
 
 settings = Settings()
