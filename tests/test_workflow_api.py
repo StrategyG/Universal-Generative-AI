@@ -20,6 +20,10 @@ def test_workflow_plan_endpoint_returns_controlled_plan():
     assert response.status_code == 200
     body = response.json()
     assert body["execution_enabled"] is False
+    assert body["plan_id"]
+    saved = client.get(f"/api/v1/workflows/plans/{body[\"plan_id\"]}")
+    assert saved.status_code == 200
+    assert saved.json()["plan_id"] == body["plan_id"]
     assert body["status"] == "planning_only"
     assert [step["step_id"] for step in body["ordered_steps"]] == ["code", "test", "release"]
     assert body["approval_required_steps"] == ["release"]
