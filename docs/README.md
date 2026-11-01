@@ -1,4 +1,5 @@
 # Documentation Index
+- [Cross-model intelligence research prompt](CROSS_MODEL_INTELLIGENCE_RESEARCH_PROMPT.md)
 
 - [Architecture](ARCHITECTURE.md)
 - [Institutional control baseline](INSTITUTIONAL_CONTROL_BASELINE.md)
