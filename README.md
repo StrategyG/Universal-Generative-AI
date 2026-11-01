@@ -32,7 +32,7 @@ Production startup fails closed unless `AUTH_MODE=oidc` and the following settin
 - `OIDC_ROLES_CLAIM`: role claim name (default `roles`).
 - `OIDC_PROJECTS_CLAIM`: project membership claim name (default `project_ids`).
 
-The current OIDC contract verifies RS256 signatures using the configured JWKS and requires `sub`, `iss`, `aud`, `exp`, and `iat`. The token must contain a non-empty tenant claim. Supported platform role values are `developer`, `project_owner`, `tenant_admin`, `platform_admin`, and `read_only`. Generation requires a generation-capable role and a `project_id` included in the caller's project membership claim, except that a platform administrator may select a project within the tenant asserted by the token.
+The current OIDC contract verifies RS256 signatures using the configured JWKS and requires `sub`, `iss`, `aud`, `exp`, and `iat`. The JWKS key set is cached for five minutes and network fetches use a five-second timeout; authentication fails closed when token verification cannot be completed. The token must contain a non-empty tenant claim. Supported platform role values are `developer`, `project_owner`, `tenant_admin`, `platform_admin`, and `read_only`. Generation requires a generation-capable role and a `project_id` included in the caller's project membership claim, except that a platform administrator may select a project within the tenant asserted by the token.
 
 Generation history is stored with tenant, owner subject, and project scope. A caller can read a job only when it belongs to the same tenant and the caller is its owner, a member of its project, or a tenant administrator. Existing historical rows without ownership metadata remain inaccessible through the OIDC-scoped job API.
 
