@@ -8,9 +8,10 @@ The shared workflow contract supports three project domains: software engineerin
 
 1. A caller submits a project-scoped objective and typed workflow steps.
 2. The planner validates unique identifiers, dependency references, and acyclic DAG structure.
-3. A deterministic policy classifies a step for human approval when risk is 3-5 or its side effect is external write, deploy, delete, or publish.
-4. The plan is returned in stable topological order with an explicit not_configured execution state.
-5. Execution is disabled until a trusted executor, tenant/project-scoped tool permissions, durable job state, artifact trust, and audit events are implemented and verified.
+3. A server-owned action policy derives risk and side-effect classification. Client-provided risk and side-effect hints never authorize or downgrade an action.
+4. Known actions receive reviewed risk/side-effect classifications. Unknown actions default to risk 5, external-write semantics, and mandatory human approval.
+5. The plan is returned in stable topological order with an explicit not_configured execution state.
+6. Execution is disabled until a trusted executor, tenant/project-scoped tool permissions, durable job state, artifact trust, and audit events are implemented and verified.
 
 ## Domain mapping
 
@@ -18,18 +19,19 @@ The shared workflow contract supports three project domains: software engineerin
 - Film: concept, script, continuity/bible, storyboard, asset generation, shot assembly, audio, render, QC, publish.
 - Workflow: intake, classify, plan, approve, execute, reconcile, report.
 
-These are reference task families, not claims that the corresponding generators or production tools are already integrated.
+The server action registry currently includes a limited starter set. Domain descriptions are not evidence that every generator, model, or production tool is integrated.
 
 ## Risk policy
 
 | Risk | Default treatment |
 |---|---|
-| 0-2 | May be planned without human approval; execution still requires an enabled executor and scoped authorization |
+| 0-2 | May be considered for low-risk execution only after executor authorization and sandbox controls exist |
 | 3-5 | Human approval required before execution |
 | external_write / deploy / delete / publish | Human approval required regardless of numeric risk |
-| workspace_write | Not automatically approval-gated by this planner; executor must still enforce workspace sandbox and path policy |
+| unknown action | Fail closed: risk 5, external-write classification, human approval |
+| workspace_write | Requires an isolated workspace and path policy; never implies arbitrary filesystem access |
 
-Risk scores are caller-supplied inputs at this stage and are not independently inferred or verified. Production policy must calculate or validate risk server-side using action/tool metadata, not trust an agent-provided score.
+Risk is currently derived from a server-owned static action registry. Before production, the policy must be versioned, reviewed, tied to executor capabilities, and covered by authorization tests. It must not accept an LLM-generated risk score as authority.
 
 ## Current limitations
 
