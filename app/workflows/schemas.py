@@ -43,6 +43,12 @@ class WorkflowPlanRequest(BaseModel):
     steps: list[WorkflowStepRequest] = Field(min_length=1, max_length=100)
 
 
+class WorkflowTemplateRequest(BaseModel):
+    project_id: str = Field(min_length=1, max_length=128)
+    title: str = Field(min_length=1, max_length=160)
+    objective: str = Field(min_length=1, max_length=4000)
+
+
 class PlannedStep(BaseModel):
     step_id: str
     title: str
