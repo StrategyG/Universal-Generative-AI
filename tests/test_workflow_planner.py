@@ -24,8 +24,12 @@ def test_plan_orders_dependencies_and_applies_server_policy():
     assert plan.approval_required_steps == ["deploy"]
     assert plan.ordered_steps[0].risk_score == 2
     assert plan.ordered_steps[0].side_effect.value == "workspace_write"
+    assert plan.ordered_steps[0].agent_role == "Senior Software Engineer"
+    assert "src/" in plan.ordered_steps[0].expected_artifacts
+    assert len(plan.ordered_steps[0].acceptance_criteria) >= 3
     assert plan.execution_enabled is False
     assert plan.status == "planning_only"
+    assert plan.quality_policy == "deliverable-contracts-v1"
 
 
 def test_unknown_action_fails_closed_even_if_client_marks_it_safe():
@@ -37,6 +41,8 @@ def test_unknown_action_fails_closed_even_if_client_marks_it_safe():
     assert step.side_effect.value == "external_write"
     assert step.requires_human_approval is True
     assert step.policy_rule == "default.deny_unknown_action"
+    assert step.agent_role.startswith("Unassigned")
+    assert "unverified_action_report.json" in step.expected_artifacts
 
 
 def test_high_risk_action_requires_approval_even_if_client_claims_safe():
@@ -44,6 +50,7 @@ def test_high_risk_action_requires_approval_even_if_client_claims_safe():
         {"step_id": "release", "title": "Release", "action": "publish", "risk_score": 0, "side_effect": "none"},
     ], domain="film"))
     assert plan.approval_required_steps == ["release"]
+    assert "rights_clearance/" in plan.ordered_steps[0].expected_artifacts
 
 
 @pytest.mark.parametrize("steps, message", [

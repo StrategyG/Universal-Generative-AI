@@ -60,6 +60,9 @@ class PlannedStep(BaseModel):
     risk_score: int
     policy_rule: str
     requires_human_approval: bool
+    agent_role: str = "unassigned"
+    expected_artifacts: list[str] = Field(default_factory=list)
+    acceptance_criteria: list[str] = Field(default_factory=list)
     execution_status: str = "not_configured"
 
 
@@ -74,5 +77,6 @@ class WorkflowPlan(BaseModel):
     execution_enabled: bool = False
     ordered_steps: list[PlannedStep]
     approval_required_steps: list[str]
-    policy_version: str = "institutional-workflow-policy-v2"
+    policy_version: str = "institutional-workflow-policy-v3"
+    quality_policy: str = "deliverable-contracts-v1"
     warnings: list[str]
