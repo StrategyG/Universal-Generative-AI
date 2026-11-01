@@ -81,6 +81,15 @@ def test_generation_job_history_survives_queue_recreation():
             assert recovered is not None
             assert recovered.status is JobStatus.SUCCEEDED
             assert recovered.output_asset == "asset://generated/result.png"
+
+            cross_tenant = await restarted.get_generation_job(
+                job_id,
+                tenant_id="another-tenant",
+                owner_subject="test-owner",
+                project_ids=["test-project"],
+                tenant_admin=True,
+            )
+            assert cross_tenant is None
         finally:
             await restarted.close()
 
