@@ -2,7 +2,15 @@ import collections.abc
 import contextlib
 import hmac
 
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException
+
+from app.auth import (
+    Principal,
+    ensure_project_access,
+    get_current_principal,
+    require_generation_role,
+    validate_auth_configuration,
+)
 
 from app.config import settings
 from app.pipelines.planner import build_pipeline_plan
@@ -57,6 +65,7 @@ from app.workers.schemas import (
 
 @contextlib.asynccontextmanager
 async def lifespan(_: FastAPI) -> collections.abc.AsyncIterator[None]:
+    validate_auth_configuration()
     await initialize_queue()
     try:
         yield
@@ -119,7 +128,12 @@ async def health():
 
 
 @app.post(f"{settings.api_prefix}/generate", response_model=JobResponse)
-async def generate(request: GenerationRequest):
+async def generate(
+    request: GenerationRequest,
+    principal: Principal = Depends(get_current_principal),
+):
+    require_generation_role(principal)
+    ensure_project_access(principal, request.project_id)
     if not request.prompt and not request.input_asset:
         raise HTTPException(status_code=422, detail="prompt or input_asset is required")
     strict_model_registry = (
@@ -135,22 +149,29 @@ async def generate(request: GenerationRequest):
         except ModelApprovalRequiredError as exc:
             raise HTTPException(status_code=403, detail=str(exc)) from exc
     try:
-        return await submit_job(request)
+        return await submit_job(request, principal)
     except (KeyError, ValueError) as exc:
         raise HTTPException(status_code=501, detail=str(exc)) from exc
 
 
 @app.get(f"{settings.api_prefix}/jobs/{{job_id}}", response_model=JobResponse)
-async def job_status(job_id: str):
-    job = await get_job(job_id)
+async def job_status(
+    job_id: str,
+    principal: Principal = Depends(get_current_principal),
+):
+    job = await get_job(job_id, principal)
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
     return job
 
 
 @app.post(f"{settings.api_prefix}/pipelines/plan", response_model=PipelinePlan)
-async def plan_pipeline(request: PipelineRequest):
+async def plan_pipeline(
+    request: PipelineRequest,
+    principal: Principal = Depends(get_current_principal),
+):
     """Validate a workflow request and return a dependency/resource plan; never executes it."""
+    require_generation_role(principal)
     try:
         return build_pipeline_plan(request)
     except ValueError as exc:
