@@ -19,8 +19,8 @@ BEGIN
                 OR (tenant_id IS NOT NULL AND owner_subject IS NOT NULL)
             ) NOT VALID;
     END IF;
-END
-$$;
+END;
+$;
 
 CREATE INDEX IF NOT EXISTS idx_generation_jobs_tenant_owner_updated
     ON generation_jobs (tenant_id, owner_subject, updated_at DESC);
