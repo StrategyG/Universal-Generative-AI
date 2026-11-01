@@ -234,6 +234,8 @@ async def plan_institutional_workflow(
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail="Workflow plan persistence is unavailable") from exc
 
 
 @app.get(
