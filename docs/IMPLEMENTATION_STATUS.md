@@ -1,9 +1,9 @@
 # Implementation Status
 
-**Snapshot:** 2026-10-31  
+**Snapshot:** 2026-11-01  
 **Repository:** `StrategyG/Universal-Generative-AI`  
 **Branch:** `feature/multimodal-platform-v1`  
-**Snapshot commit:** `530d0c418f04e3154e1e0055536f4fdf9da443f3`
+**Code snapshot:** Stage 2 OIDC implementation on `feature/multimodal-platform-v1`; latest test result pending
 
 ## Implemented in repository
 
@@ -31,8 +31,10 @@
 | Rigging / skin weighting / motion / retargeting | BLOCKED | No executable providers |
 | Blender / FFmpeg rendering | BLOCKED | No executable renderer |
 | Model registry / approval gate | PASS (CI #76 scope) | Immutable revision, evidence-gated approval, production external-GPU/non-mock generation enforcement, worker claim filter and disable cancellation. Evidence is operator-supplied, not independently verified |
-| User AuthN/AuthZ, RBAC, tenancy | BLOCKED | No end-user identity, project permissions or tenant isolation |
+| User AuthN/AuthZ, RBAC, tenancy | PARTIAL | OIDC RS256/JWKS principal integration; production fail-closed startup; role/project checks on generation; tenant/owner/project-scoped general generation history. No live IdP, human admin RBAC, external-GPU tenancy, artifact ACLs, quotas or rate limits |
 | Audit / observability | BLOCKED | No durable actor event log, distributed tracing, metrics, alerts or cost attribution |
+| OIDC and scoped generation access tests | NOT VERIFIED | Added in `tests/test_auth.py` and updated PostgreSQL integration coverage; latest CI result pending |
+| Generation ownership migration | NOT VERIFIED | Migration `0007_generation_job_tenant_scope.sql` added; no production database migration executed |
 | Supply-chain security | BLOCKED | SBOM, dependency/container scanning and signed build provenance absent |
 
 ## Recent engineering commits
@@ -74,6 +76,14 @@
 - Actual PNG-to-GLB inference: **NOT RUN**.
 - Actual GLB-to-MP4 rendering/video decode: **NOT RUN**.
 - Production recovery, load testing, security scanning and multi-tenant tests: **NOT RUN**.
+
+## Stage 2 security foundation
+
+OIDC bearer-token verification is implemented as an integration contract using a configured issuer, audience and JWKS URL. The implementation accepts RS256, requires subject/issuer/audience/expiry/issued-at claims, and maps configured tenant, role and project claims. Production startup refuses disabled or incomplete authentication.
+
+Generation requests and pipeline planning require an authenticated principal in OIDC mode. Generation requires a generation-capable role and project membership. General generation job records now carry tenant, owner subject and project identifiers, and read queries are scoped to tenant plus owner/project/tenant-administrator access. Existing legacy rows without owner metadata remain inaccessible through that API.
+
+This is not a complete IAM solution. The repository does not create user accounts, issue tokens, provide MFA, or maintain project membership. Model-registry/worker administration still uses the static operator token. External-GPU jobs and artifacts are not yet tenant-scoped. Rate limits, quotas and cost controls remain absent. The new OIDC tests and migration integration tests require a fresh CI result; they are not counted as verified in this snapshot.
 
 ## Important boundaries
 
