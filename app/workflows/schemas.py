@@ -1,4 +1,6 @@
+from datetime import datetime, timezone
 from enum import Enum
+from uuid import uuid4
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -62,6 +64,8 @@ class PlannedStep(BaseModel):
 
 
 class WorkflowPlan(BaseModel):
+    plan_id: str = Field(default_factory=lambda: str(uuid4()))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     project_id: str
     domain: ProjectDomain
     title: str
