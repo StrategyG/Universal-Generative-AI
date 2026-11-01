@@ -82,6 +82,18 @@ class PostgresExternalGPUQueue:
                        )
                        AND to_regclass('generation_jobs') IS NOT NULL
                        AND to_regclass('model_registry_versions') IS NOT NULL
+                       AND EXISTS (
+                           SELECT 1 FROM information_schema.columns
+                           WHERE table_name = 'generation_jobs' AND column_name = 'tenant_id'
+                       )
+                       AND EXISTS (
+                           SELECT 1 FROM information_schema.columns
+                           WHERE table_name = 'generation_jobs' AND column_name = 'owner_subject'
+                       )
+                       AND EXISTS (
+                           SELECT 1 FROM information_schema.columns
+                           WHERE table_name = 'generation_jobs' AND column_name = 'project_id'
+                       )
                     """
                 )
             )
@@ -606,15 +618,31 @@ class PostgresExternalGPUQueue:
         return self._to_job(row) if row is not None else None
 
 
-    async def create_generation_job(self, job: JobResponse) -> JobResponse:
+    async def create_generation_job(
+        self,
+        job: JobResponse,
+        owner_subject: str,
+        tenant_id: str,
+        project_id: str | None,
+    ) -> JobResponse:
         pool = self._require_pool()
         row = await pool.fetchrow(
             """
-            INSERT INTO generation_jobs (job_id, task, status, message, output_asset)
-            VALUES ($1, $2, $3, $4, $5)
+            INSERT INTO generation_jobs (
+                job_id, task, status, message, output_asset,
+                tenant_id, owner_subject, project_id
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             RETURNING *
             """,
-            job.job_id, job.task.value, job.status.value, job.message, job.output_asset,
+            job.job_id,
+            job.task.value,
+            job.status.value,
+            job.message,
+            job.output_asset,
+            tenant_id,
+            owner_subject,
+            project_id,
         )
         return self._to_generation_job(row)
 
@@ -631,10 +659,31 @@ class PostgresExternalGPUQueue:
         )
         return self._to_generation_job(row) if row is not None else job
 
-    async def get_generation_job(self, job_id: str) -> JobResponse | None:
+    async def get_generation_job(
+        self,
+        job_id: str,
+        tenant_id: str,
+        owner_subject: str,
+        project_ids: list[str],
+        tenant_admin: bool,
+    ) -> JobResponse | None:
         pool = self._require_pool()
         row = await pool.fetchrow(
-            "SELECT * FROM generation_jobs WHERE job_id = $1", job_id
+            """
+            SELECT * FROM generation_jobs
+            WHERE job_id = $1
+              AND tenant_id = $2
+              AND (
+                  owner_subject = $3
+                  OR project_id = ANY($4::text[])
+                  OR $5::boolean
+              )
+            """,
+            job_id,
+            tenant_id,
+            owner_subject,
+            project_ids,
+            tenant_admin,
         )
         return self._to_generation_job(row) if row is not None else None
 
