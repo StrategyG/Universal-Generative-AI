@@ -192,7 +192,7 @@ async def plan_pipeline(
 
 
 @app.post(
-    f"{settings.api_prefix}/workflows/templates/{domain}",
+    f"{settings.api_prefix}/workflows/templates/{{domain}}",
     response_model=WorkflowPlan,
 )
 async def create_institutional_workflow_template(
@@ -239,7 +239,7 @@ async def plan_institutional_workflow(
 
 
 @app.get(
-    f"{settings.api_prefix}/workflows/plans/{plan_id}",
+    f"{settings.api_prefix}/workflows/plans/{{plan_id}}",
     response_model=WorkflowPlan,
 )
 async def read_institutional_workflow_plan(
