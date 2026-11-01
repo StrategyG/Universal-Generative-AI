@@ -19,6 +19,25 @@ pip install -e ".[dev]"
 uvicorn app.main:app --reload
 ```
 
+## User authentication and tenant scope
+
+Local development defaults to `AUTH_MODE=disabled` only when `ENVIRONMENT` is not `production`. In this mode, the API creates a local development principal; this mode is not suitable for any shared or public deployment.
+
+Production startup fails closed unless `AUTH_MODE=oidc` and the following settings are provided:
+
+- `OIDC_ISSUER`: exact token issuer.
+- `OIDC_AUDIENCE`: API audience expected in the access token.
+- `OIDC_JWKS_URL`: HTTPS JSON Web Key Set endpoint.
+- `OIDC_TENANT_CLAIM`: tenant claim name (default `tenant_id`).
+- `OIDC_ROLES_CLAIM`: role claim name (default `roles`).
+- `OIDC_PROJECTS_CLAIM`: project membership claim name (default `project_ids`).
+
+The current OIDC contract verifies RS256 signatures using the configured JWKS and requires `sub`, `iss`, `aud`, `exp`, and `iat`. The token must contain a non-empty tenant claim. Supported platform role values are `developer`, `project_owner`, `tenant_admin`, `platform_admin`, and `read_only`. Generation requires a generation-capable role and a `project_id` included in the caller's project membership claim, except that a platform administrator may select a project within the tenant asserted by the token.
+
+Generation history is stored with tenant, owner subject, and project scope. A caller can read a job only when it belongs to the same tenant and the caller is its owner, a member of its project, or a tenant administrator. Existing historical rows without ownership metadata remain inaccessible through the OIDC-scoped job API.
+
+This is an identity-provider integration contract, not a built-in user database or login service. The identity provider remains responsible for user lifecycle, tenant membership, project membership freshness, MFA, and token issuance. Static worker/operator credentials remain a separate machine-identity path; full human RBAC for model-registry administration, rate limits, quotas, external-GPU job tenancy, and artifact authorization are not yet implemented.
+
 Health: `GET /health`
 
 Submit a mock generation job: `POST /api/v1/generate`
