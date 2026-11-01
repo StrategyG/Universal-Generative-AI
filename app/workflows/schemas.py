@@ -23,6 +23,7 @@ class WorkflowStepRequest(BaseModel):
     title: str = Field(min_length=1, max_length=160)
     action: str = Field(min_length=1, max_length=80)
     depends_on: list[str] = Field(default_factory=list, max_length=32)
+    # Client-supplied hints are accepted for compatibility but never authorize execution.
     side_effect: SideEffect = SideEffect.NONE
     risk_score: int = Field(default=0, ge=0, le=5)
 
@@ -49,6 +50,7 @@ class PlannedStep(BaseModel):
     depends_on: list[str]
     side_effect: SideEffect
     risk_score: int
+    policy_rule: str
     requires_human_approval: bool
     execution_status: str = "not_configured"
 
@@ -62,5 +64,5 @@ class WorkflowPlan(BaseModel):
     execution_enabled: bool = False
     ordered_steps: list[PlannedStep]
     approval_required_steps: list[str]
-    policy_version: str = "institutional-workflow-policy-v1"
+    policy_version: str = "institutional-workflow-policy-v2"
     warnings: list[str]
