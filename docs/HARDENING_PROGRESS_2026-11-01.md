@@ -3,7 +3,7 @@
 Repository: StrategyG/Universal-Generative-AI  
 Working branch: hardening/institutional-production-v1  
 Pull request: #1 (draft; base: feature/multimodal-platform-v1)  
-Verified candidate code commit: 57ea278a1eef68d94752d465eb0f9e226b6707cc
+Verified candidate commit: 75aec5b40a9ffa636d548bfea04c112cc473d9c1
 
 ## Implemented in this increment
 
@@ -22,8 +22,8 @@ Verified candidate code commit: 57ea278a1eef68d94752d465eb0f9e226b6707cc
 - Earlier hardening baseline: CI passed 55 tests with PostgreSQL integration on commit 2fb2b4821bd12030fbd6ff52e6d1c58138fd1452; see run https://github.com/StrategyG/Universal-Generative-AI/actions/runs/41329212604.
 - Earlier dependency audit passed on the same baseline; see https://github.com/StrategyG/Universal-Generative-AI/actions/runs/41329212741.
 - Intermediate workflow-control CI attempts exposed a syntax issue in a test and a duplicate action-registry key. Both were corrected. Those failed runs are not release evidence.
-- GitHub Actions CI on candidate commit 57ea278a1eef68d94752d465eb0f9e226b6707cc: PASS. Ruff passed; PostgreSQL 16-backed test job completed; pytest reported 69 passed, 1 warning, 0 failed. Run: https://github.com/StrategyG/Universal-Generative-AI/actions/runs/41334133698.
-- Supply Chain Security on the same candidate commit: PASS. pip-audit completed without reporting vulnerabilities in the audited installed Python dependency environment. Run: https://github.com/StrategyG/Universal-Generative-AI/actions/runs/41334133646.
+- GitHub Actions CI on candidate commit 75aec5b40a9ffa636d548bfea04c112cc473d9c1: PASS. Ruff passed; PostgreSQL 16-backed test job completed; pytest reported 69 passed, 1 warning, 0 failed. Run: https://github.com/StrategyG/Universal-Generative-AI/actions/runs/41334212696.
+- Supply Chain Security on the same candidate commit: PASS. pip-audit completed without reporting vulnerabilities in the audited installed Python dependency environment. Run: https://github.com/StrategyG/Universal-Generative-AI/actions/runs/41334212725.
 - These checks validate the exact candidate commit above. Any subsequent source or workflow change requires a new candidate verification.
 
 ## What the current implementation does not establish
