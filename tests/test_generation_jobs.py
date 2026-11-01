@@ -50,7 +50,12 @@ def test_generation_job_history_survives_queue_recreation():
                 status=JobStatus.RUNNING,
                 message="Inference started",
             )
-            created = await first.create_generation_job(running)
+            created = await first.create_generation_job(
+                running,
+                owner_subject="test-owner",
+                tenant_id="test-tenant",
+                project_id="test-project",
+            )
             assert created.status is JobStatus.RUNNING
             completed = running.model_copy(
                 update={
@@ -66,7 +71,13 @@ def test_generation_job_history_survives_queue_recreation():
         restarted = PostgresExternalGPUQueue(database_url)
         await restarted.open()
         try:
-            recovered = await restarted.get_generation_job(job_id)
+            recovered = await restarted.get_generation_job(
+                job_id,
+                tenant_id="test-tenant",
+                owner_subject="test-owner",
+                project_ids=["test-project"],
+                tenant_admin=False,
+            )
             assert recovered is not None
             assert recovered.status is JobStatus.SUCCEEDED
             assert recovered.output_asset == "asset://generated/result.png"
