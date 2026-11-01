@@ -47,7 +47,13 @@ from app.services.model_registry_errors import (
 )
 from app.services.queue_errors import IdempotencyConflictError
 from app.workflows.planner import build_workflow_plan
-from app.workflows.schemas import WorkflowPlan, WorkflowPlanRequest
+from app.workflows.templates import build_domain_template
+from app.workflows.schemas import (
+    ProjectDomain,
+    WorkflowPlan,
+    WorkflowPlanRequest,
+    WorkflowTemplateRequest,
+)
 from app.workers.schemas import (
     ExternalJob,
     ExternalJobCreate,
@@ -181,6 +187,21 @@ async def plan_pipeline(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+
+
+@app.post(
+    f"{settings.api_prefix}/workflows/templates/{domain}",
+    response_model=WorkflowPlan,
+)
+async def create_institutional_workflow_template(
+    domain: ProjectDomain,
+    request: WorkflowTemplateRequest,
+    principal: Principal = Depends(get_current_principal),
+):
+    """Build a deterministic starter plan for a supported project domain."""
+    require_generation_role(principal)
+    ensure_project_access(principal, request.project_id)
+    return build_domain_template(domain, request)
 
 
 @app.post(
