@@ -180,3 +180,13 @@ def test_generation_jobs_are_scoped_to_tenant_owner_and_project(monkeypatch):
             assert cross_tenant_read.status_code == 404
     finally:
         app.dependency_overrides.pop(auth.get_current_principal, None)
+
+
+def test_oidc_mode_requires_bearer_authentication(monkeypatch):
+    _oidc_settings(monkeypatch)
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/generate",
+            json={"task": "text_to_image", "prompt": "unauthenticated", "project_id": "project-1"},
+        )
+    assert response.status_code == 401
