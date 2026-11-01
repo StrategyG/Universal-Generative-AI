@@ -6,6 +6,7 @@
 - [Threat model](THREAT_MODEL.md)
 - [Stage 2 security foundation](STAGE_2_SECURITY_FOUNDATION.md)
 - [Model governance](MODEL_GOVERNANCE.md)
+- [Generation quality contracts](GENERATION_QUALITY_CONTRACTS.md)
 - [External GPU operations](EXTERNAL_GPU_OPERATIONS.md)
 - [Production readiness](PRODUCTION_READINESS.md)
 - [Operations runbooks](OPERATIONS_RUNBOOKS.md)
