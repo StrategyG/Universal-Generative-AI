@@ -9,6 +9,7 @@ from app.auth import (
     ensure_project_access,
     get_current_principal,
     require_generation_role,
+    require_job_read_role,
     validate_auth_configuration,
 )
 
@@ -159,6 +160,7 @@ async def job_status(
     job_id: str,
     principal: Principal = Depends(get_current_principal),
 ):
+    require_job_read_role(principal)
     job = await get_job(job_id, principal)
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
