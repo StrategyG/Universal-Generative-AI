@@ -49,11 +49,12 @@ async def submit_job(request: GenerationRequest, principal: Principal) -> JobRes
             ),
             output_asset=result.output_asset,
         )
-    except Exception:  # noqa: BLE001 - provider details must not reach API clients
-        logger.exception(
-            "Generation provider failed; job_id=%s task=%s",
+    except Exception as exc:  # noqa: BLE001 - provider details must not reach API clients
+        logger.error(
+            "Generation provider failed; job_id=%s task=%s error_type=%s",
             job_id,
             request.task.value,
+            type(exc).__name__,
         )
         response = JobResponse(
             job_id=job_id,
