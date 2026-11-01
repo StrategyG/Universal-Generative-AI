@@ -13,7 +13,12 @@ from app.auth import (
     validate_auth_configuration,
 )
 
+from app.ai_schemas import AICompletionRequest, AICompletionResponse
 from app.config import settings
+from app.providers.openai_compatible_text import (
+    OpenAICompatibleTextProvider,
+    TextGenerationProviderError,
+)
 from app.pipelines.planner import build_pipeline_plan
 from app.pipelines.schemas import PipelinePlan, PipelineRequest
 from app.schemas import GenerationRequest, JobResponse
@@ -163,6 +168,50 @@ async def generate(
         return await submit_job(request, principal)
     except (KeyError, ValueError) as exc:
         raise HTTPException(status_code=501, detail=str(exc)) from exc
+
+
+
+@app.post(
+    f"{settings.api_prefix}/ai/complete",
+    response_model=AICompletionResponse,
+)
+async def complete_ai_generation(
+    request: AICompletionRequest,
+    principal: Principal = Depends(get_current_principal),
+):
+    """Generate domain-specialist text; rigorous mode performs draft, critique, and revision."""
+    require_generation_role(principal)
+    ensure_project_access(principal, request.project_id)
+
+    strict_model_registry = (
+        settings.model_registry_enforcement
+        or settings.environment.lower() in {"production", "prod"}
+    )
+    if strict_model_registry:
+        if not settings.text_generation_model_id or not settings.text_generation_model_revision:
+            raise HTTPException(
+                status_code=503,
+                detail="Production text generation requires a registered immutable model revision",
+            )
+        try:
+            await assert_model_approved(
+                settings.text_generation_model_id,
+                settings.text_generation_model_revision,
+            )
+        except ModelApprovalRequiredError as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=503, detail="Text model registry is unavailable") from exc
+
+    try:
+        provider = OpenAICompatibleTextProvider.from_settings()
+    except TextGenerationProviderError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    try:
+        result = await provider.generate(request)
+    except TextGenerationProviderError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return AICompletionResponse(**result)
 
 
 @app.get(f"{settings.api_prefix}/jobs/{{job_id}}", response_model=JobResponse)

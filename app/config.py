@@ -9,6 +9,12 @@ class Settings(BaseSettings):
     max_upload_bytes: int = 50 * 1024 * 1024
     artifact_dir: str = "artifacts"
     generation_backend: str = "mock"
+    text_generation_base_url: str = ""
+    text_generation_api_key: str = ""
+    text_generation_model: str = ""
+    text_generation_model_id: str = ""
+    text_generation_model_revision: str = ""
+    text_generation_timeout_seconds: float = 90.0
     gpu_required: bool = False
     image_model_id: str = ""
     image_model_revision: str = ""
