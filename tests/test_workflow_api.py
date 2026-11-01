@@ -21,7 +21,8 @@ def test_workflow_plan_endpoint_returns_controlled_plan():
     body = response.json()
     assert body["execution_enabled"] is False
     assert body["plan_id"]
-    saved = client.get(f"/api/v1/workflows/plans/{body[\"plan_id\"]}")
+    plan_id = body["plan_id"]
+    saved = client.get(f"/api/v1/workflows/plans/{plan_id}")
     assert saved.status_code == 200
     assert saved.json()["plan_id"] == body["plan_id"]
     assert body["status"] == "planning_only"
