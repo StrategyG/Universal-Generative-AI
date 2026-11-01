@@ -24,6 +24,7 @@ _ACTION_POLICY: dict[str, tuple[int, SideEffect, str]] = {
     "create_storyboard": (1, SideEffect.NONE, "film.create_storyboard"),
     "generate_asset": (2, SideEffect.WORKSPACE_WRITE, "film.generate_asset"),
     "assemble_shot": (2, SideEffect.WORKSPACE_WRITE, "film.assemble_shot"),
+    "assemble_shot": (2, SideEffect.WORKSPACE_WRITE, "film.assemble_shot"),
     "render_video": (2, SideEffect.WORKSPACE_WRITE, "film.render_video"),
     "quality_review": (1, SideEffect.NONE, "media.quality_review"),
     "publish": (5, SideEffect.PUBLISH, "media.publish"),
