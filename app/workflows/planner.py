@@ -29,6 +29,10 @@ _ACTION_POLICY: dict[str, tuple[int, SideEffect, str]] = {
     "publish": (5, SideEffect.PUBLISH, "media.publish"),
     "delete_asset": (5, SideEffect.DELETE, "artifact.delete"),
     "external_write": (5, SideEffect.EXTERNAL_WRITE, "workflow.external_write"),
+    "intake_request": (1, SideEffect.NONE, "workflow.intake_request"),
+    "classify_request": (1, SideEffect.NONE, "workflow.classify_request"),
+    "reconcile_result": (1, SideEffect.NONE, "workflow.reconcile_result"),
+    "generate_report": (1, SideEffect.NONE, "workflow.generate_report"),
 }
 
 _APPROVAL_SIDE_EFFECTS = {
