@@ -20,6 +20,7 @@ class GenerationRequest(BaseModel):
     task: TaskType
     prompt: str | None = Field(default=None, max_length=4000)
     input_asset: str | None = None
+    project_id: str | None = Field(default=None, min_length=1, max_length=128)
     options: dict[str, str | int | float | bool] = Field(default_factory=dict)
 
 class JobResponse(BaseModel):
