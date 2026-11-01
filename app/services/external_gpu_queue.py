@@ -342,9 +342,19 @@ async def claim_for_worker(worker_id: str) -> ExternalJob | None:
     )
 
 
-async def persist_generation_job(job):
+async def persist_generation_job(
+    job,
+    owner_subject: str,
+    tenant_id: str,
+    project_id: str | None,
+):
     if _postgres_queue is not None:
-        return await _postgres_queue.create_generation_job(job)
+        return await _postgres_queue.create_generation_job(
+            job,
+            owner_subject=owner_subject,
+            tenant_id=tenant_id,
+            project_id=project_id,
+        )
     return job
 
 
@@ -354,9 +364,21 @@ async def update_generation_job(job):
     return job
 
 
-async def get_persisted_generation_job(job_id):
+async def get_persisted_generation_job(
+    job_id: str,
+    tenant_id: str,
+    owner_subject: str,
+    project_ids: list[str],
+    tenant_admin: bool,
+):
     if _postgres_queue is not None:
-        return await _postgres_queue.get_generation_job(job_id)
+        return await _postgres_queue.get_generation_job(
+            job_id,
+            tenant_id=tenant_id,
+            owner_subject=owner_subject,
+            project_ids=project_ids,
+            tenant_admin=tenant_admin,
+        )
     return None
 
 
