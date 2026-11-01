@@ -14,6 +14,7 @@ from app.config import settings
 _bearer = HTTPBearer(auto_error=False)
 _PRODUCTION_ENVIRONMENTS = {"production", "prod"}
 _GENERATION_ROLES = {"developer", "project_owner", "tenant_admin", "platform_admin"}
+_JOB_READ_ROLES = _GENERATION_ROLES | {"read_only"}
 
 
 @dataclass(frozen=True)
@@ -73,7 +74,7 @@ def _jwks_client(jwks_url: str):
         from jwt import PyJWKClient
     except ImportError as exc:
         raise RuntimeError("OIDC authentication requires PyJWT[crypto]") from exc
-    return PyJWKClient(jwks_url, cache_jwk_set=True, lifespan=300)
+    return PyJWKClient(jwks_url, cache_jwk_set=True, lifespan=300, timeout=5)
 
 
 def decode_access_token(token: str) -> dict[str, Any]:
@@ -177,6 +178,14 @@ def require_generation_role(principal: Principal) -> None:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="The caller is not permitted to submit generation requests",
+        )
+
+
+def require_job_read_role(principal: Principal) -> None:
+    if not principal.roles.intersection(_JOB_READ_ROLES):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="The caller is not permitted to read generation jobs",
         )
 
 
