@@ -20,7 +20,7 @@ BEGIN
             ) NOT VALID;
     END IF;
 END;
-$;
+$$;
 
 CREATE INDEX IF NOT EXISTS idx_generation_jobs_tenant_owner_updated
     ON generation_jobs (tenant_id, owner_subject, updated_at DESC);
