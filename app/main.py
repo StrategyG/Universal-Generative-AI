@@ -46,6 +46,8 @@ from app.services.model_registry_errors import (
     ModelRegistryConflictError,
 )
 from app.services.queue_errors import IdempotencyConflictError
+from app.workflows.planner import build_workflow_plan
+from app.workflows.schemas import WorkflowPlan, WorkflowPlanRequest
 from app.workers.schemas import (
     ExternalJob,
     ExternalJobCreate,
@@ -179,6 +181,23 @@ async def plan_pipeline(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+
+
+@app.post(
+    f"{settings.api_prefix}/workflows/plan",
+    response_model=WorkflowPlan,
+)
+async def plan_institutional_workflow(
+    request: WorkflowPlanRequest,
+    principal: Principal = Depends(get_current_principal),
+):
+    """Validate a project-scoped workflow; this endpoint never executes steps."""
+    require_generation_role(principal)
+    ensure_project_access(principal, request.project_id)
+    try:
+        return build_workflow_plan(request)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @app.post(
