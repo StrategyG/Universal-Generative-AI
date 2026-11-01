@@ -1,50 +1,40 @@
-# Institutional Hardening Progress — 2026-11-01
+# Institutional Hardening Progress — 2026-11-02
 
 Repository: StrategyG/Universal-Generative-AI  
 Working branch: hardening/institutional-production-v1  
-Pull request: #1 (draft)  
-Current candidate commit: 2fb2b4821bd12030fbd6ff52e6d1c58138fd1452
+Pull request: #1 (draft; base: feature/multimodal-platform-v1)  
+Candidate code commit before this report update: daa66afbad524311c4175372a40cb013f90e634d
 
-## Completed in this hardening increment
+## Implemented in this increment
 
-- Fixed Diffusers seed handling so seed zero is passed to torch.Generator.manual_seed instead of being skipped.
-- Added a regression test asserting the applied seed and reported metadata are both zero.
-- Fixed migration 0007 PostgreSQL dollar-quote termination from an invalid single-dollar terminator to the required paired delimiter.
-- Corrected the API test to assert fail-closed 503 behavior when the production model registry is unavailable. A missing registry is an operational failure and must not be misrepresented as an approval decision.
-- Pinned the Ruff lint rule set explicitly to E4, E7, E9, and F to preserve stable baseline lint behavior across Ruff upgrades.
-- Raised pytest to a patched 9.x range and setuptools build-system minimum to 84.1.0.
-- Added a scheduled and pull-request-triggered pip-audit workflow.
-- Added institutional production gates and an explicit NO-GO release policy.
+- Deterministic Diffusers seed handling, including seed zero, with regression coverage.
+- Fixed PostgreSQL migration 0007 dollar-quote termination and added migration 0008 for tenant-scoped workflow plan persistence.
+- Added a shared workflow plan contract for coding, film/media, and general operations.
+- Added deterministic dependency DAG validation and stable topological ordering; duplicate IDs, unknown dependencies, self-dependencies, and cycles are rejected.
+- Replaced caller-authoritative risk and side-effect classification with a server-owned action policy. Client hints cannot downgrade a registered action; unknown actions fail closed as risk 5 / external write / human approval.
+- Added domain starter blueprints for coding, film, and general workflow projects.
+- Added project-scoped workflow plan creation and retrieval. PostgreSQL mode persists plan JSON, policy version, tenant, owner, project, ID, and creation timestamp. Retrieval is constrained by tenant plus owner/project/admin authorization. Development memory mode is explicitly volatile.
+- Added API and PostgreSQL integration coverage for plan retrieval, restart persistence, and cross-tenant denial.
+- Updated README and workflow-control documentation to distinguish planning from execution.
 
-## Verification evidence for candidate commit
+## Verification evidence
 
-- GitHub Actions CI: PASS.
-  - Dependency installation: PASS.
-  - Ruff: PASS.
-  - PostgreSQL 16 integration tests: PASS.
-  - Pytest: 55 passed, 1 warning, 0 failed.
-  - Workflow run: https://github.com/StrategyG/Universal-Generative-AI/actions/runs/41329212604
-- Supply Chain Security: PASS.
-  - Patched build tooling installed.
-  - pip-audit completed with no reported vulnerabilities in the audited installed environment.
-  - Workflow run: https://github.com/StrategyG/Universal-Generative-AI/actions/runs/41329212741
+- Earlier hardening baseline: CI passed 55 tests with PostgreSQL integration on commit 2fb2b4821bd12030fbd6ff52e6d1c58138fd1452; see run https://github.com/StrategyG/Universal-Generative-AI/actions/runs/41329212604.
+- Earlier dependency audit passed on the same baseline; see https://github.com/StrategyG/Universal-Generative-AI/actions/runs/41329212741.
+- Intermediate workflow-control CI attempts exposed a syntax issue in a test and a duplicate action-registry key. Both were corrected. Those failed runs are not release evidence.
+- CI and supply-chain checks for the current candidate are running against the updated code; final pass/fail evidence must be read from the exact current branch head before merge.
 
-## What this evidence does and does not establish
+## What the current implementation does not establish
 
-The green CI proves the tested application paths and PostgreSQL integration fixtures pass in GitHub-hosted CI for the recorded commit. The dependency audit is limited to the installed Python dependency environment and is not an SBOM, container scan, model-weight scan, or complete supply-chain attestation.
-
-It does not prove:
-- a live OIDC identity provider and real tenant provisioning;
-- production object storage, signed access, byte-level artifact verification, or malware handling;
-- durable asynchronous execution for the general generation API after process restart;
-- complete tenant isolation for external GPU jobs, artifacts, and administrative operations;
-- executable image-to-3D, rigging, motion, video, audio, or rendering pipelines;
-- real Colab/Kaggle GPU execution or real model inference;
-- production observability, rate limits, quotas, cost controls, backup/restore, load, chaos, or multi-replica behavior;
-- human release approval and tested rollback on a production-like environment.
+- It does not execute agent steps, run shell/code, edit repositories, render films, call external providers, or publish media.
+- Plan persistence is not a durable step scheduler; no worker lease/retry/recovery exists for workflow steps.
+- There is no approval decision endpoint or append-only institutional audit ledger yet.
+- No trusted artifact/object storage, signed asset access, checksum/MIME validation, or malware scanning is implemented.
+- No real GPU/model/provider smoke test for image-to-3D, rigging, motion, video, audio, or film rendering has been performed.
+- Live OIDC tenant provisioning, complete IAM/RBAC, external-job tenant isolation, quotas, cost governance, observability, load, backup/restore, deployment, and rollback evidence remain incomplete.
 
 ## Release decision
 
 **NO-GO — NOT PRODUCTION READY.**
 
-The current PR is intentionally draft and must not be treated as a production release. Continue with the remaining mandatory gates in docs/INSTITUTIONAL_PRODUCTION_GATES.md. No claim of production readiness is valid until every mandatory gate has evidence tied to the exact release candidate.
+The current changes materially improve workflow planning, risk classification, and durable plan records. They do not constitute an autonomous coding/film production engine or a production-certified institutional AI service. Keep PR #1 in draft until all mandatory gates in docs/INSTITUTIONAL_PRODUCTION_GATES.md have reproducible evidence tied to the exact release candidate.
