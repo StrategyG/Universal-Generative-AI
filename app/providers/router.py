@@ -7,6 +7,8 @@ from collections.abc import AsyncIterator, Sequence
 from app.ai_schemas import AICompletionRequest
 from app.config import settings
 from app.providers.openai_compatible_text import OpenAICompatibleTextProvider
+from app.providers.anthropic_messages import AnthropicMessagesProvider
+from app.providers.gemini_generate_content import GeminiGenerateContentProvider
 from app.providers.text_base import TextModelProvider
 from app.providers.text_errors import TextGenerationProviderError
 from app.observability import current_request_id
@@ -38,20 +40,34 @@ class TextModelRouter:
 
     @classmethod
     def from_settings(cls) -> "TextModelRouter":
-        primary = OpenAICompatibleTextProvider.from_settings()
-        providers: list[TextModelProvider] = [primary]
+        configured: dict[str, TextModelProvider] = {}
+
+        primary_values = (
+            settings.text_generation_base_url,
+            settings.text_generation_model,
+        )
+        if any(primary_values):
+            if not all(primary_values):
+                raise TextGenerationProviderError(
+                    "Primary OpenAI-compatible route requires both "
+                    "TEXT_GENERATION_BASE_URL and TEXT_GENERATION_MODEL",
+                    code="configuration_error",
+                )
+            configured["openai-compatible-chat"] = (
+                OpenAICompatibleTextProvider.from_settings()
+            )
 
         fallback_values = (
             settings.text_generation_fallback_base_url,
             settings.text_generation_fallback_model,
         )
-        if any(fallback_values) and not all(fallback_values):
-            raise TextGenerationProviderError(
-                "Fallback provider requires both TEXT_GENERATION_FALLBACK_BASE_URL "
-                "and TEXT_GENERATION_FALLBACK_MODEL",
-                code="configuration_error",
-            )
-        if all(fallback_values):
+        if any(fallback_values):
+            if not all(fallback_values):
+                raise TextGenerationProviderError(
+                    "Fallback route requires both TEXT_GENERATION_FALLBACK_BASE_URL "
+                    "and TEXT_GENERATION_FALLBACK_MODEL",
+                    code="configuration_error",
+                )
             fallback = OpenAICompatibleTextProvider(
                 base_url=settings.text_generation_fallback_base_url,
                 model=settings.text_generation_fallback_model,
@@ -60,10 +76,63 @@ class TextModelRouter:
                 model_id=settings.text_generation_fallback_model_id,
                 model_revision=settings.text_generation_fallback_model_revision,
             )
-            providers.append(fallback)
+            fallback.name = "openai-compatible-chat-fallback"
+            configured[fallback.name] = fallback
 
+        anthropic_values = (settings.anthropic_api_key, settings.anthropic_model)
+        if any(anthropic_values):
+            if not all(anthropic_values):
+                raise TextGenerationProviderError(
+                    "Anthropic route requires both ANTHROPIC_API_KEY and ANTHROPIC_MODEL",
+                    code="configuration_error",
+                )
+            provider = AnthropicMessagesProvider.from_settings()
+            configured[provider.name] = provider
+
+        gemini_values = (settings.gemini_api_key, settings.gemini_model)
+        if any(gemini_values):
+            if not all(gemini_values):
+                raise TextGenerationProviderError(
+                    "Gemini route requires both GEMINI_API_KEY and GEMINI_MODEL",
+                    code="configuration_error",
+                )
+            provider = GeminiGenerateContentProvider.from_settings()
+            configured[provider.name] = provider
+
+        order = [
+            item.strip()
+            for item in settings.text_generation_provider_order.split(",")
+            if item.strip()
+        ]
+        allowed_names = {
+            "openai-compatible-chat",
+            "openai-compatible-chat-fallback",
+            "anthropic-messages",
+            "gemini-generate-content",
+        }
+        unknown = sorted(set(order) - allowed_names)
+        if unknown:
+            raise TextGenerationProviderError(
+                "Unknown provider names in TEXT_GENERATION_PROVIDER_ORDER: "
+                + ", ".join(unknown),
+                code="configuration_error",
+            )
+        ordered = [configured[name] for name in order if name in configured]
+        omitted = sorted(set(configured) - set(order))
+        if omitted:
+            raise TextGenerationProviderError(
+                "Configured providers are missing from TEXT_GENERATION_PROVIDER_ORDER: "
+                + ", ".join(omitted),
+                code="configuration_error",
+            )
+        if not ordered:
+            raise TextGenerationProviderError(
+                "No text generation provider is configured; configure an OpenAI-compatible, "
+                "Anthropic, or Gemini route",
+                code="configuration_error",
+            )
         return cls(
-            providers,
+            ordered,
             max_retries=settings.text_generation_max_retries,
             retry_backoff_seconds=settings.text_generation_retry_backoff_seconds,
         )

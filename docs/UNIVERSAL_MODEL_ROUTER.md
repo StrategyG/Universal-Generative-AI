@@ -8,16 +8,30 @@ using OpenAI-compatible chat-completions endpoints. This is a routing foundation
 not a claim that native Anthropic, Gemini, or other provider adapters are already
 implemented.
 
+## Native providers
+
+The configured order is set with TEXT_GENERATION_PROVIDER_ORDER. Supported route
+IDs are openai-compatible-chat, openai-compatible-chat-fallback,
+anthropic-messages, and gemini-generate-content. A route is instantiated only
+when its required credentials and model are both configured. Partially configured
+routes fail closed.
+
+Anthropic uses POST /v1/messages, x-api-key, and a pinned anthropic-version.
+Gemini uses the native generateContent and streamGenerateContent endpoints with
+x-goog-api-key. Both implement model catalog listing and normalize token usage.
+Their current capability contract advertises text streaming only; the platform
+does not yet execute model-emitted tool calls.
+
 ## Configuration
 
-The primary route uses:
+The OpenAI-compatible primary route uses:
 
 - TEXT_GENERATION_BASE_URL
 - TEXT_GENERATION_API_KEY
 - TEXT_GENERATION_MODEL
 - TEXT_GENERATION_MODEL_ID and TEXT_GENERATION_MODEL_REVISION in production
 
-The optional fallback uses:
+The optional OpenAI-compatible fallback uses:
 
 - TEXT_GENERATION_FALLBACK_BASE_URL
 - TEXT_GENERATION_FALLBACK_API_KEY
@@ -79,6 +93,7 @@ request bodies, authorization headers, or API keys.
 
 ## Operational limits
 
-The router currently supports ordered primary/fallback routing, not cost-optimal
-multi-model selection, provider health scoring, dynamic model discovery, or
-cross-model independent evaluation. Those remain separate implementation work.
+The router supports explicit provider order and fallback, not cost-optimal model
+selection, provider health scoring, context-aware routing, or cross-model
+independent evaluation. Model-catalog discovery is basic and provider-dependent;
+it does not guarantee that a model has an available inference channel.
