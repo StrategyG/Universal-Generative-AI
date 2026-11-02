@@ -118,6 +118,8 @@ and does not retry permanent errors such as invalid credentials or missing
 models. Streaming can fall back only before the first token; after output begins,
 the router never mixes partial generations from different models.
 
+The authenticated GET /api/v1/ai/models endpoint probes each configured route's /models catalog and reports whether the configured model ID is listed. A provider may not implement model discovery; that route is reported as unavailable rather than being treated as proof of model absence.
+
 The current adapter advertises streaming only. Tool calling, structured outputs,
 vision, audio, video, native Anthropic/Gemini adapters, dynamic model discovery,
 cost-optimal routing and cross-model independent evaluation are not implemented

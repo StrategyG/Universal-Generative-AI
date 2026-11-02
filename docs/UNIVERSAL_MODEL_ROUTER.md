@@ -41,6 +41,14 @@ Production model-registry enforcement is applied to every configured route.
 Each configured route must have its own immutable model ID and revision approved
 before inference or streaming begins.
 
+## Model discovery
+
+GET /api/v1/ai/models checks the /models catalog on each configured route and
+reports whether the configured model ID is listed. Catalog discovery is
+provider-dependent: an unsupported catalog endpoint is reported as
+discovery_unavailable and must not be interpreted as definitive proof that a
+model cannot be used.
+
 ## Streaming
 
 POST /api/v1/ai/complete/stream returns Server-Sent Events and supports
@@ -60,6 +68,13 @@ The OpenAI-compatible adapter advertises streaming support only. It does not
 advertise tool calling, structured outputs, vision, audio, or video. Provider
 capabilities must be declared and tested per adapter; OpenAI compatibility
 alone is not proof that every endpoint implements every optional feature.
+
+## Observability
+
+Each HTTP request receives a validated X-Request-ID (or a generated ID). The ID
+is returned in the response and included in metadata-only JSON request logs.
+The formatter uses an allow-list and does not serialize arbitrary log extras,
+request bodies, authorization headers, or API keys.
 
 ## Operational limits
 

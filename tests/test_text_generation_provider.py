@@ -161,3 +161,15 @@ def test_provider_streams_server_sent_event_deltas():
         ))]
 
     assert asyncio.run(collect()) == ["hello ", "world"]
+
+
+
+def test_provider_lists_available_model_ids():
+    def handler(request):
+        assert request.url.path.endswith("/models")
+        return httpx.Response(200, json={
+            "data": [{"id": "model-b"}, {"id": "model-a"}, {"name": "missing-id"}]
+        })
+
+    provider = make_provider(handler)
+    assert asyncio.run(provider.list_models()) == ["model-a", "model-b"]

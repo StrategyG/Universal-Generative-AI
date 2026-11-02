@@ -17,6 +17,7 @@ from app.auth import (
 
 from app.ai_schemas import AICompletionRequest, AICompletionResponse
 from app.config import settings
+from app.observability import RequestObservabilityMiddleware, configure_logging
 from app.providers.router import TextModelRouter
 from app.providers.text_errors import TextGenerationProviderError
 from app.pipelines.planner import build_pipeline_plan
@@ -89,7 +90,9 @@ async def lifespan(_: FastAPI) -> collections.abc.AsyncIterator[None]:
         await close_queue()
 
 
-app = FastAPI(title=settings.app_name, version="0.4.0", lifespan=lifespan)
+configure_logging()
+app = FastAPI(title=settings.app_name, version="0.5.0", lifespan=lifespan)
+app.add_middleware(RequestObservabilityMiddleware)
 
 
 def require_worker_token(token: str | None) -> None:
@@ -274,6 +277,16 @@ async def stream_ai_completion(
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@app.get(f"{settings.api_prefix}/ai/models")
+async def discover_ai_models(
+    principal: Principal = Depends(get_current_principal),
+):
+    """Return configured model catalogs and whether each configured ID is listed."""
+    require_generation_role(principal)
+    router = await _build_text_router()
+    return await router.discover_models()
 
 
 @app.get(f"{settings.api_prefix}/jobs/{{job_id}}", response_model=JobResponse)

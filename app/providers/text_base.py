@@ -26,3 +26,6 @@ class TextModelProvider(Protocol):
 
     def stream(self, request: AICompletionRequest) -> AsyncIterator[str]:
         ...
+
+    async def list_models(self) -> list[str]:
+        ...

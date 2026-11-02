@@ -9,6 +9,7 @@ from app.config import settings
 from app.providers.openai_compatible_text import OpenAICompatibleTextProvider
 from app.providers.text_base import TextModelProvider
 from app.providers.text_errors import TextGenerationProviderError
+from app.observability import current_request_id
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +88,45 @@ class TextModelRouter:
             delay = self.retry_backoff_seconds * (2**attempt)
         await asyncio.sleep(min(max(delay, 0.0), 30.0))
 
+    async def discover_models(self) -> dict:
+        """Inspect the model catalog for each configured route without running inference."""
+        routes = []
+        for provider in self.providers:
+            list_models = getattr(provider, "list_models", None)
+            if not callable(list_models):
+                routes.append({
+                    "provider": provider.name,
+                    "configured_model": provider.model,
+                    "status": "discovery_unsupported",
+                    "configured_model_available": None,
+                    "models": [],
+                })
+                continue
+            try:
+                model_ids = await list_models()
+            except TextGenerationProviderError as exc:
+                routes.append({
+                    "provider": provider.name,
+                    "configured_model": provider.model,
+                    "status": "discovery_unavailable",
+                    "configured_model_available": None,
+                    "models": [],
+                    "error_code": exc.code,
+                })
+                continue
+            routes.append({
+                "provider": provider.name,
+                "configured_model": provider.model,
+                "status": (
+                    "available"
+                    if provider.model in model_ids
+                    else "configured_model_not_listed"
+                ),
+                "configured_model_available": provider.model in model_ids,
+                "models": model_ids,
+            })
+        return {"routes": routes}
+
     async def generate(self, request: AICompletionRequest) -> dict:
         failures: list[TextGenerationProviderError] = []
         for provider in self.eligible_providers():
@@ -104,6 +144,7 @@ class TextModelRouter:
                                 "provider": provider.name,
                                 "model": provider.model,
                                 "failure_count": len(failures),
+                                "request_id": current_request_id(),
                             },
                         )
                     return result
@@ -150,6 +191,7 @@ class TextModelRouter:
                             "provider": provider.name,
                             "model": provider.model,
                             "failure_count": len(failures),
+                            "request_id": current_request_id(),
                         },
                     )
                 # Once a token has been emitted, switching providers would

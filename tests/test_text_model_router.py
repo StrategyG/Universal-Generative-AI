@@ -45,6 +45,9 @@ class FakeProvider:
             raise self.error
         return dict(self.result)
 
+    async def list_models(self):
+        return [self.model]
+
     async def stream(self, _request):
         if self.stream_error:
             raise self.stream_error
@@ -113,3 +116,16 @@ def test_stream_router_rejects_when_no_provider_supports_streaming():
     with pytest.raises(TextGenerationProviderError) as caught:
         asyncio.run(collect())
     assert caught.value.code == "capability_unavailable"
+
+
+
+def test_router_discovers_models_for_each_route():
+    primary = FakeProvider("primary")
+    fallback = FakeProvider("fallback")
+    router = TextModelRouter([primary, fallback])
+
+    result = asyncio.run(router.discover_models())
+
+    assert len(result["routes"]) == 2
+    assert result["routes"][0]["configured_model_available"] is True
+    assert result["routes"][1]["status"] == "available"

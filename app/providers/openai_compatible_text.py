@@ -243,6 +243,45 @@ class OpenAICompatibleTextProvider:
         }
         return content.strip(), usage
 
+    async def list_models(self) -> list[str]:
+        """Discover model IDs exposed by the configured OpenAI-compatible endpoint."""
+        try:
+            async with httpx.AsyncClient(
+                timeout=httpx.Timeout(self.timeout_seconds),
+                follow_redirects=False,
+                trust_env=False,
+                transport=self.transport,
+            ) as client:
+                response = await client.get(
+                    f"{self.base_url}/models",
+                    headers=self._headers(),
+                )
+                self._raise_for_status(response)
+                data = response.json()
+        except TextGenerationProviderError:
+            raise
+        except (httpx.TimeoutException, httpx.RequestError) as exc:
+            raise self._request_error(exc) from exc
+        except ValueError as exc:
+            raise TextGenerationProviderError(
+                "Provider model-list endpoint returned invalid JSON",
+                code="invalid_provider_response",
+            ) from exc
+
+        items = data.get("data") if isinstance(data, dict) else None
+        if not isinstance(items, list):
+            raise TextGenerationProviderError(
+                "Provider model-list endpoint returned an unsupported response shape",
+                code="unsupported_model_discovery",
+            )
+        return sorted({
+            item["id"].strip()
+            for item in items
+            if isinstance(item, dict)
+            and isinstance(item.get("id"), str)
+            and item["id"].strip()
+        })
+
     async def stream(self, request: AICompletionRequest) -> AsyncIterator[str]:
         payload = {
             "model": self.model,
