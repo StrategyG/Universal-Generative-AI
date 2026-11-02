@@ -69,7 +69,7 @@ class GeminiGenerateContentProvider(NativeTextProvider):
         return f"{self.base_url}/models/{model}:{method}"
 
     @staticmethod
-    def _extract_text(data: dict) -> str:
+    def _extract_text(data: dict, *, strip: bool = True) -> str:
         texts = []
         for candidate in data.get("candidates") or []:
             content = candidate.get("content") or {}
@@ -78,7 +78,8 @@ class GeminiGenerateContentProvider(NativeTextProvider):
                     texts.append(part["text"])
             if texts:
                 break
-        return "".join(texts).strip()
+        combined = "".join(texts)
+        return combined.strip() if strip else combined
 
     @staticmethod
     def _usage(data: dict) -> dict[str, int]:
@@ -224,7 +225,7 @@ class GeminiGenerateContentProvider(NativeTextProvider):
                             ) from exc
                         if not isinstance(event, dict):
                             continue
-                        content = self._extract_text(event)
+                        content = self._extract_text(event, strip=False)
                         if content:
                             yield content
         except TextGenerationProviderError:
