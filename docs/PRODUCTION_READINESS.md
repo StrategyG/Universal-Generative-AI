@@ -16,7 +16,7 @@ certification for an arbitrary future commit.
 | Gate | Current state | Evidence / remaining boundary |
 |---|---|---|
 | Repository integrity | NOT VERIFIED | Branch protection and a reviewed, merged release candidate are not established |
-| CI quality | PASS on upgrade head 979bb90896d08775e5e657e64147e7502f27f695 | Ruff clean; 89 tests passed with 1 Starlette/httpx deprecation warning; rerun on every candidate |
+| CI quality | PASS on upgrade head bbddb6bdab6bc973f882cbe2df4e290c35cd9180 | Ruff clean; 97 tests passed with 1 Starlette/httpx deprecation warning; rerun on every candidate |
 | Identity and tenancy | PARTIAL | OIDC contract and generation scope exist; live IdP, complete admin RBAC, external-job tenant scope and artifact ACLs remain |
 | Durable execution | PARTIAL | External GPU queue has persistence, leases and retries; general inference remains synchronous and workflow execution is not durable |
 | Artifact trust | BLOCKED | Trusted object storage, signed access and server-side checksum/MIME/parser validation are incomplete |
@@ -34,9 +34,10 @@ The repository has an OpenAI-compatible text generation adapter, native Anthropi
 Messages API and Gemini generateContent adapters, plus a Diffusers text-to-image
 adapter. The text router supports explicitly configured provider ordering,
 primary/fallback routing, transient-error retries, streaming, model-catalog
-discovery, normalized token usage, and production model-registry checks. Live
-provider smoke tests with real user credentials are not yet evidenced. Unified
-tool execution, structured outputs, cross-model independent evaluation,
+discovery, normalized token usage, and production model-registry checks. CI has
+97 passing contract/integration tests on the current candidate. Live provider
+smoke tests with real user credentials are not yet evidenced. Unified tool
+execution, strict structured outputs, cross-model independent evaluation,
 cost-optimal model selection, automatic health scoring and autonomous
 multi-agent orchestration remain incomplete.
 
