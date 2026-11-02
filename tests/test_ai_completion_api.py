@@ -65,3 +65,23 @@ def test_ai_completion_endpoint_fails_closed_when_provider_unconfigured(monkeypa
         "objective": "Design a REST API",
     })
     assert response.status_code == 503
+
+
+
+def test_model_discovery_endpoint_returns_provider_catalog(monkeypatch):
+    class FakeRouter:
+        async def discover_models(self):
+            return {
+                "routes": [{
+                    "provider": "test-provider",
+                    "configured_model": "test-model",
+                    "status": "available",
+                    "configured_model_available": True,
+                    "models": ["test-model"],
+                }]
+            }
+
+    monkeypatch.setattr("app.main.TextModelRouter.from_settings", lambda: FakeRouter())
+    response = client.get("/api/v1/ai/models")
+    assert response.status_code == 200
+    assert response.json()["routes"][0]["configured_model_available"] is True

@@ -16,27 +16,28 @@ certification for an arbitrary future commit.
 | Gate | Current state | Evidence / remaining boundary |
 |---|---|---|
 | Repository integrity | NOT VERIFIED | Branch protection and a reviewed, merged release candidate are not established |
-| CI quality | PASS on previously checked head; new candidate pending | Ruff and PostgreSQL-backed pytest passed on commit 95064811c9e3936fe3647cabdf8d4c0f7bc4060e; rerun on every candidate |
+| CI quality | PASS on upgrade head 5cd3fda98d66d72e934086f9495192b8fbac52b9 | Ruff clean; 88 tests passed with 1 Starlette/httpx deprecation warning; rerun on every candidate |
 | Identity and tenancy | PARTIAL | OIDC contract and generation scope exist; live IdP, complete admin RBAC, external-job tenant scope and artifact ACLs remain |
 | Durable execution | PARTIAL | External GPU queue has persistence, leases and retries; general inference remains synchronous and workflow execution is not durable |
 | Artifact trust | BLOCKED | Trusted object storage, signed access and server-side checksum/MIME/parser validation are incomplete |
 | Model governance | PARTIAL | Immutable revision registry and approval gate exist; independent license, weight and evaluation verification remain |
 | Workflow execution | BLOCKED | DAG planner persists plans but returns execution disabled / not configured |
 | Real modality evidence | BLOCKED | Diffusers adapter exists; live GPU and multimodal pipeline smoke tests are not evidenced |
-| Operations | BLOCKED | Structured metrics, traces, alerts, cost attribution and operational runbooks are incomplete |
-| Supply chain | PARTIAL | Python dependency audit exists; SBOM, container scan, secret scan and signed build provenance are not complete |
+| Operations | PARTIAL | Request IDs and allow-listed JSON request logs exist; metrics, distributed traces, alerts, cost attribution and complete runbooks remain |
+| Supply chain | PARTIAL | pip-audit reported no known vulnerabilities in audited installed dependencies; the local project package was not found on PyPI and therefore was not audited by pip-audit; SBOM, container scan, secret scan and signed build provenance remain incomplete |
 | Resilience | NOT VERIFIED | Load, failure injection, backup/restore and multi-replica tests are not evidenced |
 | Release control | BLOCKED | Human approval bound to exact commit/artifact and end-to-end rollback evidence are incomplete |
 
 ## Model-provider status
 
 The repository has an OpenAI-compatible text generation adapter and a Diffusers
-text-to-image adapter. The text endpoint has historically used a single configured
-provider. Provider compatibility does not imply native support for all vendor
-features. Native Anthropic and Gemini adapters, cross-model independent review,
-tool execution, dynamic model discovery, cost-optimal routing and autonomous
-multi-agent orchestration must not be represented as complete until implemented
-and tested.
+text-to-image adapter. Text routing now supports an ordered primary and explicit
+fallback, transient-error retries, streaming, and basic /models catalog discovery
+where the provider exposes that endpoint. Provider compatibility does not imply
+native support for all vendor features. Native Anthropic and Gemini adapters,
+cross-model independent review, tool execution, cost-optimal model selection,
+automatic route scoring and autonomous multi-agent orchestration must not be
+represented as complete until implemented and tested.
 
 ## Release policy
 

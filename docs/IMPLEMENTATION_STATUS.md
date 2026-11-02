@@ -7,7 +7,7 @@
 
 ## Superseding update — 2026-11-03
 
-The follow-up branch `upgrade/universal-model-platform-v1` adds an OpenAI-compatible text-model router with an explicitly configured fallback, retry classification, pre-token streaming fallback, and an SSE endpoint. The provider still advertises streaming only; native Anthropic/Gemini adapters, tool execution, cost-optimized routing, multi-agent runtime, RAG, and durable workflow execution remain incomplete. Migration 0009 is moved into the ordered `migrations/` directory. Production readiness remains **NO-GO** pending fresh CI on the candidate and the remaining gates in `PRODUCTION_READINESS.md`.
+The follow-up branch `upgrade/universal-model-platform-v1` adds an OpenAI-compatible text-model router with explicit fallback, transient-error retry classification, pre-token streaming fallback, an SSE endpoint, and basic /models catalog discovery. Request IDs and allow-listed JSON request logs are also implemented. The latest candidate passed Ruff and 88 tests (1 Starlette/httpx deprecation warning). pip-audit reported no known vulnerabilities in the audited dependencies but did not audit the local project package because it was not found on PyPI. Native Anthropic/Gemini adapters, tool execution, cost-optimized model selection, multi-agent runtime, RAG, and durable workflow execution remain incomplete. Migration 0009 is moved into the ordered `migrations/` directory. Production readiness remains **NO-GO** pending live integration and the remaining gates in `PRODUCTION_READINESS.md`.
 
 ## Implemented in repository
 

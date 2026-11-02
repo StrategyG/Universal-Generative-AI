@@ -122,7 +122,7 @@ The authenticated GET /api/v1/ai/models endpoint probes each configured route's 
 
 The current adapter advertises streaming only. Tool calling, structured outputs,
 vision, audio, video, native Anthropic/Gemini adapters, dynamic model discovery,
-cost-optimal routing and cross-model independent evaluation are not implemented
+cost-optimal model selection and cross-model independent evaluation are not implemented
 by this text-provider release. See
 [Universal Model Router](docs/UNIVERSAL_MODEL_ROUTER.md).
 

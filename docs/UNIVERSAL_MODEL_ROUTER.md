@@ -72,7 +72,8 @@ alone is not proof that every endpoint implements every optional feature.
 ## Observability
 
 Each HTTP request receives a validated X-Request-ID (or a generated ID). The ID
-is returned in the response and included in metadata-only JSON request logs.
+is returned in the response and included in metadata-only JSON request logs. The
+ASGI middleware retains the request context until streaming responses finish.
 The formatter uses an allow-list and does not serialize arbitrary log extras,
 request bodies, authorization headers, or API keys.
 

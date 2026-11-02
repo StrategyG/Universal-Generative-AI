@@ -8,10 +8,6 @@ from contextvars import ContextVar
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.requests import Request
-from starlette.responses import Response
-
 _request_id: ContextVar[str] = ContextVar("request_id", default="-")
 
 
@@ -61,11 +57,25 @@ def configure_logging() -> None:
         handler.setFormatter(JsonLogFormatter())
 
 
-class RequestObservabilityMiddleware(BaseHTTPMiddleware):
-    """Attach a validated request ID and emit metadata-only request telemetry."""
+class RequestObservabilityMiddleware:
+    """Pure ASGI middleware that keeps request context for streaming responses."""
 
-    async def dispatch(self, request: Request, call_next) -> Response:
-        incoming = request.headers.get("x-request-id", "")
+    def __init__(self, app) -> None:
+        self.app = app
+
+    async def __call__(self, scope, receive, send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        incoming = next(
+            (
+                value.decode("latin-1")
+                for key, value in scope.get("headers", [])
+                if key.lower() == b"x-request-id"
+            ),
+            "",
+        )
         request_id = (
             incoming
             if len(incoming) <= 64 and re.fullmatch(r"[A-Za-z0-9._-]+", incoming)
@@ -74,22 +84,42 @@ class RequestObservabilityMiddleware(BaseHTTPMiddleware):
         token = _request_id.set(request_id)
         started = time.perf_counter()
         status_code = 500
+        completed = False
         logger = logging.getLogger("app.request")
-        try:
-            response = await call_next(request)
-            status_code = response.status_code
-            response.headers["X-Request-ID"] = request_id
-            return response
-        finally:
-            duration_ms = round((time.perf_counter() - started) * 1000, 2)
+
+        def log_request() -> None:
             logger.info(
                 "http_request_completed",
                 extra={
                     "request_id": request_id,
-                    "method": request.method,
-                    "path": request.url.path,
+                    "method": scope.get("method", ""),
+                    "path": scope.get("path", ""),
                     "status_code": status_code,
-                    "duration_ms": duration_ms,
+                    "duration_ms": round((time.perf_counter() - started) * 1000, 2),
                 },
             )
+
+        async def send_with_request_id(message) -> None:
+            nonlocal status_code, completed
+            outgoing = message
+            if message["type"] == "http.response.start":
+                status_code = message["status"]
+                headers = list(message.get("headers", []))
+                if not any(key.lower() == b"x-request-id" for key, _ in headers):
+                    headers.append((b"x-request-id", request_id.encode("ascii")))
+                outgoing = {**message, "headers": headers}
+            await send(outgoing)
+            if (
+                message["type"] == "http.response.body"
+                and not message.get("more_body", False)
+                and not completed
+            ):
+                completed = True
+                log_request()
+
+        try:
+            await self.app(scope, receive, send_with_request_id)
+        finally:
+            if not completed:
+                log_request()
             _request_id.reset(token)
