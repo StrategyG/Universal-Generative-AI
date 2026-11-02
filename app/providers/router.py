@@ -1,0 +1,174 @@
+from __future__ import annotations
+
+import asyncio
+import logging
+from collections.abc import AsyncIterator, Sequence
+
+from app.ai_schemas import AICompletionRequest
+from app.config import settings
+from app.providers.openai_compatible_text import OpenAICompatibleTextProvider
+from app.providers.text_base import TextModelProvider
+from app.providers.text_errors import TextGenerationProviderError
+
+logger = logging.getLogger(__name__)
+
+
+class TextModelRouter:
+    """Ordered, capability-aware router for compatible text model providers.
+
+    The first provider is the preferred route. Later providers are explicit
+    fallbacks, not silent substitutions. Permanent configuration errors are
+    not retried against the same provider, but may proceed to a configured
+    fallback. Streaming can fall back only before the first token is emitted.
+    """
+
+    def __init__(
+        self,
+        providers: Sequence[TextModelProvider],
+        *,
+        max_retries: int = 1,
+        retry_backoff_seconds: float = 0.5,
+    ) -> None:
+        if not providers:
+            raise ValueError("At least one text provider must be configured")
+        self.providers = tuple(providers)
+        self.max_retries = max(0, min(max_retries, 3))
+        self.retry_backoff_seconds = max(0.0, min(retry_backoff_seconds, 10.0))
+
+    @classmethod
+    def from_settings(cls) -> "TextModelRouter":
+        primary = OpenAICompatibleTextProvider.from_settings()
+        providers: list[TextModelProvider] = [primary]
+
+        fallback_values = (
+            settings.text_generation_fallback_base_url,
+            settings.text_generation_fallback_model,
+        )
+        if any(fallback_values) and not all(fallback_values):
+            raise TextGenerationProviderError(
+                "Fallback provider requires both TEXT_GENERATION_FALLBACK_BASE_URL "
+                "and TEXT_GENERATION_FALLBACK_MODEL",
+                code="configuration_error",
+            )
+        if all(fallback_values):
+            fallback = OpenAICompatibleTextProvider(
+                base_url=settings.text_generation_fallback_base_url,
+                model=settings.text_generation_fallback_model,
+                api_key=settings.text_generation_fallback_api_key,
+                timeout_seconds=settings.text_generation_timeout_seconds,
+                model_id=settings.text_generation_fallback_model_id,
+                model_revision=settings.text_generation_fallback_model_revision,
+            )
+            providers.append(fallback)
+
+        return cls(
+            providers,
+            max_retries=settings.text_generation_max_retries,
+            retry_backoff_seconds=settings.text_generation_retry_backoff_seconds,
+        )
+
+    def eligible_providers(self, *, streaming: bool = False) -> tuple[TextModelProvider, ...]:
+        if not streaming:
+            return self.providers
+        return tuple(
+            provider
+            for provider in self.providers
+            if getattr(getattr(provider, "capabilities", None), "streaming", False)
+        )
+
+    async def _wait_before_retry(
+        self,
+        error: TextGenerationProviderError,
+        attempt: int,
+    ) -> None:
+        if error.retry_after_seconds is not None:
+            delay = error.retry_after_seconds
+        else:
+            delay = self.retry_backoff_seconds * (2**attempt)
+        await asyncio.sleep(min(max(delay, 0.0), 30.0))
+
+    async def generate(self, request: AICompletionRequest) -> dict:
+        failures: list[TextGenerationProviderError] = []
+        for provider in self.eligible_providers():
+            for attempt in range(self.max_retries + 1):
+                try:
+                    result = await provider.generate(request)
+                    result["routing"] = {
+                        "selected_provider": provider.name,
+                        "fallback_used": provider is not self.providers[0],
+                    }
+                    if provider is not self.providers[0]:
+                        logger.warning(
+                            "text_provider_fallback",
+                            extra={
+                                "provider": provider.name,
+                                "model": provider.model,
+                                "failure_count": len(failures),
+                            },
+                        )
+                    return result
+                except TextGenerationProviderError as exc:
+                    failures.append(exc)
+                    if not exc.retryable or attempt >= self.max_retries:
+                        break
+                    await self._wait_before_retry(exc, attempt)
+
+        if failures:
+            last = failures[-1]
+            raise TextGenerationProviderError(
+                f"All configured text providers failed: {last}",
+                code=last.code,
+                status_code=last.status_code,
+                retryable=last.retryable,
+                retry_after_seconds=last.retry_after_seconds,
+            ) from last
+        raise TextGenerationProviderError(
+            "No configured provider supports the requested operation",
+            code="capability_unavailable",
+        )
+
+    async def stream(self, request: AICompletionRequest) -> AsyncIterator[str]:
+        failures: list[TextGenerationProviderError] = []
+        for provider in self.eligible_providers(streaming=True):
+            for attempt in range(self.max_retries + 1):
+                iterator = provider.stream(request).__aiter__()
+                try:
+                    first_chunk = await anext(iterator)
+                except StopAsyncIteration:
+                    return
+                except TextGenerationProviderError as exc:
+                    failures.append(exc)
+                    if not exc.retryable or attempt >= self.max_retries:
+                        break
+                    await self._wait_before_retry(exc, attempt)
+                    continue
+
+                if provider is not self.providers[0]:
+                    logger.warning(
+                        "text_stream_fallback",
+                        extra={
+                            "provider": provider.name,
+                            "model": provider.model,
+                            "failure_count": len(failures),
+                        },
+                    )
+                # Once a token has been emitted, switching providers would
+                # splice two different generations together; propagate later errors.
+                yield first_chunk
+                async for chunk in iterator:
+                    yield chunk
+                return
+
+        if failures:
+            last = failures[-1]
+            raise TextGenerationProviderError(
+                f"All streaming providers failed before the first token: {last}",
+                code=last.code,
+                status_code=last.status_code,
+                retryable=last.retryable,
+                retry_after_seconds=last.retry_after_seconds,
+            ) from last
+        raise TextGenerationProviderError(
+            "No configured provider supports streaming",
+            code="capability_unavailable",
+        )

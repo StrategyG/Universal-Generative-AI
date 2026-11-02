@@ -14,7 +14,14 @@ class Settings(BaseSettings):
     text_generation_model: str = ""
     text_generation_model_id: str = ""
     text_generation_model_revision: str = ""
+    text_generation_fallback_base_url: str = ""
+    text_generation_fallback_api_key: str = ""
+    text_generation_fallback_model: str = ""
+    text_generation_fallback_model_id: str = ""
+    text_generation_fallback_model_revision: str = ""
     text_generation_timeout_seconds: float = 90.0
+    text_generation_max_retries: int = 1
+    text_generation_retry_backoff_seconds: float = 0.5
     gpu_required: bool = False
     image_model_id: str = ""
     image_model_revision: str = ""

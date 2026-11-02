@@ -70,6 +70,18 @@ def test_postgres_queue_persists_jobs_and_recovers_expired_leases(monkeypatch):
         try:
             for migration_path in sorted(migration_dir.glob("*.sql")):
                 await connection.execute(migration_path.read_text(encoding="utf-8"))
+            audit_table_exists = await connection.fetchval(
+                "SELECT to_regclass('institutional_audit_ledger') IS NOT NULL"
+            )
+            assert audit_table_exists
+            evidence_table_exists = await connection.fetchval(
+                "SELECT to_regclass('institutional_evidence_claims') IS NOT NULL"
+            )
+            assert evidence_table_exists
+            artifact_table_exists = await connection.fetchval(
+                "SELECT to_regclass('institutional_artifacts') IS NOT NULL"
+            )
+            assert artifact_table_exists
         finally:
             await connection.close()
 

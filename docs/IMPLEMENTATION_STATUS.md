@@ -1,9 +1,13 @@
 # Implementation Status
 
-**Snapshot:** 2026-11-01  
+**Historical baseline:** 2026-11-01  
 **Repository:** `StrategyG/Universal-Generative-AI`  
 **Branch:** `feature/multimodal-platform-v1`  
-**Code snapshot:** Stage 2 OIDC implementation on `feature/multimodal-platform-v1`; latest test result pending
+**Code snapshot:** Stage 2 OIDC implementation on `feature/multimodal-platform-v1`; historical test result pending
+
+## Superseding update — 2026-11-03
+
+The follow-up branch `upgrade/universal-model-platform-v1` adds an OpenAI-compatible text-model router with an explicitly configured fallback, retry classification, pre-token streaming fallback, and an SSE endpoint. The provider still advertises streaming only; native Anthropic/Gemini adapters, tool execution, cost-optimized routing, multi-agent runtime, RAG, and durable workflow execution remain incomplete. Migration 0009 is moved into the ordered `migrations/` directory. Production readiness remains **NO-GO** pending fresh CI on the candidate and the remaining gates in `PRODUCTION_READINESS.md`.
 
 ## Implemented in repository
 

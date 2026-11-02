@@ -1,8 +1,10 @@
 import collections.abc
 import contextlib
 import hmac
+import json
 
 from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi.responses import StreamingResponse
 
 from app.auth import (
     Principal,
@@ -15,10 +17,8 @@ from app.auth import (
 
 from app.ai_schemas import AICompletionRequest, AICompletionResponse
 from app.config import settings
-from app.providers.openai_compatible_text import (
-    OpenAICompatibleTextProvider,
-    TextGenerationProviderError,
-)
+from app.providers.router import TextModelRouter
+from app.providers.text_errors import TextGenerationProviderError
 from app.pipelines.planner import build_pipeline_plan
 from app.pipelines.schemas import PipelinePlan, PipelineRequest
 from app.schemas import GenerationRequest, JobResponse
@@ -171,6 +171,54 @@ async def generate(
 
 
 
+async def _build_text_router() -> TextModelRouter:
+    try:
+        return TextModelRouter.from_settings()
+    except TextGenerationProviderError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={"code": exc.code, "message": str(exc), "retryable": exc.retryable},
+        ) from exc
+
+
+async def _approve_configured_text_routes(router: TextModelRouter) -> None:
+    strict_model_registry = (
+        settings.model_registry_enforcement
+        or settings.environment.lower() in {"production", "prod"}
+    )
+    if not strict_model_registry:
+        return
+
+    for provider in router.providers:
+        model_id = getattr(provider, "model_id", "")
+        model_revision = getattr(provider, "model_revision", "")
+        if not model_id or not model_revision:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "Every production text route requires its own registered immutable "
+                    "model ID and revision"
+                ),
+            )
+        try:
+            await assert_model_approved(model_id, model_revision)
+        except ModelApprovalRequiredError as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail="Text model registry is unavailable",
+            ) from exc
+
+
+def _provider_error_detail(exc: TextGenerationProviderError) -> dict:
+    return {
+        "code": exc.code,
+        "message": str(exc),
+        "retryable": exc.retryable,
+    }
+
+
 @app.post(
     f"{settings.api_prefix}/ai/complete",
     response_model=AICompletionResponse,
@@ -179,39 +227,53 @@ async def complete_ai_generation(
     request: AICompletionRequest,
     principal: Principal = Depends(get_current_principal),
 ):
-    """Generate domain-specialist text; rigorous mode performs draft, critique, and revision."""
+    """Generate domain-specialist text using configured, policy-controlled routes."""
     require_generation_role(principal)
     ensure_project_access(principal, request.project_id)
-
-    strict_model_registry = (
-        settings.model_registry_enforcement
-        or settings.environment.lower() in {"production", "prod"}
-    )
-    if strict_model_registry:
-        if not settings.text_generation_model_id or not settings.text_generation_model_revision:
-            raise HTTPException(
-                status_code=503,
-                detail="Production text generation requires a registered immutable model revision",
-            )
-        try:
-            await assert_model_approved(
-                settings.text_generation_model_id,
-                settings.text_generation_model_revision,
-            )
-        except ModelApprovalRequiredError as exc:
-            raise HTTPException(status_code=403, detail=str(exc)) from exc
-        except RuntimeError as exc:
-            raise HTTPException(status_code=503, detail="Text model registry is unavailable") from exc
-
+    router = await _build_text_router()
+    await _approve_configured_text_routes(router)
     try:
-        provider = OpenAICompatibleTextProvider.from_settings()
+        result = await router.generate(request)
     except TextGenerationProviderError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-    try:
-        result = await provider.generate(request)
-    except TextGenerationProviderError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        raise HTTPException(status_code=502, detail=_provider_error_detail(exc)) from exc
     return AICompletionResponse(**result)
+
+
+@app.post(f"{settings.api_prefix}/ai/complete/stream")
+async def stream_ai_completion(
+    request: AICompletionRequest,
+    principal: Principal = Depends(get_current_principal),
+):
+    """Stream text deltas as SSE; fallback is allowed only before the first token."""
+    require_generation_role(principal)
+    ensure_project_access(principal, request.project_id)
+    if request.quality_mode.value != "single":
+        raise HTTPException(
+            status_code=422,
+            detail="Streaming currently requires quality_mode=single",
+        )
+    router = await _build_text_router()
+    await _approve_configured_text_routes(router)
+
+    async def events():
+        try:
+            async for chunk in router.stream(request):
+                payload = json.dumps({"content": chunk}, ensure_ascii=False)
+                yield f"event: token\ndata: {payload}\n\n"
+            yield "event: done\ndata: {}\n\n"
+        except TextGenerationProviderError as exc:
+            payload = json.dumps(_provider_error_detail(exc), ensure_ascii=False)
+            yield f"event: error\ndata: {payload}\n\n"
+            yield "event: done\ndata: {}\n\n"
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-store",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @app.get(f"{settings.api_prefix}/jobs/{{job_id}}", response_model=JobResponse)

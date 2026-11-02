@@ -5,7 +5,8 @@ A modular API and orchestration foundation for multimodal generative workflows.
 ## Implemented
 
 - FastAPI generation API and job lookup.
-- Provider registry with an explicit mock adapter and optional Diffusers/SDXL text-to-image adapter.
+- Provider registry with mock and Diffusers/SDXL image adapters.
+- OpenAI-compatible text provider with bounded retry, explicit fallback routing, structured provider errors, and Server-Sent Events streaming.
 - Declarative pipeline planner for image-to-3D, image-to-video, and GLB-to-video workflows.
 - Dependency-aware step plans with input-format validation, resource profiles, provider readiness, and acceptance checks.
 - Docker packaging and GitHub Actions lint/test workflow.
@@ -97,6 +98,31 @@ pip install -e ".[image]"
 ```
 
 Set `GENERATION_BACKEND=diffusers-sdxl`, `GPU_REQUIRED=true`, `IMAGE_MODEL_ID`, and `IMAGE_MODEL_REVISION`. Pin the model revision to an immutable commit and verify the model license and hardware requirements before downloading weights. The first inference may download model weights and require substantial GPU VRAM.
+
+## Universal text model routing
+
+The text generation API exposes two authenticated endpoints:
+
+- POST /api/v1/ai/complete — single-shot or rigorous draft/critique/revision generation.
+- POST /api/v1/ai/complete/stream — Server-Sent Events streaming; requires quality_mode=single.
+
+The primary route uses TEXT_GENERATION_BASE_URL, TEXT_GENERATION_API_KEY and
+TEXT_GENERATION_MODEL. An optional fallback route uses
+TEXT_GENERATION_FALLBACK_BASE_URL, TEXT_GENERATION_FALLBACK_API_KEY and
+TEXT_GENERATION_FALLBACK_MODEL. Configure the fallback URL and model together.
+Production mode requires each configured route to have its own approved immutable
+model ID and revision in the model registry.
+
+The router retries only transient provider failures, applies bounded backoff,
+and does not retry permanent errors such as invalid credentials or missing
+models. Streaming can fall back only before the first token; after output begins,
+the router never mixes partial generations from different models.
+
+The current adapter advertises streaming only. Tool calling, structured outputs,
+vision, audio, video, native Anthropic/Gemini adapters, dynamic model discovery,
+cost-optimal routing and cross-model independent evaluation are not implemented
+by this text-provider release. See
+[Universal Model Router](docs/UNIVERSAL_MODEL_ROUTER.md).
 
 ## External GPU workers: Kaggle and Google Colab
 

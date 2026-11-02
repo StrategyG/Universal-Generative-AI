@@ -4,7 +4,7 @@ CREATE TABLE IF NOT EXISTS institutional_audit_ledger (
     tenant_id TEXT NOT NULL,
     actor_identity TEXT NOT NULL,
     operation TEXT NOT NULL,
-    risk_classification TEXT NOT NULL CHECK (risk_classification IN ('R0', 'R1', 'R2', 'R3', 'R4')),
+    risk_classification TEXT NOT NULL CHECK (risk_classification IN ('R0', 'R1', 'R2', 'R3', 'R4', 'R5')),
     idempotency_key TEXT NOT NULL,
     details_json JSONB NOT NULL DEFAULT '{}'::jsonb,
     previous_hash TEXT NOT NULL,

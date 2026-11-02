@@ -28,7 +28,13 @@ def test_ai_completion_endpoint_uses_domain_provider(monkeypatch):
 
     monkeypatch.setattr(settings, "environment", "development")
     monkeypatch.setattr(settings, "model_registry_enforcement", False)
-    monkeypatch.setattr("app.main.OpenAICompatibleTextProvider.from_settings", lambda: FakeProvider())
+    class FakeRouter:
+        providers = []
+
+        async def generate(self, request):
+            return await FakeProvider().generate(request)
+
+    monkeypatch.setattr("app.main.TextModelRouter.from_settings", lambda: FakeRouter())
     response = client.post("/api/v1/ai/complete", json={
         "project_id": "local-project",
         "domain": "film",
@@ -52,7 +58,7 @@ def test_ai_completion_endpoint_fails_closed_when_provider_unconfigured(monkeypa
     def disabled():
         raise TextGenerationProviderError("Text generation is disabled")
 
-    monkeypatch.setattr("app.main.OpenAICompatibleTextProvider.from_settings", disabled)
+    monkeypatch.setattr("app.main.TextModelRouter.from_settings", disabled)
     response = client.post("/api/v1/ai/complete", json={
         "project_id": "local-project",
         "domain": "coding",

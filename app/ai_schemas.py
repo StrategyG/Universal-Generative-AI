@@ -36,3 +36,4 @@ class AICompletionResponse(BaseModel):
     review_type: str
     verified: bool = False
     usage: dict[str, int] = Field(default_factory=dict)
+    routing: dict[str, str | bool] = Field(default_factory=dict)

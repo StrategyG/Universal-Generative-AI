@@ -1,15 +1,15 @@
 from __future__ import annotations
 
+import json
+from collections.abc import AsyncIterator
 from urllib.parse import urlsplit
 
 import httpx
 
 from app.ai_schemas import AICompletionRequest, GenerationQualityMode
 from app.config import settings
-
-
-class TextGenerationProviderError(RuntimeError):
-    """Safe-to-display provider error without upstream response bodies or secrets."""
+from app.providers.text_base import TextModelCapabilities
+from app.providers.text_errors import TextGenerationProviderError
 
 
 _DOMAIN_SYSTEMS = {
@@ -39,9 +39,10 @@ _DOMAIN_SYSTEMS = {
 
 
 class OpenAICompatibleTextProvider:
-    """Text inference through an OpenAI-compatible endpoint (OpenAI, vLLM, Ollama, etc.)."""
+    """Text inference through an OpenAI-compatible chat-completions endpoint."""
 
     name = "openai-compatible-chat"
+    capabilities = TextModelCapabilities(streaming=True)
 
     def __init__(
         self,
@@ -50,6 +51,8 @@ class OpenAICompatibleTextProvider:
         api_key: str = "",
         timeout_seconds: float = 90.0,
         transport: httpx.AsyncBaseTransport | None = None,
+        model_id: str = "",
+        model_revision: str = "",
     ) -> None:
         parsed = urlsplit(base_url)
         local_http = parsed.scheme == "http" and parsed.hostname in {
@@ -59,99 +62,104 @@ class OpenAICompatibleTextProvider:
         }
         if parsed.scheme != "https" and not local_http:
             raise TextGenerationProviderError(
-                "Text generation endpoint must use HTTPS; plain HTTP is allowed only for localhost"
+                "Text generation endpoint must use HTTPS; plain HTTP is allowed only for localhost",
+                code="configuration_error",
             )
         if not parsed.netloc or not model.strip():
             raise TextGenerationProviderError(
-                "Text generation base URL and model name must be configured"
+                "Text generation base URL and model name must be configured",
+                code="configuration_error",
+            )
+        if parsed.username or parsed.password or parsed.query or parsed.fragment:
+            raise TextGenerationProviderError(
+                "Provider URL must not contain credentials, query parameters, or fragments",
+                code="configuration_error",
             )
         self.base_url = base_url.rstrip("/")
         self.model = model.strip()
         self.api_key = api_key
-        self.timeout_seconds = timeout_seconds
+        self.timeout_seconds = max(1.0, min(float(timeout_seconds), 600.0))
         self.transport = transport
+        self.model_id = model_id.strip()
+        self.model_revision = model_revision.strip()
 
     @classmethod
     def from_settings(cls) -> OpenAICompatibleTextProvider:
         if not settings.text_generation_base_url or not settings.text_generation_model:
             raise TextGenerationProviderError(
-                "Text generation is disabled; configure TEXT_GENERATION_BASE_URL and TEXT_GENERATION_MODEL"
+                "Text generation is disabled; configure TEXT_GENERATION_BASE_URL and TEXT_GENERATION_MODEL",
+                code="configuration_error",
             )
         return cls(
             base_url=settings.text_generation_base_url,
             model=settings.text_generation_model,
             api_key=settings.text_generation_api_key,
             timeout_seconds=settings.text_generation_timeout_seconds,
+            model_id=settings.text_generation_model_id,
+            model_revision=settings.text_generation_model_revision,
         )
 
-    async def _complete(
-        self,
-        messages: list[dict[str, str]],
-        max_tokens: int,
-        temperature: float,
-    ) -> tuple[str, dict[str, int]]:
-        headers = {"Content-Type": "application/json"}
+    @staticmethod
+    def _retry_after(response: httpx.Response) -> float | None:
+        value = response.headers.get("Retry-After")
+        if not value:
+            return None
+        try:
+            return max(0.0, min(float(value), 30.0))
+        except ValueError:
+            return None
+
+    @classmethod
+    def _raise_for_status(cls, response: httpx.Response) -> None:
+        if response.is_success:
+            return
+        status = response.status_code
+        retryable = status in {408, 409, 425, 429, 500, 502, 503, 504}
+        if status in {401, 403}:
+            code = "invalid_credentials"
+            message = f"Provider rejected the configured credentials (HTTP {status})"
+        elif status == 404:
+            code = "model_or_endpoint_not_found"
+            message = "Provider model or endpoint was not found (HTTP 404)"
+        elif status == 429:
+            code = "rate_limited"
+            message = "Provider rate limit was reached (HTTP 429)"
+        elif retryable:
+            code = "provider_temporarily_unavailable"
+            message = f"Provider temporarily failed (HTTP {status})"
+        else:
+            code = "provider_request_rejected"
+            message = f"Provider rejected the request (HTTP {status})"
+        raise TextGenerationProviderError(
+            message,
+            code=code,
+            status_code=status,
+            retryable=retryable,
+            retry_after_seconds=cls._retry_after(response),
+        )
+
+    @staticmethod
+    def _request_error(exc: Exception) -> TextGenerationProviderError:
+        if isinstance(exc, httpx.TimeoutException):
+            return TextGenerationProviderError(
+                "Text generation provider timed out",
+                code="provider_timeout",
+                retryable=True,
+            )
+        return TextGenerationProviderError(
+            "Text generation provider could not be reached",
+            code="provider_unavailable",
+            retryable=True,
+        )
+
+    def _headers(self) -> dict[str, str]:
+        headers = {"Content-Type": "application/json", "Accept": "application/json"}
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
-        payload = {
-            "model": self.model,
-            "messages": messages,
-            "temperature": temperature,
-            "max_tokens": max_tokens,
-            "stream": False,
-        }
-        try:
-            async with httpx.AsyncClient(
-                timeout=httpx.Timeout(self.timeout_seconds),
-                follow_redirects=False,
-                trust_env=False,
-                transport=self.transport,
-            ) as client:
-                response = await client.post(
-                    f"{self.base_url}/chat/completions",
-                    headers=headers,
-                    json=payload,
-                )
-                response.raise_for_status()
-                data = response.json()
-        except httpx.TimeoutException as exc:
-            raise TextGenerationProviderError("Text generation provider timed out") from exc
-        except httpx.HTTPStatusError as exc:
-            raise TextGenerationProviderError(
-                f"Text generation provider returned HTTP {exc.response.status_code}"
-            ) from exc
-        except (httpx.RequestError, ValueError) as exc:
-            raise TextGenerationProviderError(
-                "Text generation provider could not be reached or returned invalid JSON"
-            ) from exc
+        return headers
 
-        try:
-            choice = data["choices"][0]
-            message = choice["message"]
-            # Tool calls are intentionally not executed or silently discarded.
-            if message.get("tool_calls"):
-                raise TextGenerationProviderError(
-                    "Provider returned tool calls; this endpoint supports text output only"
-                )
-            content = message["content"]
-            if not isinstance(content, str) or not content.strip():
-                raise TypeError
-        except (KeyError, IndexError, TypeError) as exc:
-            raise TextGenerationProviderError(
-                "Text generation provider returned an invalid completion shape"
-            ) from exc
-
-        raw_usage = data.get("usage") or {}
-        usage = {
-            key: value
-            for key, value in raw_usage.items()
-            if key in {"prompt_tokens", "completion_tokens", "total_tokens"}
-            and isinstance(value, int)
-            and value >= 0
-        }
-        return content.strip(), usage
-
-    async def generate(self, request: AICompletionRequest):
+    @staticmethod
+    def _messages(request: AICompletionRequest) -> list[dict[str, str]]:
         domain_system = _DOMAIN_SYSTEMS[request.domain.value]
         system = (
             f"{domain_system}\n\n"
@@ -169,8 +177,123 @@ class OpenAICompatibleTextProvider:
             "Produce the requested deliverable at professional specialist depth. "
             "Make dependencies, constraints, assumptions, and acceptance criteria explicit."
         )
+        return [{"role": "system", "content": system}, {"role": "user", "content": user_message}]
+
+    async def _complete(
+        self,
+        messages: list[dict[str, str]],
+        max_tokens: int,
+        temperature: float,
+    ) -> tuple[str, dict[str, int]]:
+        payload = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "stream": False,
+        }
+        try:
+            async with httpx.AsyncClient(
+                timeout=httpx.Timeout(self.timeout_seconds),
+                follow_redirects=False,
+                trust_env=False,
+                transport=self.transport,
+            ) as client:
+                response = await client.post(
+                    f"{self.base_url}/chat/completions",
+                    headers=self._headers(),
+                    json=payload,
+                )
+                self._raise_for_status(response)
+                data = response.json()
+        except (httpx.TimeoutException, httpx.RequestError) as exc:
+            raise self._request_error(exc) from exc
+        except ValueError as exc:
+            raise TextGenerationProviderError(
+                "Text generation provider returned invalid JSON",
+                code="invalid_provider_response",
+            ) from exc
+
+        try:
+            choice = data["choices"][0]
+            message = choice["message"]
+            if message.get("tool_calls"):
+                raise TextGenerationProviderError(
+                    "Provider returned tool calls; this endpoint supports text output only",
+                    code="unsupported_tool_call",
+                )
+            content = message["content"]
+            if not isinstance(content, str) or not content.strip():
+                raise TypeError
+        except TextGenerationProviderError:
+            raise
+        except (KeyError, IndexError, TypeError) as exc:
+            raise TextGenerationProviderError(
+                "Text generation provider returned an invalid completion shape",
+                code="invalid_provider_response",
+            ) from exc
+
+        raw_usage = data.get("usage") or {}
+        usage = {
+            key: value
+            for key, value in raw_usage.items()
+            if key in {"prompt_tokens", "completion_tokens", "total_tokens"}
+            and isinstance(value, int)
+            and value >= 0
+        }
+        return content.strip(), usage
+
+    async def stream(self, request: AICompletionRequest) -> AsyncIterator[str]:
+        payload = {
+            "model": self.model,
+            "messages": self._messages(request),
+            "temperature": request.temperature,
+            "max_tokens": request.max_output_tokens,
+            "stream": True,
+        }
+        try:
+            async with httpx.AsyncClient(
+                timeout=httpx.Timeout(self.timeout_seconds),
+                follow_redirects=False,
+                trust_env=False,
+                transport=self.transport,
+            ) as client:
+                async with client.stream(
+                    "POST",
+                    f"{self.base_url}/chat/completions",
+                    headers={**self._headers(), "Accept": "text/event-stream"},
+                    json=payload,
+                ) as response:
+                    self._raise_for_status(response)
+                    async for line in response.aiter_lines():
+                        if not line.startswith("data:"):
+                            continue
+                        data = line[5:].strip()
+                        if not data:
+                            continue
+                        if data == "[DONE]":
+                            return
+                        try:
+                            event = json.loads(data)
+                            choices = event.get("choices") or []
+                            delta = choices[0].get("delta") or {}
+                            content = delta.get("content")
+                        except (ValueError, TypeError, KeyError, IndexError) as exc:
+                            raise TextGenerationProviderError(
+                                "Provider returned a malformed streaming event",
+                                code="invalid_provider_stream",
+                            ) from exc
+                        if isinstance(content, str) and content:
+                            yield content
+        except TextGenerationProviderError:
+            raise
+        except (httpx.TimeoutException, httpx.RequestError) as exc:
+            raise self._request_error(exc) from exc
+
+    async def generate(self, request: AICompletionRequest):
+        messages = self._messages(request)
         draft, usage = await self._complete(
-            [{"role": "system", "content": system}, {"role": "user", "content": user_message}],
+            messages,
             request.max_output_tokens,
             request.temperature,
         )
@@ -188,6 +311,7 @@ class OpenAICompatibleTextProvider:
                 "usage": usage,
             }
 
+        system = messages[0]["content"]
         critique_prompt = (
             "Review the draft as a demanding domain reviewer. Identify factual or logical gaps, "
             "missing requirements, contradictions, security/safety/continuity risks, weak "
