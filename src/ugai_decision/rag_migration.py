@@ -87,6 +87,56 @@ def _encrypt_dump(source: Path, destination: Path, key: bytes) -> str:
     return _sha256_file(destination)
 
 
+
+def _decrypt_dump(source: Path, destination: Path, key: bytes) -> str:
+    """Authenticate and stream-decrypt a backup previously created by _encrypt_dump."""
+    from cryptography.exceptions import InvalidTag
+    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+
+    if len(key) != 32:
+        raise MigrationError("AES-256-GCM requires a 32-byte key")
+    if destination.exists():
+        raise MigrationError("Refusing to overwrite an existing decrypted dump")
+    prefix_length = len(ENCRYPTED_MAGIC) + 12
+    file_size = source.stat().st_size
+    if file_size < prefix_length + 16:
+        raise MigrationError("Encrypted backup is truncated or has an invalid format")
+
+    try:
+        with source.open("rb") as reader:
+            if reader.read(len(ENCRYPTED_MAGIC)) != ENCRYPTED_MAGIC:
+                raise MigrationError("Encrypted backup magic header is invalid")
+            nonce = reader.read(12)
+            reader.seek(-16, os.SEEK_END)
+            tag = reader.read(16)
+            reader.seek(prefix_length)
+            ciphertext_remaining = file_size - prefix_length - 16
+            decryptor = Cipher(
+                algorithms.AES(key),
+                modes.GCM(nonce, tag),
+            ).decryptor()
+            decryptor.authenticate_additional_data(ENCRYPTED_MAGIC)
+            with destination.open("xb") as writer:
+                while ciphertext_remaining:
+                    block = reader.read(min(1024 * 1024, ciphertext_remaining))
+                    if not block:
+                        raise MigrationError("Encrypted backup ended before the ciphertext was complete")
+                    ciphertext_remaining -= len(block)
+                    writer.write(decryptor.update(block))
+                if reader.read(1):
+                    raise MigrationError("Encrypted backup has unexpected trailing bytes")
+                writer.write(decryptor.finalize())
+    except InvalidTag as exc:
+        destination.unlink(missing_ok=True)
+        raise MigrationError(
+            "Encrypted backup authentication failed; key or backup contents are incorrect"
+        ) from exc
+    except OSError:
+        destination.unlink(missing_ok=True)
+        raise
+
+    return _sha256_file(destination)
+
 def _utility_major(command: str) -> int:
     try:
         output = subprocess.run(
@@ -468,6 +518,7 @@ def _drive_upload(service, path: Path, folder_id: str, mime_type: str) -> str:
             str(path), mimetype=mime_type, resumable=True, chunksize=8 * 1024 * 1024
         ),
         fields="id",
+        supportsAllDrives=True,
     )
     response = None
     while response is None:
@@ -655,35 +706,68 @@ def run_migration(*, apply: bool) -> dict:
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
+        "--apply",
+        action="store_true",
+        help="Archive an encrypted snapshot and restore it to a new empty PostgreSQL database",
+    )
+    mode.add_argument(
+        "--decrypt-backup",
+        type=Path,
+        help="Authenticate and decrypt an encrypted backup file from Google Drive",
+    )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        help="New output file path required with --decrypt-backup",
+    )
+    args = parser.parse_args()
+
     try:
+        if args.decrypt_backup:
+            if args.output is None:
+                parser.error("--output is required with --decrypt-backup")
+            key = _validate_key(os.environ.get("UGAI_EXPORT_ENCRYPTION_KEY_B64", ""))
+            digest = _decrypt_dump(args.decrypt_backup, args.output, key)
+            print(
+                json.dumps(
+                    {
+                        "state": "backup_authenticated_and_decrypted",
+                        "output": str(args.output),
+                        "plaintext_sha256": digest,
+                    },
+                    indent=2,
+                )
+            )
+            return 0
+        if args.output is not None:
+            parser.error("--output can only be used with --decrypt-backup")
+
         import psycopg
         from googleapiclient.errors import HttpError
+
+        print(json.dumps(run_migration(apply=args.apply), indent=2, sort_keys=True))
+        return 0
+    except (
+        MigrationError,
+        OSError,
+        ValueError,
+        subprocess.SubprocessError,
+    ) as exc:
+        print(f"RAG migration failed: {exc}", file=sys.stderr)
+        return 2
     except ImportError:
         print(
             "Install the optional dependencies with: pip install -e '.[rag-migration]'",
             file=sys.stderr,
         )
         return 2
-
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--apply",
-        action="store_true",
-        help="Archive an encrypted snapshot and restore it to a new empty PostgreSQL database",
-    )
-    args = parser.parse_args()
-    try:
-        print(json.dumps(run_migration(apply=args.apply), indent=2, sort_keys=True))
-        return 0
-    except (
-        MigrationError,
-        psycopg.Error,
-        HttpError,
-        OSError,
-        ValueError,
-        subprocess.SubprocessError,
-    ) as exc:
-        print(f"RAG migration failed: {exc}", file=sys.stderr)
+    except Exception as exc:
+        # Psycopg and Google client exceptions are rendered without printing any
+        # database URL, credential file content, or request headers.
+        print(f"RAG migration failed ({type(exc).__name__}): {exc}", file=sys.stderr)
         return 2
 
 
