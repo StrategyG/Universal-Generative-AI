@@ -39,6 +39,38 @@ class DecisionAuditSink(Protocol):
         """Durably append a redacted event or raise an exception."""
 
 
+@dataclass(frozen=True, slots=True)
+class EvidenceManifestRecord:
+    """Human-reviewable evidence metadata without copying untrusted document text."""
+
+    evidence_id: str
+    topic: str
+    position: str
+    source_id: str
+    independence_group: str
+    source_reliability: float
+    evidence_quality: float
+    relevance: float
+    freshness: float
+    verified: bool
+    provenance_uri: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "evidence_id": self.evidence_id,
+            "topic": self.topic,
+            "position": self.position,
+            "source_id": self.source_id,
+            "independence_group": self.independence_group,
+            "source_reliability": self.source_reliability,
+            "evidence_quality": self.evidence_quality,
+            "relevance": self.relevance,
+            "freshness": self.freshness,
+            "verified": self.verified,
+            "provenance_uri": self.provenance_uri,
+        }
+
+
 class ApprovalGateway(Protocol):
     async def create_request(
         self,
@@ -46,6 +78,9 @@ class ApprovalGateway(Protocol):
         decision_id: str,
         actor_id: str,
         decision_snapshot: Mapping[str, Any],
+        evidence_manifest: Sequence[EvidenceManifestRecord],
+        evidence_digest: str,
+        source_ids: Sequence[str],
         execution_plan: Mapping[str, Any] | None,
         plan_digest: str | None,
         idempotency_key: str,
@@ -127,6 +162,9 @@ class DecisionWorkflowResult:
     actor_id: str
     decision: DecisionResult
     approval_reference: str
+    evidence_manifest: tuple[EvidenceManifestRecord, ...]
+    evidence_digest: str
+    source_ids: tuple[str, ...]
     execution_plan: Mapping[str, Any] | None
     plan_digest: str | None
 
@@ -299,7 +337,9 @@ class DecisionWorkflow:
             risk_budget=risk_budget,
         )
         result = self._engine.evaluate(request)
-        evidence_digest = self._evidence_digest(evidence)
+        evidence_manifest = self._evidence_manifest(evidence)
+        evidence_digest = self._evidence_digest(evidence_manifest)
+        source_ids = tuple(sorted(source_id for source_id, _ in successful_sources))
         await self._write_audit(
             workflow_id, decision_id, actor_id, "decision_evaluated", result.status,
             (
@@ -327,6 +367,9 @@ class DecisionWorkflow:
                 decision_id=decision_id,
                 actor_id=actor_id,
                 decision_snapshot=result.to_dict(),
+                evidence_manifest=evidence_manifest,
+                evidence_digest=evidence_digest,
+                source_ids=source_ids,
                 execution_plan=execution_plan,
                 plan_digest=plan_digest,
                 idempotency_key=decision_id,
@@ -352,6 +395,9 @@ class DecisionWorkflow:
             actor_id=actor_id,
             decision=result,
             approval_reference=approval_reference,
+            evidence_manifest=evidence_manifest,
+            evidence_digest=evidence_digest,
+            source_ids=source_ids,
             execution_plan=execution_plan,
             plan_digest=plan_digest,
         )
@@ -401,6 +447,7 @@ class DecisionWorkflow:
             or receipt.decision_id != workflow_result.decision_id
             or receipt.actor_id != actor_id
             or receipt.plan_digest != calculated_digest
+            or not isinstance(receipt.expires_at, datetime)
             or receipt.expires_at.tzinfo is None
             or receipt.expires_at <= now
         ):
@@ -474,22 +521,28 @@ class DecisionWorkflow:
             ) from exc
 
     @staticmethod
-    def _evidence_digest(evidence: Sequence[EvidenceItem]) -> str:
-        records = [
-            {
-                "evidence_id": item.evidence_id,
-                "topic": item.topic,
-                "position": item.position,
-                "source_id": item.source_id,
-                "independence_group": item.independence_group,
-                "source_reliability": item.source_reliability,
-                "evidence_quality": item.evidence_quality,
-                "relevance": item.relevance,
-                "freshness": item.freshness,
-                "verified": item.verified,
-                "provenance_uri": item.provenance_uri,
-            }
+    def _evidence_manifest(
+        evidence: Sequence[EvidenceItem],
+    ) -> tuple[EvidenceManifestRecord, ...]:
+        return tuple(
+            EvidenceManifestRecord(
+                evidence_id=item.evidence_id,
+                topic=item.topic,
+                position=item.position,
+                source_id=item.source_id,
+                independence_group=item.independence_group,
+                source_reliability=item.source_reliability,
+                evidence_quality=item.evidence_quality,
+                relevance=item.relevance,
+                freshness=item.freshness,
+                verified=item.verified,
+                provenance_uri=item.provenance_uri or "",
+            )
             for item in sorted(evidence, key=lambda value: value.evidence_id)
-        ]
+        )
+
+    @staticmethod
+    def _evidence_digest(manifest: Sequence[EvidenceManifestRecord]) -> str:
+        records = [item.to_dict() for item in manifest]
         serialized = json.dumps(records, sort_keys=True, separators=(",", ":"), allow_nan=False)
         return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
