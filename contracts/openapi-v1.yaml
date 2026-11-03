@@ -51,6 +51,8 @@ paths:
           $ref: '#/components/responses/PayloadTooLarge'
         '429':
           $ref: '#/components/responses/RateLimited'
+        '422':
+          $ref: '#/components/responses/InvalidRequest'
         '503':
           $ref: '#/components/responses/Unavailable'
   /v1/responses/{workflow_id}:
@@ -198,93 +200,170 @@ components:
     RetrievalRequest:
       type: object
       additionalProperties: false
-      required: [query, strategy]
+      required: [query]
       properties:
         query:
           type: string
           minLength: 1
           maxLength: 2000
-        strategy:
+        request_id:
           type: string
-          enum: [approved_keyword, approved_hybrid, legacy_keyword, legacy_semantic]
-        corpora:
-          type: array
-          uniqueItems: true
-          items:
-            type: string
-            enum: [institutional_approved, legacy_rag, private_notebook]
-        notebook_ids:
-          type: array
-          maxItems: 100
-          uniqueItems: true
-          items:
-            type: string
-            maxLength: 256
-        document_ids:
-          type: array
-          maxItems: 100
-          uniqueItems: true
-          items:
-            type: string
-            maxLength: 256
-        as_of:
-          type: [string, 'null']
-          format: date
+          format: uuid
+        scope:
+          type: object
+          additionalProperties: false
+          properties:
+            corpus:
+              type: array
+              minItems: 1
+              maxItems: 1
+              items:
+                const: institutional_approved
         limit:
           type: integer
           minimum: 1
           maximum: 10
           default: 5
-        request_id:
-          type: string
-          maxLength: 128
     Evidence:
       type: object
-      required: [evidence_id, source_id, source_hash, excerpt, evidence_tier, user_citation_eligible]
+      additionalProperties: false
+      required:
+        - evidence_id
+        - corpus_id
+        - source_id
+        - source_title
+        - source_hash
+        - locator
+        - excerpt
+        - retrieval_method
+        - relevance_score
+        - rank
+        - evidence_tier
+        - review_status
+        - publication_state
+        - trusted
+        - user_citation_eligible
+        - retrieved_at
       properties:
         evidence_id:
           type: string
+          minLength: 1
+          maxLength: 256
+        corpus_id:
+          const: institutional_approved
         source_id:
           type: string
+          minLength: 1
+          maxLength: 256
+        chunk_id:
+          type: [string, 'null']
+          maxLength: 256
+        source_title:
+          type: string
+          minLength: 1
+          maxLength: 1000
         source_hash:
           type: string
           pattern: '^[a-f0-9]{64}$'
+        source_url:
+          type: [string, 'null']
+          format: uri
+          maxLength: 4096
+        locator:
+          type: object
+          additionalProperties: false
+          required: [locator_type]
+          properties:
+            locator_type:
+              type: string
+              const: pdf_page
+            page_start:
+              type: [integer, 'null']
+              minimum: 1
+            page_end:
+              type: [integer, 'null']
+              minimum: 1
+            section:
+              type: [string, 'null']
+              maxLength: 1000
+            anchor:
+              type: [string, 'null']
+              maxLength: 2048
+            timestamp_start_ms:
+              type: [integer, 'null']
+              minimum: 0
+            timestamp_end_ms:
+              type: [integer, 'null']
+              minimum: 0
         excerpt:
           type: string
-        page_start:
-          type: [integer, 'null']
-        page_end:
-          type: [integer, 'null']
+          minLength: 1
+          maxLength: 12000
+        retrieval_method:
+          const: keyword
         relevance_score:
           type: number
+        rank:
+          type: integer
+          minimum: 1
         evidence_tier:
-          type: string
-          enum: [approved, legacy, private_notebook, private_staging]
+          const: approved
         review_status:
-          type: string
+          const: approved
         publication_state:
-          type: string
+          const: published
         trusted:
-          type: boolean
+          const: true
         user_citation_eligible:
-          type: boolean
+          const: true
+        retrieved_at:
+          type: string
+          format: date-time
+        embedding_profile:
+          type: [object, 'null']
+        warnings:
+          type: array
+          maxItems: 20
+          items:
+            type: string
+            maxLength: 500
     RetrievalResult:
       type: object
-      required: [status, strategy, evidence, warnings]
+      additionalProperties: false
+      required: [request_id, status, retrieval, evidence, warnings]
       properties:
+        request_id:
+          type: string
+          format: uuid
         status:
           type: string
-          enum: [evidence_found, no_eligible_evidence]
-        strategy:
-          type: string
+          enum: [evidence_found, no_evidence]
+        retrieval:
+          type: object
+          additionalProperties: false
+          required: [strategy, corpora, candidate_count]
+          properties:
+            strategy:
+              const: approved_keyword
+            corpora:
+              type: array
+              minItems: 1
+              maxItems: 1
+              items:
+                const: institutional_approved
+            candidate_count:
+              type: integer
+              minimum: 0
         evidence:
           type: array
           items:
             $ref: '#/components/schemas/Evidence'
         warnings:
           type: array
+          maxItems: 20
           items:
             type: string
+            maxLength: 500
     ResponseResult:
       type: object
       required: [workflow_id, status, output, citations, warnings]
@@ -336,11 +415,11 @@ components:
             - type: 'null'
     Error:
       type: object
-      required: [code, message, request_id]
+      required: [code, message]
       properties:
         code:
           type: string
-          enum: [AUTH_REQUIRED, ACCESS_DENIED, INVALID_REQUEST, PAYLOAD_TOO_LARGE, RATE_LIMITED, RETRIEVAL_UNAVAILABLE, NO_ELIGIBLE_EVIDENCE, MODEL_UNAVAILABLE, BUDGET_EXCEEDED, TOOL_DENIED, VERIFICATION_FAILED, NOT_FOUND, INTERNAL_ERROR]
+          enum: [AUTH_REQUIRED, ACCESS_DENIED, INVALID_REQUEST, API_AUTH_NOT_CONFIGURED, INTEGRATION_DISABLED, RELEASE_GATE_NO_GO, UPSTREAM_AUTH_FAILED, UPSTREAM_CONTRACT_INVALID, PAYLOAD_TOO_LARGE, RATE_LIMITED, RETRIEVAL_UNAVAILABLE, NO_ELIGIBLE_EVIDENCE, MODEL_UNAVAILABLE, BUDGET_EXCEEDED, TOOL_DENIED, VERIFICATION_FAILED, NOT_FOUND, INTERNAL_ERROR]
         message:
           type: string
           maxLength: 1000
