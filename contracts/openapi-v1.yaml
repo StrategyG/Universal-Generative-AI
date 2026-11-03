@@ -133,25 +133,25 @@ components:
       content:
         application/json:
           schema:
-            $ref: '#/components/schemas/Error'
+            $ref: '#/components/schemas/ErrorEnvelope'
     Unauthorized:
       description: Authentication required or invalid
       content:
         application/json:
           schema:
-            $ref: '#/components/schemas/Error'
+            $ref: '#/components/schemas/ErrorEnvelope'
     Forbidden:
       description: Caller is not authorized
       content:
         application/json:
           schema:
-            $ref: '#/components/schemas/Error'
+            $ref: '#/components/schemas/ErrorEnvelope'
     PayloadTooLarge:
       description: Payload exceeds configured byte limit
       content:
         application/json:
           schema:
-            $ref: '#/components/schemas/Error'
+            $ref: '#/components/schemas/ErrorEnvelope'
     RateLimited:
       description: Request rate or concurrency quota exceeded
       headers:
@@ -161,19 +161,19 @@ components:
       content:
         application/json:
           schema:
-            $ref: '#/components/schemas/Error'
+            $ref: '#/components/schemas/ErrorEnvelope'
     Unavailable:
       description: A required dependency is temporarily unavailable
       content:
         application/json:
           schema:
-            $ref: '#/components/schemas/Error'
+            $ref: '#/components/schemas/ErrorEnvelope'
     NotFound:
       description: Workflow was not found or not visible to this caller
       content:
         application/json:
           schema:
-            $ref: '#/components/schemas/Error'
+            $ref: '#/components/schemas/ErrorEnvelope'
   schemas:
     ResponseRequest:
       type: object
@@ -320,7 +320,22 @@ components:
           type: string
           format: date-time
         embedding_profile:
-          type: [object, 'null']
+          oneOf:
+            - type: 'null'
+            - type: object
+              additionalProperties: false
+              required: [model_id, artifact_sha256, dimension, verified]
+              properties:
+                model_id:
+                  type: string
+                artifact_sha256:
+                  type: string
+                  pattern: '^[a-f0-9]{64}$'
+                dimension:
+                  type: integer
+                  minimum: 1
+                verified:
+                  type: boolean
         warnings:
           type: array
           maxItems: 20
@@ -425,3 +440,11 @@ components:
           maxLength: 1000
         request_id:
           type: string
+
+    ErrorEnvelope:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          $ref: '#/components/schemas/Error'
