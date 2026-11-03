@@ -2,24 +2,54 @@
 
 ## Source inventory (read-only inspection)
 
-Source project: \`institutional-rag\`, PostgreSQL 17.11, region \`ap-southeast-1\`.
+Source project: `institutional-rag`, PostgreSQL 17.11, region `ap-southeast-1`.
 
 The source contains two application schemas:
-- \`rag\`: legacy documents/chunks/ingestion state and audit events.
-- \`institutional_rag\`: institutional documents, extracted chunks, evidence staging, reviews, synthesis, embedding jobs, evaluation data, retrieval functions and readiness views.
+- `rag`: legacy documents/chunks/ingestion state and audit events.
+- `institutional_rag`: institutional documents, extracted chunks, evidence staging, reviews, synthesis, embedding jobs, evaluation data, retrieval functions and readiness views.
 
-The source has 25 base tables and 26,186 rows in \`rag.chunks\`; 1,071 audit events; 383 legacy documents; 434 institutional source documents; and 1,109 institutional chunks. The exact per-table counts from the inspected snapshot are recorded in this migration document's accompanying inventory section below.
+The source has 25 base tables containing **31,426 rows** across the two RAG schemas: 27,641 in `rag` and 3,785 in `institutional_rag`. The inspected per-table counts are:
+
+| Schema | Table | Exact rows |
+|---|---|---:|
+| rag | audit_events | 1,071 |
+| rag | chunks | 26,186 |
+| rag | documents | 383 |
+| rag | ingest_jobs | 1 |
+| institutional_rag | ai_deep_reviews_v1 | 14 |
+| institutional_rag | ai_evidence_reviews | 578 |
+| institutional_rag | chat_review_pilot_feedback | 2 |
+| institutional_rag | chat_review_pilot_items | 4 |
+| institutional_rag | document_chunks | 1,109 |
+| institutional_rag | embedding_jobs | 293 |
+| institutional_rag | embedding_model_approvals | 0 |
+| institutional_rag | evaluation_cases | 34 |
+| institutional_rag | evaluation_results | 38 |
+| institutional_rag | evidence_staging_index | 333 |
+| institutional_rag | ingestion_runs | 4 |
+| institutional_rag | knowledge_candidates | 669 |
+| institutional_rag | knowledge_relations_staging | 53 |
+| institutional_rag | knowledge_synthesis_members | 74 |
+| institutional_rag | knowledge_synthesis_staging | 8 |
+| institutional_rag | production_release_evidence | 0 |
+| institutional_rag | review_votes | 0 |
+| institutional_rag | reviewer_registry | 0 |
+| institutional_rag | source_documents | 434 |
+| institutional_rag | web_evidence_staging | 69 |
+| institutional_rag | web_source_captures | 69 |
+
+These are read-only exact counts from the inspection query, not a completed transfer or a later live snapshot. The migration runner recomputes counts from one exported PostgreSQL snapshot and verifies every target table after restore.
 
 ### Current quality blockers
 
-- \`rag.chunks\`: 26,186 rows, 682 embeddings populated, 25,504 missing. Existing populated vectors are 384-dimensional.
-- \`institutional_rag.document_chunks\`: 1,109 rows, zero embeddings populated.
-- \`institutional_rag.embedding_jobs\`: 293 jobs; 198 blocked and 95 queued. All target \`intfloat/multilingual-e5-small\`, 384 dimensions.
-- \`institutional_rag.knowledge_candidates\`: 669 candidates; 486 pending and 183 need more evidence. None are marked published.
+- `rag.chunks`: 26,186 rows, 682 embeddings populated, 25,504 missing. Existing populated vectors are 384-dimensional.
+- `institutional_rag.document_chunks`: 1,109 rows, zero embeddings populated.
+- `institutional_rag.embedding_jobs`: 293 jobs; 198 blocked and 95 queued. All target `intfloat/multilingual-e5-small`, 384 dimensions.
+- `institutional_rag.knowledge_candidates`: 669 candidates; 486 pending and 183 need more evidence. None are marked published. Trusted retrieval should not be considered production-ready while there are no published candidates.
 - Institutional source documents: 384 Dropbox and 50 web sources. 358 Dropbox source records have valid SHA-256 values; 26 do not.
 - The Supabase Storage bucket inventory is empty. Original Dropbox documents are not stored in Supabase Storage.
-- RAG schemas contain 25 base tables, retrieval functions, and review/readiness views. The \`rag\` tables have explicit deny policies for \`anon\` and \`authenticated\`. Institutional tables have RLS enabled but no row policies; default access must remain denied to external roles.
-- Three institutional foreign keys reference \`auth.users\`; the associated reviewer/attestation tables were empty at inspection time. The migration runner converts these references to a provider-neutral actor registry.
+- RAG schemas contain 25 base tables, retrieval functions, and review/readiness views. The `rag` tables have explicit deny policies for `anon` and `authenticated`. Institutional tables have RLS enabled but no row policies; default access must remain denied to external roles.
+- Three institutional foreign keys reference `auth.users`; reviewer and attestation tables were empty at inspection time. Three readiness/reviewer views also depend on `auth.users.email_confirmed_at`. The migration runner rewrites those view dependencies to `ugai_identity.actors`, preserves the readiness checks, converts the foreign keys, and drops the temporary Auth compatibility schema. It does not copy passwords, tokens, or user profiles. Historical actor references remain unverified until a new identity provider attests them.
 
 Do not mark pending or unreviewed evidence as trusted or published during migration.
 
@@ -27,14 +57,14 @@ Do not mark pending or unreviewed evidence as trusted or published during migrat
 
 - PostgreSQL 17 or newer is the system of record for RAG tables, 384-dimensional vectors, indexes, SQL retrieval functions, views, audit history, ingestion queues, reviews and metadata.
 - Google Drive stores an encrypted PostgreSQL snapshot and, after the Dropbox source is connected, the original source files and evidence packages.
-- A private, non-login database role \`ugai_runtime\` is used by the trusted backend. It is the only role given RAG schema access by the migration runner.
-- \`anon\` and \`authenticated\` remain no-login and have no grants. Existing \`rag.deny_api_roles\` policies are retained.
-- \`ugai_identity.actors\` replaces the Supabase Auth foreign-key dependency without copying passwords, tokens or Supabase Auth internals.
+- A private, non-login database role `ugai_runtime` is used by the trusted backend. It is the only role given RAG schema access by the migration runner.
+- `anon` and `authenticated` remain no-login and have no grants. Existing `rag.deny_api_roles` policies are retained.
+- `ugai_identity.actors` replaces the Supabase Auth foreign-key dependency without copying passwords, tokens or Supabase Auth internals.
 
 ## Required dependencies
 
-- PostgreSQL 17+ destination with \`pgvector\` 0.8.2+ and \`pgcrypto\` available.
-- PostgreSQL client utilities \`pg_dump\` and \`pg_restore\` version 17+.
+- PostgreSQL 17+ destination with `pgvector` 0.8.2+ and `pgcrypto` available.
+- PostgreSQL client utilities `pg_dump` and `pg_restore` version 17+.
 - A Google Cloud service-account JSON file with access to a restricted Drive folder.
 - A 32-byte encryption key encoded as Base64.
 - For original file transfer, the Dropbox connection and permission to read the original source files.
@@ -43,44 +73,44 @@ Do not mark pending or unreviewed evidence as trusted or published during migrat
 
 Set these in a protected shell or secret store. Never put them in Git, notebooks, chat messages, or logs.
 
-- \`SOURCE_DATABASE_URL\`: source Supabase PostgreSQL connection string, with SSL required.
-- \`TARGET_DATABASE_URL\`: new PostgreSQL connection string, with SSL required.
-- \`GOOGLE_APPLICATION_CREDENTIALS\`: path to the Google service-account JSON file.
-- \`GOOGLE_DRIVE_FOLDER_ID\`: restricted destination folder ID.
-- \`UGAI_EXPORT_ENCRYPTION_KEY_B64\`: Base64 of exactly 32 random bytes.
+- `SOURCE_DATABASE_URL`: source Supabase PostgreSQL connection string, with SSL required.
+- `TARGET_DATABASE_URL`: new PostgreSQL connection string, with SSL required.
+- `GOOGLE_APPLICATION_CREDENTIALS`: path to the Google service-account JSON file.
+- `GOOGLE_DRIVE_FOLDER_ID`: restricted destination folder ID.
+- `UGAI_EXPORT_ENCRYPTION_KEY_B64`: Base64 of exactly 32 random bytes.
 
 Generate a key locally:
-\`\`\`bash
+```bash
 python -c "import base64,secrets; print(base64.b64encode(secrets.token_bytes(32)).decode())"
-\`\`\`
+```
 
 ## Safe migration
 
 Install optional dependencies:
-\`\`\`bash
+```bash
 pip install -e '.[rag-migration]'
-\`\`\`
+```
 
 First run the non-mutating preflight:
-\`\`\`bash
+```bash
 python -m ugai_decision.rag_migration
-\`\`\`
+```
 
 Only after confirming the source, destination, Drive folder and backup policy, execute:
-\`\`\`bash
+```bash
 python -m ugai_decision.rag_migration --apply
-\`\`\`
+```
 
 The runner:
 1. Opens the source in a read-only repeatable-read transaction and exports a PostgreSQL snapshot.
 2. Checks both server versions, extensions, distinct database identity and empty destination schemas.
-3. Uses \`pg_dump\` custom format to capture both RAG schemas, data, constraints, indexes, functions, views and RLS policies using the same exported snapshot.
+3. Uses `pg_dump` custom format to capture both RAG schemas, data, constraints, indexes, functions, views and RLS policies using the same exported snapshot.
 4. Encrypts the dump with streaming AES-256-GCM before uploading it to Google Drive.
-5. Creates required extensions and inert roles in the target, restores the archive in one transaction, then replaces the temporary Auth compatibility schema with \`ugai_identity.actors\`.
+5. Creates required extensions and inert roles in the target, restores the archive in one transaction, then replaces the temporary Auth compatibility schema with `ugai_identity.actors`.
 6. Applies private backend grants and role-specific RLS policies. API-facing roles remain denied.
 7. Compares every table's exact source and target row counts. Any mismatch fails the migration.
 
-The source is never modified. The destination is never dropped or overwritten; the runner requires empty \`rag\` and \`institutional_rag\` schemas. The encrypted Drive backup is uploaded before restore.
+The source is never modified. The destination is never dropped or overwritten; the runner requires a dedicated target database without `rag`, `institutional_rag`, or a pre-existing `auth` schema. The encrypted Drive backup is uploaded before restore. After migration, create a non-public application login and grant it membership in `ugai_runtime`; do not give the application role ownership, superuser, or `BYPASSRLS` privileges.
 
 ## Remaining cutover work
 
@@ -93,7 +123,7 @@ After database restore:
 - Preserve all 669 knowledge candidates as pending/needs-more-evidence; maintain two-reviewer and source-provenance gates.
 - Run lexical, semantic and hybrid retrieval regression tests against a fixed evaluation set and compare citation/source/page correctness.
 - Test backup restore, Drive checksum verification, role denial, audit append-only behavior and application health.
-- Only then cut over traffic. Keep Supabase untouched until a signed acceptance and rollback window are complete.
+- Only then cut over traffic. Keep Supabase untouched until a signed acceptance and rollback window are complete. Add a policy and grant review to every future schema migration; newly created RLS tables must receive an explicit runtime policy.
 
 ## Cutover status
 
