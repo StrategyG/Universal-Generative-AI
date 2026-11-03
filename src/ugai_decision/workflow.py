@@ -146,7 +146,7 @@ def _canonical_plan(plan: Mapping[str, Any]) -> tuple[dict[str, Any], str]:
     except (TypeError, ValueError) as exc:
         raise ValueError("execution plan must contain only finite JSON-compatible values") from exc
     if not isinstance(normalized, dict):
-        raise ValueError("execution plan must serialize to a JSON object")
+        raise TypeError("execution plan must serialize to a JSON object")
     digest = hashlib.sha256(
         json.dumps(normalized, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
     ).hexdigest()
