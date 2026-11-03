@@ -1,0 +1,331 @@
+openapi: 3.1.0
+info:
+  title: Universal Generative AI API
+  version: 1.0.0
+  description: >
+    Proposed contract for UGAI. This specification does not indicate that
+    the runtime has been implemented or deployed.
+servers:
+  - url: https://api.example.invalid
+    description: Placeholder only; replace after deployment
+security:
+  - bearerAuth: []
+paths:
+  /v1/responses:
+    post:
+      operationId: createResponse
+      summary: Execute a bounded AI workflow
+      parameters:
+        - in: header
+          name: Idempotency-Key
+          required: false
+          schema:
+            type: string
+            maxLength: 128
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResponseRequest'
+      responses:
+        '200':
+          description: Completed or partially completed workflow
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResponseResult'
+        '202':
+          description: Workflow accepted for asynchronous execution
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowAccepted'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+  /v1/responses/{workflow_id}:
+    get:
+      operationId: getWorkflow
+      summary: Get workflow state and final result
+      parameters:
+        - $ref: '#/components/parameters/WorkflowId'
+      responses:
+        '200':
+          description: Workflow snapshot
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowSnapshot'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /v1/responses/{workflow_id}/events:
+    get:
+      operationId: streamWorkflowEvents
+      summary: Stream workflow events using Server-Sent Events
+      parameters:
+        - $ref: '#/components/parameters/WorkflowId'
+      responses:
+        '200':
+          description: SSE event stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /v1/knowledge/retrieve:
+    post:
+      operationId: retrieveKnowledge
+      summary: Retrieve eligible knowledge through server-side RAG adapter
+      description: >
+        User-facing operation MUST NOT expose private staging results.
+        The approved corpus route currently has no demonstrated production
+        evidence availability; see the live Supabase release gate.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RetrievalRequest'
+      responses:
+        '200':
+          description: Retrieval result, including explicit no-evidence state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetrievalResult'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    WorkflowId:
+      in: path
+      name: workflow_id
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+  responses:
+    InvalidRequest:
+      description: Request is invalid
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Unauthorized:
+      description: Authentication required or invalid
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Forbidden:
+      description: Caller is not authorized
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    PayloadTooLarge:
+      description: Payload exceeds configured byte limit
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    RateLimited:
+      description: Request rate or concurrency quota exceeded
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Unavailable:
+      description: A required dependency is temporarily unavailable
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: Workflow was not found or not visible to this caller
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+  schemas:
+    ResponseRequest:
+      type: object
+      additionalProperties: false
+      required: [input]
+      properties:
+        input:
+          type: string
+          minLength: 1
+          maxLength: 20000
+        conversation_id:
+          type: [string, 'null']
+          maxLength: 128
+        workflow_type:
+          type: string
+          enum: [auto, qa_grounded, compare_sources, deep_research, decision_analysis]
+          default: auto
+        stream:
+          type: boolean
+          default: false
+        metadata:
+          type: object
+          maxProperties: 30
+    RetrievalRequest:
+      type: object
+      additionalProperties: false
+      required: [query, strategy]
+      properties:
+        query:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        strategy:
+          type: string
+          enum: [approved_keyword, approved_hybrid, legacy_keyword, legacy_semantic]
+        corpora:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            enum: [institutional_approved, legacy_rag]
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 10
+          default: 5
+        request_id:
+          type: string
+          maxLength: 128
+    Evidence:
+      type: object
+      required: [evidence_id, source_id, source_hash, excerpt, evidence_tier, user_citation_eligible]
+      properties:
+        evidence_id:
+          type: string
+        source_id:
+          type: string
+        source_hash:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
+        excerpt:
+          type: string
+        page_start:
+          type: [integer, 'null']
+        page_end:
+          type: [integer, 'null']
+        relevance_score:
+          type: number
+        evidence_tier:
+          type: string
+          enum: [approved, legacy, private_staging]
+        review_status:
+          type: string
+        publication_state:
+          type: string
+        trusted:
+          type: boolean
+        user_citation_eligible:
+          type: boolean
+    RetrievalResult:
+      type: object
+      required: [status, strategy, evidence, warnings]
+      properties:
+        status:
+          type: string
+          enum: [evidence_found, no_eligible_evidence]
+        strategy:
+          type: string
+        evidence:
+          type: array
+          items:
+            $ref: '#/components/schemas/Evidence'
+        warnings:
+          type: array
+          items:
+            type: string
+    ResponseResult:
+      type: object
+      required: [workflow_id, status, output, citations, warnings]
+      properties:
+        workflow_id:
+          type: string
+        status:
+          type: string
+          enum: [completed, completed_with_warnings]
+        output:
+          type: string
+        citations:
+          type: array
+          items:
+            type: object
+            required: [evidence_id]
+            properties:
+              evidence_id:
+                type: string
+        warnings:
+          type: array
+          items:
+            type: string
+    WorkflowAccepted:
+      type: object
+      required: [workflow_id, status]
+      properties:
+        workflow_id:
+          type: string
+        status:
+          const: accepted
+        events_url:
+          type: string
+          format: uri
+    WorkflowSnapshot:
+      type: object
+      required: [workflow_id, state, updated_at]
+      properties:
+        workflow_id:
+          type: string
+        state:
+          type: string
+        updated_at:
+          type: string
+          format: date-time
+        result:
+          oneOf:
+            - $ref: '#/components/schemas/ResponseResult'
+            - type: 'null'
+    Error:
+      type: object
+      required: [code, message, request_id]
+      properties:
+        code:
+          type: string
+          enum: [AUTH_REQUIRED, ACCESS_DENIED, INVALID_REQUEST, PAYLOAD_TOO_LARGE, RATE_LIMITED, RETRIEVAL_UNAVAILABLE, NO_ELIGIBLE_EVIDENCE, MODEL_UNAVAILABLE, BUDGET_EXCEEDED, TOOL_DENIED, VERIFICATION_FAILED, NOT_FOUND, INTERNAL_ERROR]
+        message:
+          type: string
+          maxLength: 1000
+        request_id:
+          type: string
