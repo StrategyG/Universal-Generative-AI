@@ -5,8 +5,10 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import Mapping
+from contextlib import suppress
 from datetime import timedelta
-from typing import Any
+from types import TracebackType
+from typing import Any, Self
 
 from .auth import AccessTokenProvider
 from .config import IM19Config
@@ -56,7 +58,7 @@ class IM19MCPClient:
         self._session_cm: Any = None
         self._tools: dict[str, Any] = {}
 
-    async def __aenter__(self) -> "IM19MCPClient":
+    async def __aenter__(self) -> Self:
         try:
             from mcp import ClientSession
             from mcp.client.streamable_http import streamablehttp_client
@@ -87,21 +89,22 @@ class IM19MCPClient:
                 raise
             raise MCPUnavailable("IM19 MCP initialization failed") from exc
 
-    async def __aexit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
         await self._close_safely()
 
     async def _close_safely(self) -> None:
         if self._session_cm is not None:
-            try:
+            with suppress(Exception):
                 await self._session_cm.__aexit__(None, None, None)
-            except Exception:
-                pass
             self._session_cm = None
         if self._transport_cm is not None:
-            try:
+            with suppress(Exception):
                 await self._transport_cm.__aexit__(None, None, None)
-            except Exception:
-                pass
             self._transport_cm = None
         self._session = None
         self._tools = {}
