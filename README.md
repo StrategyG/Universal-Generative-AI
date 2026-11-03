@@ -11,6 +11,9 @@ A modular platform for generative AI workflows, multimodal generation, and exten
 - [Reference architecture](docs/REFERENCE_ARCHITECTURE.md)
 - [Hybrid architecture overview](docs/ARCHITECTURE.md)
 - [Institutional RAG integration contract](docs/INTEGRATION_CONTRACT.md)
+- [Modular Agentic RAG execution specification](docs/AGENTIC_RAG_EXECUTION_SPEC.md)
+- [Secure ingestion and indexing](docs/INGESTION_AND_INDEXING_SPEC.md)
+- [Vector store adapter decision](docs/VECTOR_STORE_ADAPTER_DECISION.md)
 - [Retrieval and evidence governance](docs/RETRIEVAL_AND_EVIDENCE_GOVERNANCE.md)
 - [Workflow and agent control](docs/WORKFLOW_AND_AGENT_CONTROL.md)
 - [Application data model](docs/APPLICATION_DATA_MODEL.md)
@@ -19,6 +22,7 @@ A modular platform for generative AI workflows, multimodal generation, and exten
 - [Operations and SRE](docs/OPERATIONS_AND_SRE.md)
 - [Institutional RAG backend mapping](docs/INSTITUTIONAL_RAG_BACKEND_MAPPING.md)
 - [Service authentication and API security](docs/SERVICE_AUTH_AND_API_SECURITY.md)
+- [Application data model](docs/APPLICATION_DATA_MODEL.md)
 - [Political, business, holistic and strategic analysis](docs/DOMAIN_INTELLIGENCE_FRAMEWORKS.md)
 - [Knowledge graph and multi-source synthesis](docs/KNOWLEDGE_GRAPH_AND_SYNTHESIS.md)
 - [Phased implementation plan](docs/IMPLEMENTATION_PLAN.md)
@@ -28,6 +32,12 @@ A modular platform for generative AI workflows, multimodal generation, and exten
 - OpenAPI: [contracts/openapi-v1.yaml](contracts/openapi-v1.yaml)
 - Workflow plan schema: [contracts/plan-spec.schema.json](contracts/plan-spec.schema.json)
 - Evidence record schema: [contracts/evidence-record.schema.json](contracts/evidence-record.schema.json)
+- Retrieval plan schema: [contracts/retrieval-plan.schema.json](contracts/retrieval-plan.schema.json)
+- Claim ledger schema: [contracts/claim-ledger.schema.json](contracts/claim-ledger.schema.json)
+
+## Vector database decision
+
+Supabase PostgreSQL + pgvector is the primary active vector backend because it already hosts the project's Institutional RAG, evidence governance, and legacy RAG corpus. Astra DB is an optional future VectorStore adapter, not a configured dependency or a second source of truth.
 
 ## Supabase Institutional RAG status
 
