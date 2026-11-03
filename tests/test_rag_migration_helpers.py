@@ -68,3 +68,80 @@ def test_tampered_backup_is_rejected_without_leaving_partial_plaintext(tmp_path:
     with pytest.raises(MigrationError, match="authentication failed"):
         _decrypt_dump(encrypted, restored, key)
     assert not restored.exists()
+
+
+class _FakeRequest:
+    def __init__(self, response):
+        self.response = response
+
+    def execute(self):
+        return self.response
+
+
+class _FakeDriveFiles:
+    def __init__(self, response):
+        self.response = response
+        self.kwargs = None
+
+    def get(self, **kwargs):
+        self.kwargs = kwargs
+        return _FakeRequest(self.response)
+
+
+class _FakeDrive:
+    def __init__(self, response):
+        self.file_api = _FakeDriveFiles(response)
+
+    def files(self):
+        return self.file_api
+
+
+def test_drive_destination_requires_shared_drive_and_write_capability():
+    from ugai_decision.rag_migration import _drive_folder_info
+
+    drive = _FakeDrive(
+        {
+            "id": "folder-123",
+            "name": "Restricted RAG backups",
+            "mimeType": "application/vnd.google-apps.folder",
+            "driveId": "shared-drive-456",
+            "capabilities": {"canAddChildren": True},
+        }
+    )
+    assert _drive_folder_info(drive, "folder-123") == {
+        "id": "folder-123",
+        "name": "Restricted RAG backups",
+        "drive_id": "shared-drive-456",
+    }
+    assert drive.file_api.kwargs["supportsAllDrives"] is True
+
+
+def test_drive_destination_rejects_my_drive_folder_for_service_account():
+    from ugai_decision.rag_migration import _drive_folder_info
+
+    drive = _FakeDrive(
+        {
+            "id": "folder-123",
+            "name": "My Drive folder",
+            "mimeType": "application/vnd.google-apps.folder",
+            "capabilities": {"canAddChildren": True},
+        }
+    )
+    with pytest.raises(MigrationError, match="Shared Drive"):
+        _drive_folder_info(drive, "folder-123")
+
+
+def test_drive_destination_rejects_folder_without_add_permission():
+    from ugai_decision.rag_migration import _drive_folder_info
+
+    drive = _FakeDrive(
+        {
+            "id": "folder-123",
+            "name": "Read-only folder",
+            "mimeType": "application/vnd.google-apps.folder",
+            "driveId": "shared-drive-456",
+            "capabilities": {"canAddChildren": False},
+        }
+    )
+    with pytest.raises(MigrationError, match="Contributor"):
+        _drive_folder_info(drive, "folder-123")
