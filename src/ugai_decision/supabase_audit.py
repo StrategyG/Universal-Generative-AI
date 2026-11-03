@@ -1,4 +1,4 @@
-"""Supabase-backed durable sink for redacted UGAI decision audit events."""
+"""Supabase RPC-backed durable sink for redacted UGAI decision audit events."""
 
 from __future__ import annotations
 
@@ -10,30 +10,24 @@ from .workflow import DecisionAuditEvent
 
 
 class SupabaseDecisionAuditSink:
-    """Append decision events to a private Supabase schema.
+    """Append events through a narrowly granted RPC into a private schema.
 
-    Pass a server-side Supabase client authenticated with a dedicated service
-    identity. Never construct this adapter in a browser or expose service keys.
-    The adapter intentionally supports the async Supabase client interface and
-    does not own client creation, credentials, retries, or connection lifecycle.
+    Pass a server-side async Supabase client authenticated with a service
+    identity. The underlying table schema is not exposed through PostgREST;
+    only public.append_ugai_decision_event is exposed and executable by
+    service_role. Never construct this adapter in a browser or expose keys.
     """
 
-    def __init__(self, client: Any, *, schema: str = "ugai_audit") -> None:
+    _RPC_NAME = "append_ugai_decision_event"
+
+    def __init__(self, client: Any) -> None:
         if client is None:
             raise ValueError("A configured server-side Supabase client is required")
-        if schema != "ugai_audit":
-            raise ValueError("The decision audit sink is pinned to the private ugai_audit schema")
         self._client = client
-        self._schema = schema
 
     async def append(self, event: DecisionAuditEvent) -> None:
         payload = self._serialize(event)
-        query = (
-            self._client.schema(self._schema)
-            .table("decision_events")
-            .insert(payload)
-        )
-        result = query.execute()
+        result = self._client.rpc(self._RPC_NAME, payload).execute()
         if hasattr(result, "__await__"):
             result = await result
         error = getattr(result, "error", None)
@@ -43,12 +37,12 @@ class SupabaseDecisionAuditSink:
     @staticmethod
     def _serialize(event: DecisionAuditEvent) -> dict[str, Any]:
         required = {
-            "event_id": event.event_id,
-            "workflow_id": event.workflow_id,
-            "decision_id": event.decision_id,
-            "actor_id": event.actor_id,
-            "stage": event.stage,
-            "outcome": event.outcome,
+            "p_event_id": event.event_id,
+            "p_workflow_id": event.workflow_id,
+            "p_decision_id": event.decision_id,
+            "p_actor_id": event.actor_id,
+            "p_stage": event.stage,
+            "p_outcome": event.outcome,
         }
         if any(not isinstance(value, str) or not value.strip() for value in required.values()):
             raise ValueError("Audit event identity and classification fields must be non-empty strings")
@@ -65,6 +59,6 @@ class SupabaseDecisionAuditSink:
 
         return {
             **required,
-            "occurred_at": occurred_at.isoformat(),
-            "details": dict(details),
+            "p_occurred_at": occurred_at.isoformat(),
+            "p_details": dict(details),
         }
