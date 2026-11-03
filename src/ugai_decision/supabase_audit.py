@@ -47,7 +47,7 @@ class SupabaseDecisionAuditSink:
         if any(not isinstance(value, str) or not value.strip() for value in required.values()):
             raise ValueError("Audit event identity and classification fields must be non-empty strings")
         try:
-            occurred_at = datetime.fromisoformat(event.occurred_at.replace("Z", "+00:00"))
+            occurred_at = datetime.fromisoformat(event.occurred_at)
         except (TypeError, ValueError) as exc:
             raise ValueError("Audit event occurred_at must be an ISO-8601 timestamp") from exc
         if occurred_at.tzinfo is None:
