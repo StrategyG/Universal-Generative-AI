@@ -42,7 +42,7 @@ class ToolPolicy:
         if isinstance(allowed_tools, (str, bytes)) or not isinstance(
             allowed_tools, (set, frozenset, list, tuple)
         ):
-            raise ValueError("Tool allowlist must be a collection of names")
+            raise TypeError("Tool allowlist must be a collection of names")
         if any(not isinstance(name, str) or not name for name in allowed_tools):
             raise ValueError("Tool allowlist contains an invalid name")
         self.allowed = frozenset(allowed_tools)
