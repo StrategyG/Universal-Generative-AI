@@ -7,6 +7,7 @@ on:
       - "src/ugai_decision/**"
       - "tests/test_im19_mcp_*.py"
       - "tests/test_decision_*.py"
+      - "tests/test_rag_migration_helpers.py"
       - "pyproject.toml"
       - ".github/workflows/im19-mcp-adapter.yml"
 
