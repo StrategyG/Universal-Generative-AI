@@ -3,6 +3,7 @@ from time import time
 from uuid import uuid4
 
 from app.config import settings
+from app.workflows.schemas import WorkflowPlan
 from app.services.model_registry_errors import ModelApprovalRequiredError
 from app.services.postgres_gpu_queue import PostgresExternalGPUQueue
 from app.services.queue_errors import IdempotencyConflictError
@@ -25,6 +26,7 @@ MAX_ATTEMPTS = 3
 
 _jobs: dict[str, ExternalJob] = {}
 _memory_idempotency: dict[str, tuple[str, str]] = {}
+_memory_workflow_plans: dict[str, tuple[str, str, WorkflowPlan]] = {}
 _lock = asyncio.Lock()
 
 
@@ -380,6 +382,55 @@ async def get_persisted_generation_job(
             tenant_admin=tenant_admin,
         )
     return None
+
+
+
+async def persist_workflow_plan(
+    plan: WorkflowPlan,
+    tenant_id: str,
+    owner_subject: str,
+) -> WorkflowPlan:
+    if _postgres_queue is not None:
+        return await _postgres_queue.create_workflow_plan(
+            plan,
+            tenant_id=tenant_id,
+            owner_subject=owner_subject,
+        )
+    async with _lock:
+        _memory_workflow_plans[plan.plan_id] = (tenant_id, owner_subject, plan)
+    return plan
+
+
+async def get_persisted_workflow_plan(
+    plan_id: str,
+    tenant_id: str,
+    owner_subject: str,
+    project_ids: list[str],
+    tenant_admin: bool,
+) -> WorkflowPlan | None:
+    if _postgres_queue is not None:
+        return await _postgres_queue.get_workflow_plan(
+            plan_id,
+            tenant_id=tenant_id,
+            owner_subject=owner_subject,
+            project_ids=project_ids,
+            tenant_admin=tenant_admin,
+        )
+    async with _lock:
+        record = _memory_workflow_plans.get(plan_id)
+    if record is None:
+        return None
+    stored_tenant, stored_owner, plan = record
+    if stored_tenant != tenant_id:
+        return None
+    if not (
+        owner_subject == stored_owner
+        or tenant_admin
+        or plan.project_id in project_ids
+        or "*" in project_ids
+    ):
+        return None
+    return plan
 
 
 

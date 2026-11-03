@@ -48,6 +48,30 @@ Submit a mock generation job: `POST /api/v1/generate`
 
 The default backend is `mock`. It simulates the provider contract and does not generate an image.
 
+## Institutional project workflow plans
+
+The workflow control plane exposes deterministic starter plans for three project domains. These endpoints create plans only; they do not invoke an agent, modify a repository, generate media, call external tools, or deploy a project.
+
+- `POST /api/v1/workflows/templates/coding` — requirements, architecture, code implementation, tests, security review, build, and deployment approval.
+- `POST /api/v1/workflows/templates/film` — script, continuity review, storyboard, asset generation, shot assembly, rendering, quality review, and publication approval.
+- `POST /api/v1/workflows/templates/workflow` — intake, classification, gated external action, reconciliation, and reporting.
+- `POST /api/v1/workflows/plan` — validate and persist a caller-defined dependency graph.
+- `GET /api/v1/workflows/plans/{plan_id}` — retrieve a saved plan within tenant/owner/project authorization scope.
+
+Template request example:
+
+```json
+{
+  "project_id": "project-123",
+  "title": "Build a cooperative application",
+  "objective": "Create a tested cooperative management application"
+}
+```
+
+The server derives risk and side-effect classifications from its own action registry. Client-provided risk/side-effect hints cannot downgrade an action. Unknown actions fail closed as risk 5 and require human approval. Plans receive a stable `plan_id` and creation timestamp. With PostgreSQL configured they persist across API restarts in `workflow_plans`; development memory mode is volatile. Retrieval is tenant/owner/project scoped. Plans still return `execution_enabled=false` and `not_configured` stage statuses until durable step execution, sandboxing, artifact trust, and audit controls are implemented.
+
+See [Institutional Workflow Control](docs/INSTITUTIONAL_WORKFLOW_CONTROL.md) and [Institutional Production Gates](docs/INSTITUTIONAL_PRODUCTION_GATES.md).
+
 ## Plan a multimodal workflow
 
 `POST /api/v1/pipelines/plan`

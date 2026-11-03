@@ -11,6 +11,7 @@ from typing import Any
 from uuid import uuid4
 
 from app.schemas import JobResponse, JobStatus, TaskType
+from app.workflows.schemas import WorkflowPlan
 from app.services.model_registry_errors import (
     ModelApprovalRequiredError,
     ModelRegistryConflictError,
@@ -82,6 +83,7 @@ class PostgresExternalGPUQueue:
                        )
                        AND to_regclass('generation_jobs') IS NOT NULL
                        AND to_regclass('model_registry_versions') IS NOT NULL
+                       AND to_regclass('workflow_plans') IS NOT NULL
                        AND EXISTS (
                            SELECT 1 FROM information_schema.columns
                            WHERE table_name = 'generation_jobs' AND column_name = 'tenant_id'
@@ -617,6 +619,65 @@ class PostgresExternalGPUQueue:
         )
         return self._to_job(row) if row is not None else None
 
+
+    async def create_workflow_plan(
+        self,
+        plan: WorkflowPlan,
+        tenant_id: str,
+        owner_subject: str,
+    ) -> WorkflowPlan:
+        pool = self._require_pool()
+        await pool.execute(
+            """
+            INSERT INTO workflow_plans (
+                plan_id, tenant_id, owner_subject, project_id, domain,
+                policy_version, plan_json, created_at
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8)
+            """,
+            plan.plan_id,
+            tenant_id,
+            owner_subject,
+            plan.project_id,
+            plan.domain.value,
+            plan.policy_version,
+            json.dumps(plan.model_dump(mode="json")),
+            plan.created_at,
+        )
+        return plan
+
+    async def get_workflow_plan(
+        self,
+        plan_id: str,
+        tenant_id: str,
+        owner_subject: str,
+        project_ids: list[str],
+        tenant_admin: bool,
+    ) -> WorkflowPlan | None:
+        pool = self._require_pool()
+        row = await pool.fetchrow(
+            """
+            SELECT plan_json FROM workflow_plans
+            WHERE plan_id = $1
+              AND tenant_id = $2
+              AND (
+                  owner_subject = $3
+                  OR project_id = ANY($4::text[])
+                  OR $5::boolean
+              )
+            """,
+            plan_id,
+            tenant_id,
+            owner_subject,
+            project_ids,
+            tenant_admin,
+        )
+        if row is None:
+            return None
+        payload = row["plan_json"]
+        if isinstance(payload, str):
+            payload = json.loads(payload)
+        return WorkflowPlan.model_validate(payload)
 
     async def create_generation_job(
         self,

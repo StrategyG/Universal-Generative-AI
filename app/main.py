@@ -13,7 +13,12 @@ from app.auth import (
     validate_auth_configuration,
 )
 
+from app.ai_schemas import AICompletionRequest, AICompletionResponse
 from app.config import settings
+from app.providers.openai_compatible_text import (
+    OpenAICompatibleTextProvider,
+    TextGenerationProviderError,
+)
 from app.pipelines.planner import build_pipeline_plan
 from app.pipelines.schemas import PipelinePlan, PipelineRequest
 from app.schemas import GenerationRequest, JobResponse
@@ -30,12 +35,14 @@ from app.services.external_gpu_queue import (
     enqueue,
     fail,
     get_external_job,
+    get_persisted_workflow_plan,
     get_model_version,
     heartbeat,
     heartbeat_worker,
     initialize_queue,
     provision_worker,
     queue_backend_name,
+    persist_workflow_plan,
     register_model_version,
     register_worker,
     revoke_worker,
@@ -46,6 +53,14 @@ from app.services.model_registry_errors import (
     ModelRegistryConflictError,
 )
 from app.services.queue_errors import IdempotencyConflictError
+from app.workflows.planner import build_workflow_plan
+from app.workflows.templates import build_domain_template
+from app.workflows.schemas import (
+    ProjectDomain,
+    WorkflowPlan,
+    WorkflowPlanRequest,
+    WorkflowTemplateRequest,
+)
 from app.workers.schemas import (
     ExternalJob,
     ExternalJobCreate,
@@ -155,6 +170,50 @@ async def generate(
         raise HTTPException(status_code=501, detail=str(exc)) from exc
 
 
+
+@app.post(
+    f"{settings.api_prefix}/ai/complete",
+    response_model=AICompletionResponse,
+)
+async def complete_ai_generation(
+    request: AICompletionRequest,
+    principal: Principal = Depends(get_current_principal),
+):
+    """Generate domain-specialist text; rigorous mode performs draft, critique, and revision."""
+    require_generation_role(principal)
+    ensure_project_access(principal, request.project_id)
+
+    strict_model_registry = (
+        settings.model_registry_enforcement
+        or settings.environment.lower() in {"production", "prod"}
+    )
+    if strict_model_registry:
+        if not settings.text_generation_model_id or not settings.text_generation_model_revision:
+            raise HTTPException(
+                status_code=503,
+                detail="Production text generation requires a registered immutable model revision",
+            )
+        try:
+            await assert_model_approved(
+                settings.text_generation_model_id,
+                settings.text_generation_model_revision,
+            )
+        except ModelApprovalRequiredError as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=503, detail="Text model registry is unavailable") from exc
+
+    try:
+        provider = OpenAICompatibleTextProvider.from_settings()
+    except TextGenerationProviderError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    try:
+        result = await provider.generate(request)
+    except TextGenerationProviderError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return AICompletionResponse(**result)
+
+
 @app.get(f"{settings.api_prefix}/jobs/{{job_id}}", response_model=JobResponse)
 async def job_status(
     job_id: str,
@@ -179,6 +238,77 @@ async def plan_pipeline(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+
+
+@app.post(
+    f"{settings.api_prefix}/workflows/templates/{{domain}}",
+    response_model=WorkflowPlan,
+)
+async def create_institutional_workflow_template(
+    domain: ProjectDomain,
+    request: WorkflowTemplateRequest,
+    principal: Principal = Depends(get_current_principal),
+):
+    """Build a deterministic starter plan for a supported project domain."""
+    require_generation_role(principal)
+    ensure_project_access(principal, request.project_id)
+    try:
+        plan = build_domain_template(domain, request)
+        return await persist_workflow_plan(
+            plan,
+            tenant_id=principal.tenant_id,
+            owner_subject=principal.subject,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail="Workflow plan persistence is unavailable") from exc
+
+
+@app.post(
+    f"{settings.api_prefix}/workflows/plan",
+    response_model=WorkflowPlan,
+)
+async def plan_institutional_workflow(
+    request: WorkflowPlanRequest,
+    principal: Principal = Depends(get_current_principal),
+):
+    """Validate a project-scoped workflow; this endpoint never executes steps."""
+    require_generation_role(principal)
+    ensure_project_access(principal, request.project_id)
+    try:
+        plan = build_workflow_plan(request)
+        return await persist_workflow_plan(
+            plan,
+            tenant_id=principal.tenant_id,
+            owner_subject=principal.subject,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail="Workflow plan persistence is unavailable") from exc
+
+
+@app.get(
+    f"{settings.api_prefix}/workflows/plans/{{plan_id}}",
+    response_model=WorkflowPlan,
+)
+async def read_institutional_workflow_plan(
+    plan_id: str,
+    principal: Principal = Depends(get_current_principal),
+):
+    require_job_read_role(principal)
+    try:
+        plan = await get_persisted_workflow_plan(
+            plan_id,
+            tenant_id=principal.tenant_id,
+            owner_subject=principal.subject,
+            project_ids=sorted(principal.project_ids - {"*"}),
+            tenant_admin=principal.is_tenant_admin,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail="Workflow plan storage is unavailable") from exc
+    if plan is None:
+        raise HTTPException(status_code=404, detail="Workflow plan not found")
+    return plan
 
 
 @app.post(
