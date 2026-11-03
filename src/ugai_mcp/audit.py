@@ -7,7 +7,7 @@ exclude bearer tokens, OAuth material, tool arguments, and provider result bodie
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Protocol
 
 
@@ -41,7 +41,7 @@ def make_audit_event(
         actor_id=actor_id,
         tool_name=tool_name,
         outcome=outcome,
-        occurred_at=datetime.now(timezone.utc).isoformat(),
+        occurred_at=datetime.now(UTC).isoformat(),
         duration_ms=max(0, duration_ms),
         error_code=error_code,
     )
