@@ -725,10 +725,10 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    try:
-        if args.decrypt_backup:
-            if args.output is None:
-                parser.error("--output is required with --decrypt-backup")
+    if args.decrypt_backup:
+        if args.output is None:
+            parser.error("--output is required with --decrypt-backup")
+        try:
             key = _validate_key(os.environ.get("UGAI_EXPORT_ENCRYPTION_KEY_B64", ""))
             digest = _decrypt_dump(args.decrypt_backup, args.output, key)
             print(
@@ -742,32 +742,35 @@ def main() -> int:
                 )
             )
             return 0
-        if args.output is not None:
-            parser.error("--output can only be used with --decrypt-backup")
+        except (MigrationError, OSError, ValueError) as exc:
+            print(f"RAG backup recovery failed: {exc}", file=sys.stderr)
+            return 2
 
+    if args.output is not None:
+        parser.error("--output can only be used with --decrypt-backup")
+
+    try:
         import psycopg
         from googleapiclient.errors import HttpError
-
-        print(json.dumps(run_migration(apply=args.apply), indent=2, sort_keys=True))
-        return 0
-    except (
-        MigrationError,
-        OSError,
-        ValueError,
-        subprocess.SubprocessError,
-    ) as exc:
-        print(f"RAG migration failed: {exc}", file=sys.stderr)
-        return 2
     except ImportError:
         print(
             "Install the optional dependencies with: pip install -e '.[rag-migration]'",
             file=sys.stderr,
         )
         return 2
-    except Exception as exc:
-        # Psycopg and Google client exceptions are rendered without printing any
-        # database URL, credential file content, or request headers.
-        print(f"RAG migration failed ({type(exc).__name__}): {exc}", file=sys.stderr)
+
+    try:
+        print(json.dumps(run_migration(apply=args.apply), indent=2, sort_keys=True))
+        return 0
+    except (
+        MigrationError,
+        psycopg.Error,
+        HttpError,
+        OSError,
+        ValueError,
+        subprocess.SubprocessError,
+    ) as exc:
+        print(f"RAG migration failed: {exc}", file=sys.stderr)
         return 2
 
 
