@@ -261,6 +261,55 @@ def validate_semantic_examples(
     assert_invalid(claim_validator, unsupported_claim, "direct fact without evidence reference")
 
 
+def validate_runtime_openapi_contract(spec: dict[str, Any]) -> None:
+    """Keep the published retrieval contract aligned with the shipped FastAPI route."""
+    paths = spec.get("paths", {})
+    operation = paths.get("/v1/knowledge/retrieve", {}).get("post")
+    if not isinstance(operation, dict):
+        raise ValueError("OpenAPI must define POST /v1/knowledge/retrieve")
+
+    request_schema = operation["requestBody"]["content"]["application/json"]["schema"]
+    if request_schema.get("additionalProperties") is not False:
+        raise ValueError("RetrievalRequest must reject unknown fields")
+    request_properties = request_schema.get("properties", {})
+    if "strategy" in request_properties:
+        raise ValueError("Runtime retrieval request does not accept client strategy")
+    if request_properties.get("scope", {}).get("properties", {}).get("corpus", {}).get("items", {}).get("const") != "institutional_approved":
+        raise ValueError("Runtime retrieval scope must be limited to institutional_approved")
+    if request_properties.get("limit", {}).get("maximum") != 10:
+        raise ValueError("Runtime retrieval limit must match the 1-10 implementation bound")
+
+    response_schema = operation["responses"]["200"]["content"]["application/json"]["schema"]
+    if response_schema.get("$ref") != "#/components/schemas/RetrievalResult":
+        raise ValueError("Retrieval route must use the RetrievalResult schema")
+    schemas = spec["components"]["schemas"]
+    result = schemas["RetrievalResult"]
+    required = set(result.get("required", []))
+    if not {"request_id", "status", "retrieval", "evidence", "warnings"}.issubset(required):
+        raise ValueError("RetrievalResult is missing runtime-required envelope fields")
+    if set(result["properties"]["status"].get("enum", [])) != {"evidence_found", "no_evidence"}:
+        raise ValueError("RetrievalResult status values do not match runtime")
+    retrieval = result["properties"]["retrieval"]
+    if retrieval["properties"]["strategy"].get("const") != "approved_keyword":
+        raise ValueError("Runtime strategy must be approved_keyword")
+    if retrieval["properties"]["corpora"]["items"].get("const") != "institutional_approved":
+        raise ValueError("Runtime response must report only institutional_approved")
+    if result["properties"]["evidence"]["items"].get("$ref") != "#/components/schemas/Evidence":
+        raise ValueError("RetrievalResult evidence item schema is not connected")
+    evidence = schemas["Evidence"]
+    if evidence["properties"]["trusted"].get("const") is not True:
+        raise ValueError("Approved runtime evidence must be explicitly trusted")
+    if evidence["properties"]["user_citation_eligible"].get("const") is not True:
+        raise ValueError("Approved runtime evidence must be citation eligible")
+    error_envelope = schemas["ErrorEnvelope"]
+    if error_envelope["properties"]["error"].get("$ref") != "#/components/schemas/Error":
+        raise ValueError("HTTP errors must use the standard error envelope")
+    for status_code in ("401", "422", "503"):
+        response = operation["responses"].get(status_code)
+        if not response:
+            raise ValueError(f"Retrieval operation must document HTTP {status_code}")
+    print("- FastAPI retrieval request/response and error contract matches OpenAPI")
+
 def main() -> int:
     schema_paths = {
         "plan": CONTRACTS / "plan-spec.schema.json",
@@ -288,6 +337,7 @@ def main() -> int:
         raise ValueError("OpenAPI document must be a YAML mapping")
 
     validate(openapi_spec)
+    validate_runtime_openapi_contract(openapi_spec)
 
     print("Contract validation passed:")
     for path in schema_paths.values():
