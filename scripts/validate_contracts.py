@@ -231,6 +231,12 @@ def validate_semantic_examples(
     }
     assert_valid(retrieval_validator, retrieval_plan, "bounded retrieval plan")
     assert_semantic_valid(validate_retrieval_plan_semantics, retrieval_plan, "bounded retrieval plan")
+
+    private_notebook_plan = json.loads(json.dumps(retrieval_plan))
+    private_notebook_plan["sub_questions"][0]["corpora"] = ["private_notebook"]
+    private_notebook_plan["sub_questions"][0]["required_evidence_tiers"] = ["private_notebook"]
+    private_notebook_plan["sub_questions"][0]["filters"] = {"notebook_id": "authorized-notebook-id"}
+    assert_valid(retrieval_validator, private_notebook_plan, "private notebook retrieval plan")
     unsafe_retrieval = json.loads(json.dumps(retrieval_plan))
     unsafe_retrieval["sub_questions"][0]["corpora"] = ["private_staging"]
     assert_invalid(retrieval_validator, unsafe_retrieval, "planner attempting to request private staging as standard corpus")
