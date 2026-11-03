@@ -213,6 +213,23 @@ components:
           items:
             type: string
             enum: [institutional_approved, legacy_rag, private_notebook]
+        notebook_ids:
+          type: array
+          maxItems: 100
+          uniqueItems: true
+          items:
+            type: string
+            maxLength: 256
+        document_ids:
+          type: array
+          maxItems: 100
+          uniqueItems: true
+          items:
+            type: string
+            maxLength: 256
+        as_of:
+          type: [string, 'null']
+          format: date
         limit:
           type: integer
           minimum: 1
