@@ -1,7 +1,5 @@
 """Authentication seam. The concrete OAuth client is deployment-specific."""
 
-from __future__ import annotations
-
 from typing import Protocol
 
 
