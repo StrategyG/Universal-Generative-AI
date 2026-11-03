@@ -21,9 +21,9 @@ def test_pgpass_escapes_delimiters():
 
 def test_encryption_key_requires_32_bytes():
     with pytest.raises(MigrationError, match="32 bytes"):
-        _validate_encryption_key(base64.b64encode(b"too short").decode())
+        _validate_key(base64.b64encode(b"too short").decode())
     key = os.urandom(32)
-    assert _validate_encryption_key(base64.b64encode(key).decode()) == key
+    assert _validate_key(base64.b64encode(key).decode()) == key
 
 
 def test_dump_encryption_is_streamed_and_tagged(tmp_path: Path):
