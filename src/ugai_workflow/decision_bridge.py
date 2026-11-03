@@ -159,7 +159,7 @@ class DecisionWorkflowTaskHandler:
         # Scope the stable key by tenant; only its digest crosses into the
         # decision gateway, avoiding raw tenant identifiers in downstream keys.
         stable_idempotency_key = hashlib.sha256(
-            f"{task.tenant_id}:{task.idempotency_key}".encode("utf-8")
+            f"{task.tenant_id}:{task.idempotency_key}".encode()
         ).hexdigest()
         result = await self._workflow.evaluate(
             **decision_input.to_workflow_kwargs(),
