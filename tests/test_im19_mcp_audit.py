@@ -39,6 +39,7 @@ def make_client(audit):
     config = IM19Config(
         endpoint="https://im19.example/mcp",
         resource="https://im19.example",
+        allowed_hosts=frozenset({"im19.example"}),
         allowed_tools=frozenset({"youtube_get_channel"}),
     )
     client = IM19MCPClient(
@@ -96,6 +97,7 @@ def test_runtime_requires_trusted_actor_identity():
     config = IM19Config(
         endpoint="https://im19.example/mcp",
         resource="https://im19.example",
+        allowed_hosts=frozenset({"im19.example"}),
         allowed_tools=frozenset(),
     )
     with pytest.raises(ValueError):
