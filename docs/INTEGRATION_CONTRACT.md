@@ -1,6 +1,6 @@
 # UGAI ↔ Institutional RAG Integration Contract
 
-Status: Proposed contract. The paths below are target interfaces, not deployed endpoints.
+Status: Runtime retrieval adapter and dedicated Supabase gateway are implemented on the feature branch but are not deployed. The FastAPI route is /v1/knowledge/retrieve; the internal gateway is /functions/v1/ugai-institutional-retrieve. Remaining chat/workflow interfaces below are contractual targets, not deployed capabilities.
 
 ## Storage and ownership decision
 
