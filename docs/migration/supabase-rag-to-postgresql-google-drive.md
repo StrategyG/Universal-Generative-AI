@@ -48,7 +48,7 @@ These are read-only exact counts from the inspection query, not a completed tran
 - `institutional_rag.knowledge_candidates`: 669 candidates; 486 pending and 183 need more evidence. None are marked published. Trusted retrieval should not be considered production-ready while there are no published candidates.
 - Institutional source documents: 384 Dropbox and 50 web sources. 358 Dropbox source records have valid SHA-256 values; 26 do not.
 - The Supabase Storage bucket inventory is empty. Original Dropbox documents are not stored in Supabase Storage.
-- RAG schemas contain 25 base tables, retrieval functions, and review/readiness views. The `rag` tables have explicit deny policies for `anon` and `authenticated`. Institutional tables have RLS enabled but no row policies; default access must remain denied to external roles.
+- RAG schemas contain 25 base tables, retrieval functions, and review/readiness views. The only user-defined table-column type is `extensions.vector`; all other columns use PostgreSQL built-in types. RAG functions do not reference `auth`, `storage`, `vault`, or `public` objects. The `rag` tables have explicit deny policies for `anon` and `authenticated`. Institutional tables have RLS enabled but no row policies; default access must remain denied to external roles.
 - Three institutional foreign keys reference `auth.users`; reviewer and attestation tables were empty at inspection time. Three readiness/reviewer views also depend on `auth.users.email_confirmed_at`. The migration runner rewrites those view dependencies to `ugai_identity.actors`, preserves the readiness checks, converts the foreign keys, and drops the temporary Auth compatibility schema. It does not copy passwords, tokens, or user profiles. Historical actor references remain unverified until a new identity provider attests them.
 
 Do not mark pending or unreviewed evidence as trusted or published during migration.
@@ -65,7 +65,7 @@ Do not mark pending or unreviewed evidence as trusted or published during migrat
 
 - PostgreSQL 17+ destination with `pgvector` 0.8.2+ and `pgcrypto` available.
 - PostgreSQL client utilities `pg_dump` and `pg_restore` version 17+.
-- A Google Cloud service-account JSON file with access to a restricted Drive folder.
+- A Google Cloud service-account JSON file with write access to a restricted Google Drive folder or Shared Drive. The uploader sends `supportsAllDrives=true` for Shared Drive compatibility.
 - A 32-byte encryption key encoded as Base64.
 - For original file transfer, the Dropbox connection and permission to read the original source files.
 
@@ -100,6 +100,19 @@ Only after confirming the source, destination, Drive folder and backup policy, e
 ```bash
 python -m ugai_decision.rag_migration --apply
 ```
+
+## Backup recovery
+
+Download the encrypted `rag-schemas.dump.enc` object from the restricted Drive folder to a protected machine. Set the same `UGAI_EXPORT_ENCRYPTION_KEY_B64` value from the secret store; never send it in chat or commit it.
+
+Authenticate and decrypt to a new local file:
+```bash
+python -m ugai_decision.rag_migration \
+  --decrypt-backup /secure/path/rag-schemas.dump.enc \
+  --output /secure/path/rag-schemas.dump
+```
+
+The command validates the AES-256-GCM authentication tag before reporting success and refuses to overwrite an existing output file. Restore the resulting PostgreSQL custom archive to a new empty PostgreSQL 17+ database with `pg_restore`; do not restore over the live source or an existing RAG target.
 
 The runner:
 1. Opens the source in a read-only repeatable-read transaction and exports a PostgreSQL snapshot.
