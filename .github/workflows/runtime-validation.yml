@@ -1,0 +1,56 @@
+name: Runtime integration validation
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "runtime/**"
+      - "supabase/functions/ugai-institutional-retrieve/**"
+      - ".github/workflows/runtime-validation.yml"
+  push:
+    branches: [main, feat/institutional-intelligence-hybrid]
+    paths:
+      - "runtime/**"
+      - "supabase/functions/ugai-institutional-retrieve/**"
+      - ".github/workflows/runtime-validation.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: runtime-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python-runtime:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: runtime
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: runtime/pyproject.toml
+      - name: Install runtime and test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[test]"
+      - name: Compile
+        run: python -m compileall -q ugai_rag tests
+      - name: Test
+        run: python -m pytest -q
+
+  edge-function-typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Type-check Supabase gateway
+        run: deno check supabase/functions/ugai-institutional-retrieve/index.ts
+      - name: Test gateway policy and evidence mapping
+        run: deno test supabase/functions/ugai-institutional-retrieve/logic_test.ts

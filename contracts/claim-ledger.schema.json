@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://strategyg.example/contracts/claim-ledger.schema.json",
+  "title": "UGAI Claim Ledger Record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["claim_id", "claim_text", "claim_type", "evidence_ids", "support_verdict", "confidence_band", "assumptions", "contradictions"],
+  "properties": {
+    "claim_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "claim_text": { "type": "string", "minLength": 1, "maxLength": 4000 },
+    "claim_type": {
+      "enum": ["direct_fact", "derived_calculation", "interpretation", "forecast", "recommendation", "unknown_or_unverified"]
+    },
+    "evidence_ids": {
+      "type": "array",
+      "uniqueItems": true,
+      "maxItems": 30,
+      "items": { "type": "string", "minLength": 1, "maxLength": 256 }
+    },
+    "support_verdict": {
+      "enum": ["supported", "partially_supported", "contradicted", "insufficient", "not_checked"]
+    },
+    "confidence_band": { "enum": ["high", "moderate", "low", "not_assessed"] },
+    "time_scope": { "type": ["string", "null"], "maxLength": 256 },
+    "assumptions": { "type": "array", "maxItems": 30, "items": { "type": "string", "maxLength": 1000 } },
+    "contradictions": { "type": "array", "maxItems": 30, "items": { "type": "string", "maxLength": 1000 } },
+    "calculation": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "formula": { "type": "string", "maxLength": 1000 },
+        "inputs": { "type": "array", "maxItems": 50, "items": { "type": "string", "maxLength": 256 } },
+        "units": { "type": ["string", "null"], "maxLength": 100 },
+        "result": { "type": ["number", "string", "null"] }
+      }
+    },
+    "verifier_version": { "type": ["string", "null"], "maxLength": 100 }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "claim_type": { "const": "direct_fact" } }, "required": ["claim_type"] },
+      "then": {
+        "properties": {
+          "evidence_ids": { "minItems": 1 },
+          "support_verdict": { "enum": ["supported", "partially_supported", "contradicted", "insufficient"] }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "claim_type": { "const": "derived_calculation" } }, "required": ["claim_type"] },
+      "then": {
+        "required": ["calculation"],
+        "properties": {
+          "evidence_ids": { "minItems": 1 },
+          "calculation": { "type": "object", "required": ["formula", "inputs"] }
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://strategyg.example/contracts/retrieval-plan.schema.json",
+  "title": "UGAI Retrieval Plan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "intent", "needs_rag", "original_query", "sub_questions", "budgets", "required_citations"],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "intent": {
+      "enum": ["factual_qa", "lookup", "summarization", "comparison", "deep_research", "decision_analysis", "generation", "unknown"]
+    },
+    "needs_rag": { "type": "boolean" },
+    "original_query": { "type": "string", "minLength": 1, "maxLength": 2000 },
+    "normalized_query": { "type": "string", "maxLength": 2000 },
+    "language": { "type": "string", "maxLength": 16 },
+    "domain": { "type": "string", "maxLength": 100 },
+    "time_scope": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "from": { "type": ["string", "null"], "format": "date" },
+        "to": { "type": ["string", "null"], "format": "date" },
+        "as_of": { "type": ["string", "null"], "format": "date" }
+      }
+    },
+    "preserve_terms": {
+      "type": "array",
+      "uniqueItems": true,
+      "maxItems": 30,
+      "items": { "type": "string", "minLength": 1, "maxLength": 200 }
+    },
+    "sub_questions": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "question", "corpora", "methods", "required_evidence_tiers"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{1,63}$" },
+          "parent_id": { "type": ["string", "null"], "maxLength": 64 },
+          "question": { "type": "string", "minLength": 1, "maxLength": 1000 },
+          "preserve_terms": { "type": "array", "uniqueItems": true, "maxItems": 20, "items": { "type": "string", "maxLength": 200 } },
+          "corpora": {
+            "type": "array",
+            "uniqueItems": true,
+            "minItems": 1,
+            "items": { "enum": ["institutional_approved", "legacy_rag", "private_notebook"] }
+          },
+          "methods": {
+            "type": "array",
+            "uniqueItems": true,
+            "minItems": 1,
+            "items": { "enum": ["keyword", "semantic", "hybrid_rrf", "metadata", "conversation_memory"] }
+          },
+          "required_evidence_tiers": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": { "enum": ["approved", "legacy", "private_notebook"] }
+          },
+          "filters": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "document_ids": { "type": "array", "maxItems": 100, "uniqueItems": true, "items": { "type": "string", "maxLength": 256 } },
+              "notebook_id": { "type": ["string", "null"], "maxLength": 256 },
+              "language": { "type": ["string", "null"], "maxLength": 16 },
+              "mime_types": { "type": "array", "maxItems": 20, "items": { "type": "string", "maxLength": 100 } },
+              "page_from": { "type": ["integer", "null"], "minimum": 1 },
+              "page_to": { "type": ["integer", "null"], "minimum": 1 }
+            }
+          },
+          "top_k": { "type": "integer", "minimum": 1, "maximum": 20 }
+        }
+      }
+    },
+    "budgets": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["max_sub_questions", "max_retrieval_calls", "max_refinement_rounds", "deadline_ms"],
+      "properties": {
+        "max_sub_questions": { "type": "integer", "minimum": 1, "maximum": 8 },
+        "max_retrieval_calls": { "type": "integer", "minimum": 1, "maximum": 12 },
+        "max_refinement_rounds": { "type": "integer", "minimum": 0, "maximum": 2 },
+        "deadline_ms": { "type": "integer", "minimum": 1000, "maximum": 180000 }
+      }
+    },
+    "required_citations": { "type": "boolean" },
+    "output_sections": { "type": "array", "maxItems": 20, "items": { "type": "string", "maxLength": 120 } }
+  }
+}
