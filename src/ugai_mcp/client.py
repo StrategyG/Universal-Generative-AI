@@ -13,7 +13,7 @@ from types import TracebackType
 from typing import Any, Self
 
 from .audit import AuditSink, make_audit_event
-from .auth import AccessTokenProvider
+from .auth import IM19_REQUIRED_SCOPES, AccessTokenProvider
 from .config import IM19Config
 from .policy import ToolPolicy
 
@@ -80,7 +80,10 @@ class IM19MCPClient:
             from mcp import ClientSession
             from mcp.client.streamable_http import streamablehttp_client
 
-            token = await self._tokens.get_access_token(resource=self._config.resource)
+            token = await self._tokens.get_access_token(
+                resource=self._config.resource,
+                scopes=IM19_REQUIRED_SCOPES,
+            )
             if not token or any(ch.isspace() for ch in token):
                 raise MCPUnavailable("OAuth provider returned an invalid bearer token")
 
