@@ -48,7 +48,7 @@ function authenticate(req: Request): boolean {
 
 function sqlClient() {
   if (!database) {
-    const connectionString = Deno.env.get("SUPABASE_DB_URL") ?? "";
+    const connectionString = Deno.env.get("UGAI_RAG_GATE_DATABASE_URL") ?? "";
     if (!connectionString) throw new Error("Database connection is not configured");
     database = postgres(connectionString, {
       max: 1,
@@ -56,16 +56,16 @@ function sqlClient() {
       connect_timeout: 8,
       max_lifetime: 900,
       prepare: false,
+      ssl: "require",
     });
   }
   return database;
 }
 
 async function readReleaseGate(): Promise<ReleaseGate> {
-  // Fixed read-only SQL; the database credential never leaves this function.
+  // Fixed read-only query against a narrowly granted, non-exposed gate function.
   const rows = await sqlClient().unsafe<ReleaseGate[]>(
-    "select decision, technical_passed, technical_total, operational_passed, operational_total " +
-    "from institutional_rag.production_release_decision_v1 limit 1"
+    "select * from institutional_rag.ugai_read_production_release_gate_v1()"
   );
   const gate = rows[0];
   if (!gate) throw new Error("Release gate returned no row");
