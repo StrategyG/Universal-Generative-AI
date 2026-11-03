@@ -34,6 +34,8 @@ A modular platform for generative AI workflows, multimodal generation, and exten
 - Evidence record schema: [contracts/evidence-record.schema.json](contracts/evidence-record.schema.json)
 - Retrieval plan schema: [contracts/retrieval-plan.schema.json](contracts/retrieval-plan.schema.json)
 - Claim ledger schema: [contracts/claim-ledger.schema.json](contracts/claim-ledger.schema.json)
+- Retrieval plan schema: [contracts/retrieval-plan.schema.json](contracts/retrieval-plan.schema.json)
+- Claim ledger schema: [contracts/claim-ledger.schema.json](contracts/claim-ledger.schema.json)
 
 ## Vector database decision
 
