@@ -5,7 +5,7 @@
 The adapter package includes tests for:
 - HTTPS-only MCP endpoint and exact /mcp path.
 - Exact DNS host allowlist, same-host OAuth resource, IP-literal/wildcard/non-default-port rejection, malformed URI and non-finite timeout rejection.
-- Explicit operator allowlist, absent optional server annotations, contradictory annotations, object input schema and hard-denied privileged tools.
+- Explicit operator allowlist, absent optional server annotations, contradictory annotations, object input schema and hard-denied identity, Drive content/write/approval-status and raw Cloudbrowser tools.
 - Mandatory pre-execution audit: if the durable audit sink fails before execution, no remote tool call occurs.
 - Post-execution audit failure: adapter reports `execution_may_have_completed=True` so callers do not blindly retry.
 - Redacted audit event shape excludes tool arguments and result bodies.
@@ -17,7 +17,7 @@ The pull-request workflow installs the package with the official MCP Python SDK 
 
 - `IM19ToolProvider` is a framework-neutral facade exposing `discover()` and `execute()`.
 - The repository currently has no production agent/workflow registry to attach it to. Application-level wiring remains an integration task.
-- OAuth is deliberately an injected `AccessTokenProvider`; no concrete issuer/client registration or secrets are assumed.
+- OAuth is deliberately an injected `AccessTokenProvider`; it requests the exact resource audience and `im19:read` scope. No concrete issuer/client registration or secrets are assumed.
 - Audit is a mandatory `AuditSink` protocol; a durable implementation must be supplied by the deployment.
 
 ## Required live integration tests not yet evidenced
