@@ -264,3 +264,65 @@ async def test_retry_scheduler_requeues_only_due_retryable_failures(workflow_dat
         task.task_id,
     )
     assert "retry_scheduled" in {row["event_type"] for row in events}
+
+
+
+@pytest.mark.asyncio
+async def test_decision_approval_reference_and_digests_are_durable(workflow_database) -> None:
+    pool, _admin = workflow_database
+    store = PostgresWorkflowStore(pool)
+    tenant = f"tenant-{uuid4()}"
+    task = await store.create_task(
+        **new_task_args(tenant_id=tenant, suffix=str(uuid4()))
+    )
+
+    async def advance(expected_state, next_state, worker_id):
+        claimed = await store.claim_next(
+            tenant_id=tenant,
+            worker_id=worker_id,
+            supported_task_types=("integration_work",),
+            lease_seconds=30,
+        )
+        assert claimed is not None
+        assert claimed.state is expected_state
+        return await store.transition(
+            task_id=task.task_id,
+            tenant_id=tenant,
+            expected_version=claimed.version,
+            target=next_state,
+            actor_id=claimed.actor_id,
+            reason_code=f"advance_{next_state.value}",
+            lease=LeaseIdentity(worker_id, claimed.lease_token),
+        )
+
+    await advance(TaskState.RECEIVED, TaskState.OBSERVING, "decision-worker-1")
+    await advance(TaskState.OBSERVING, TaskState.PLANNING, "decision-worker-2")
+    approval_reference = "approval-ref-opaque-0001"
+    decision_digest = "c" * 64
+    plan_digest = "d" * 64
+    # The approval transition writes only opaque references and SHA-256 digests.
+    claimed = await store.claim_next(
+        tenant_id=tenant,
+        worker_id="decision-worker-3",
+        supported_task_types=("integration_work",),
+        lease_seconds=30,
+    )
+    assert claimed is not None
+    assert claimed.state is TaskState.PLANNING
+    awaited = await store.transition(
+        task_id=task.task_id,
+        tenant_id=tenant,
+        expected_version=claimed.version,
+        target=TaskState.AWAITING_APPROVAL,
+        actor_id=claimed.actor_id,
+        reason_code="decision_approval_requested",
+        lease=LeaseIdentity("decision-worker-3", claimed.lease_token),
+        approval_reference=approval_reference,
+        decision_digest=decision_digest,
+        plan_digest=plan_digest,
+    )
+    persisted = await store.get_task(task_id=task.task_id, tenant_id=tenant)
+    assert awaited.state is TaskState.AWAITING_APPROVAL
+    assert persisted.approval_reference == approval_reference
+    assert persisted.decision_digest == decision_digest
+    assert persisted.plan_digest == plan_digest
