@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import json
 import re
-from dataclasses import dataclass
 from typing import Protocol
 from urllib.parse import urlparse
 from uuid import UUID
@@ -114,7 +114,7 @@ async def _read_json_object(response: httpx.Response) -> dict[str, object]:
 
     payload = json.loads(body)
     if not isinstance(payload, dict):
-        raise ValueError("Studio response must be a JSON object")
+        raise TypeError("Studio response must be a JSON object")
     return payload
 
 
