@@ -10,8 +10,13 @@ The adapter package includes tests for:
 - Post-execution audit failure: adapter reports `execution_may_have_completed=True` so callers do not blindly retry.
 - Redacted audit event shape excludes tool arguments and result bodies.
 - Trusted actor identity is required by the workflow provider facade.
+- Exact OAuth resource audience and `im19:read` scope are passed to the token-provider interface.
 
-The pull-request workflow installs the package with the official MCP Python SDK extra, runs Ruff on the adapter/tests, and runs the adapter test suite.
+## CI evidence
+
+- Exact UGAI PR #6 head: `2f4eecb5e27796dc70025e060111434b7d6a4dc5`.
+- GitHub Actions run [41683758167](https://github.com/StrategyG/Universal-Generative-AI/actions/runs/41683758167): package installation PASS, Ruff PASS, 38 unit tests PASS.
+- This workflow validates adapter code and unit contracts only. It does not exercise a live IM19 endpoint or OAuth issuer.
 
 ## Runtime components
 
@@ -34,4 +39,4 @@ These require a deployed IM19 staging endpoint and registered OAuth client:
 
 ## Release decision
 
-The latest CI run validates package installation, lint and unit tests only. It does not prove a live IM19 HTTPS/OAuth connection, workflow deployment, network isolation or production acceptance. Status remains **ADAPTER IMPLEMENTED / LIVE CONNECTION UNVERIFIED**.
+Status remains **ADAPTER IMPLEMENTED / LIVE CONNECTION UNVERIFIED**. It is not production acceptance until live OAuth, deployment, network-isolation, audit-sink and workflow-registry evidence passes.
