@@ -1,10 +1,10 @@
 # IM19 Universal MCP integration
 
-Status: reusable UGAI remote MCP adapter implemented on branch `integration/im19-mcp-adapter-v1`; live connectivity is not yet verified.
+Status: reusable UGAI remote MCP adapter implemented on branch `integration/im19-mcp-adapter-v1`; security hardening candidate is on `hardening/im19-mcp-config-boundary-v2`. Live connectivity remains unverified.
 
 The MCP server is maintained in https://github.com/StrategyG/im19-universal-mcp. UGAI consumes it as a remote MCP client over authenticated Streamable HTTP after a real HTTPS deployment exists. A repository URL is not a server endpoint.
 
-Implementation: [UGAI PR #6](https://github.com/StrategyG/Universal-Generative-AI/pull/6). Package `src/ugai_mcp/` includes HTTPS endpoint validation, an injected OAuth token-provider interface, MCP SDK session initialization, dynamic tool discovery, explicit allowlist policy, bounded execution and unit tests.
+Implementation: [UGAI PR #6](https://github.com/StrategyG/Universal-Generative-AI/pull/6). Package `src/ugai_mcp/` includes an injected OAuth token-provider interface, MCP SDK session initialization, dynamic tool discovery, explicit allowlist policy, bounded execution and unit tests.
 
 ## Ownership and trust boundaries
 
@@ -16,13 +16,27 @@ Implementation: [UGAI PR #6](https://github.com/StrategyG/Universal-Generative-A
 
 ## Runtime configuration
 
-The adapter validates `IM19_MCP_URL` (HTTPS, exact `/mcp` path), `IM19_MCP_RESOURCE`, explicit `IM19_ALLOWED_READ_TOOLS`, timeout and response-size limits. OAuth token acquisition is an injected `AccessTokenProvider`; deployment must implement it against the registered OAuth issuer and secret manager. No static bearer token is supported.
+Configure all of the following through the deployment secret/configuration manager:
+
+| Variable | Requirement |
+|---|---|
+| `IM19_MCP_URL` | Exact HTTPS endpoint ending in `/mcp`; no query, fragment, embedded credentials or non-default port |
+| `IM19_MCP_RESOURCE` | HTTPS OAuth resource URI on the same hostname as the MCP endpoint; no query or fragment |
+| `IM19_MCP_ALLOWED_HOSTS` | Required comma-separated exact DNS hostname allowlist; no wildcard or IP literal |
+| `IM19_ALLOWED_READ_TOOLS` | Explicit comma-separated tool allowlist; empty means no tools are exposed |
+| `IM19_MCP_TIMEOUT_SECONDS` | Finite value in the range 0–120 seconds |
+| `IM19_MCP_MAX_RESULT_BYTES` | Integer response limit from 1 KiB to 10 MB |
+
+The endpoint hostname and resource hostname must match an exact entry in `IM19_MCP_ALLOWED_HOSTS`. The adapter rejects wildcard entries, IP-literal hosts, invalid ports and malformed tool names. Timeout values such as `NaN` and infinity are rejected. This is a configuration guardrail, not a complete SSRF boundary: production must also enforce outbound network policy at the egress firewall/resolver and prevent DNS rebinding to private or metadata-service addresses.
+
+OAuth token acquisition is an injected `AccessTokenProvider`; deployment must implement it against the registered OAuth issuer and secret manager. No static bearer token is supported.
 
 ## Important server-contract detail
 
 The inspected IM19 0.3 `src/im19_mcp/server.py` registers tools without MCP read-only annotations. Therefore, UGAI cannot treat annotations as the authoritative safety signal. The adapter uses an empty-by-default, operator-reviewed tool-name allowlist. If a server does supply annotations, contradictory read-only/destructive hints cause denial.
 
 A conservative initial allowlist to review against the live server is:
+
 - `list_available_services`
 - `get_service_capabilities`
 - `get_connection_status`
@@ -38,9 +52,10 @@ Do not add `drive_read_file` until restricted-scope consent and content-handling
 ## Remaining live-connection gates
 
 1. Deploy IM19 behind public HTTPS and verify the exact MCP resource URL.
-2. Register UGAI as an OAuth client with the exact IM19 resource audience and required read scope.
-3. Implement and test the deployment-specific OAuth token provider.
-4. Wire the adapter into the UGAI workflow/tool registry and add a redacted audit sink.
-5. Run staging tests for initialize, tools/list, approved read-only calls, invalid/expired/wrong-audience tokens, insufficient scope, 401/403, 429/503, timeout, oversized result and cross-tenant isolation.
+2. Configure the exact host allowlist and network-level egress controls; validate DNS resolution and block private, loopback, link-local and metadata-service destinations.
+3. Register UGAI as an OAuth client with the exact IM19 resource audience and required read scope.
+4. Implement and test the deployment-specific OAuth token provider.
+5. Wire the adapter into the UGAI workflow/tool registry and add a redacted audit sink.
+6. Run staging tests for initialize, tools/list, approved read-only calls, invalid/expired/wrong-audience tokens, insufficient scope, 401/403, 429/503, timeout, oversized result and cross-tenant isolation.
 
 No live integration or production readiness is claimed until these tests pass against deployed services.
