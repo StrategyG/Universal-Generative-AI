@@ -47,7 +47,7 @@
             "type": "array",
             "uniqueItems": true,
             "minItems": 1,
-            "items": { "enum": ["institutional_approved", "legacy_rag"] }
+            "items": { "enum": ["institutional_approved", "legacy_rag", "private_notebook"] }
           },
           "methods": {
             "type": "array",
@@ -58,7 +58,7 @@
           "required_evidence_tiers": {
             "type": "array",
             "uniqueItems": true,
-            "items": { "enum": ["approved", "legacy"] }
+            "items": { "enum": ["approved", "legacy", "private_notebook"] }
           },
           "filters": {
             "type": "object",
