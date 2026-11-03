@@ -264,7 +264,7 @@ class DecisionWorkflow:
             stable_key = hashlib.sha256(idempotency_key.encode("utf-8")).hexdigest()
             workflow_id = stable_key[:32]
             decision_id = hashlib.sha256(
-                f"decision:{idempotency_key}".encode("utf-8")
+                f"decision:{idempotency_key}".encode()
             ).hexdigest()[:32]
         else:
             workflow_id = uuid4().hex
