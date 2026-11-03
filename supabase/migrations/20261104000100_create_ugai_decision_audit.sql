@@ -20,6 +20,14 @@ create table if not exists ugai_audit.decision_events (
     constraint decision_events_actor_id_nonempty check (length(trim(actor_id)) > 0),
     constraint decision_events_stage_nonempty check (length(trim(stage)) > 0),
     constraint decision_events_outcome_nonempty check (length(trim(outcome)) > 0),
+    constraint decision_events_field_lengths check (
+        length(event_id) <= 128
+        and length(workflow_id) <= 128
+        and length(decision_id) <= 128
+        and length(actor_id) <= 255
+        and length(stage) <= 100
+        and length(outcome) <= 100
+    ),
     constraint decision_events_details_object check (jsonb_typeof(details) = 'object')
 );
 
@@ -30,7 +38,9 @@ create index if not exists decision_events_workflow_id_idx
 
 alter table ugai_audit.decision_events enable row level security;
 
-revoke all on table ugai_audit.decision_events from public, anon, authenticated;
+-- Supabase projects may grant broad default table privileges to service_role.
+-- Revoke everything first, then grant only what the append RPC needs.
+revoke all on table ugai_audit.decision_events from public, anon, authenticated, service_role;
 grant insert on table ugai_audit.decision_events to service_role;
 
 drop policy if exists decision_events_service_insert on ugai_audit.decision_events;
@@ -100,3 +110,7 @@ comment on schema ugai_audit is
     'Private UGAI decision-workflow audit storage; not part of the RAG corpus or public Data API.';
 comment on table ugai_audit.decision_events is
     'Append-only, redacted decision workflow events. Database owners remain privileged and must be separately governed.';
+comment on function public.append_ugai_decision_event(
+    text, text, text, text, text, text, timestamptz, jsonb
+) is
+    'Narrow SECURITY INVOKER API to append one redacted UGAI decision audit event.';
