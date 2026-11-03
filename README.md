@@ -12,6 +12,7 @@ A modular platform for generative AI workflows, multimodal generation, and exten
 - [Hybrid architecture overview](docs/ARCHITECTURE.md)
 - [Institutional RAG integration contract](docs/INTEGRATION_CONTRACT.md)
 - [Modular Agentic RAG execution specification](docs/AGENTIC_RAG_EXECUTION_SPEC.md)
+- [Private notebook RAG and tenant isolation](docs/PRIVATE_NOTEBOOK_RAG_AND_TENANCY.md)
 - [Secure ingestion and indexing](docs/INGESTION_AND_INDEXING_SPEC.md)
 - [Vector store adapter decision](docs/VECTOR_STORE_ADAPTER_DECISION.md)
 - [Retrieval and evidence governance](docs/RETRIEVAL_AND_EVIDENCE_GOVERNANCE.md)
