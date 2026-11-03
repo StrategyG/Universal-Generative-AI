@@ -4,13 +4,13 @@ Status: runtime adapter and a dedicated Supabase gateway implementation are comm
 
 ## Runtime path
 
-**UGAI caller → FastAPI /v1/knowledge/retrieve → InstitutionalRagAdapter → ugai-institutional-retrieve → release decision view → existing institutional-rag-search → im19_match_trusted_v1**
+**UGAI caller → FastAPI /v1/knowledge/retrieve → InstitutionalRagAdapter → ugai-institutional-retrieve → restricted release-gate SQL function → existing institutional-rag-search → im19_match_trusted_v1**
 
 The UGAI adapter calls only the dedicated gateway. It never calls the legacy Edge Function directly. The gateway:
 
 1. Requires a separate server-to-server x-ugai-service-key.
 2. Accepts only institutional_approved; unknown fields and other corpora are rejected.
-3. Reads the live institutional_rag.production_release_decision_v1 using a fixed read-only query.
+3. Reads the live release decision through institutional_rag.ugai_read_production_release_gate_v1().
 4. Requires exactly 9/9 technical and 4/4 operational release gates, with decision GO.
 5. Only then calls the existing institutional-rag-search function, which calls public.im19_match_trusted_v1.
 6. Validates source/chunk identifiers, SHA-256 content hash and exact page locator.
@@ -24,6 +24,16 @@ The live Supabase release view currently reports NO_GO (2/9 technical and 0/4 op
 
 This is an integration implementation, not production approval. Repository CI and mocked adapter tests do not attest live deployment or live end-to-end behavior.
 
+## Least-privilege database setup
+
+The gate view is configured with security_invoker=true, so granting SELECT on that view would also require privileges on underlying reviewer/evidence tables. Do not grant those broad read privileges to the Edge Function. Instead, the staged SQL setup creates a narrow SECURITY DEFINER function in the non-exposed institutional_rag schema, pins search_path to pg_catalog, returns only five release gate fields, revokes execution from PUBLIC/anon/authenticated, and grants execution only to ugai_rag_gate_reader.
+
+Review and apply supabase/sql/ugai_release_gate_reader.sql through the project's controlled migration process. Then set a strong password out-of-band for the role:
+
+    ALTER ROLE ugai_rag_gate_reader LOGIN PASSWORD '<new-generated-secret>';
+
+Create a transaction-pooler connection string for this dedicated role, with SSL required, and set it as the Edge Function secret UGAI_RAG_GATE_DATABASE_URL. Do not use SUPABASE_DB_URL, the postgres owner, or service_role for this gate-only connection. Keep the dedicated password only in the Supabase secret manager. Use the transaction pooler, one connection per warm function instance and prepared statements disabled.
+
 ## Runtime configuration
 
 Set these variables only in the private UGAI backend environment:
@@ -33,7 +43,7 @@ Set these variables only in the private UGAI backend environment:
 - UGAI_INSTITUTIONAL_SERVICE_KEY: separate high-entropy shared service key; must match the Supabase secret with the same name.
 - UGAI_RAG_TIMEOUT_SECONDS: optional, 1–60 seconds; default 15.
 
-The Supabase Edge Function requires project runtime variables SUPABASE_DB_URL, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, and existing RAG_CHATGPT_API_KEY, plus a new UGAI_INSTITUTIONAL_SERVICE_KEY. The database connection and service-role key remain inside Supabase Edge Functions. Never copy a secret or service-role key into GitHub source, browser/client code, notebooks, logs or this repository.
+The Supabase Edge Function requires UGAI_RAG_GATE_DATABASE_URL, the existing SUPABASE_URL and RAG_CHATGPT_API_KEY project secrets, plus a new UGAI_INSTITUTIONAL_SERVICE_KEY. The service-role key used by the existing search function remains inside that existing function and is not copied into UGAI. Never put a secret into GitHub source, browser/client code, notebooks, logs or this repository.
 
 ## Local execution
 
@@ -57,7 +67,7 @@ The route requires Authorization: Bearer <UGAI_API_BEARER_TOKEN> and a JSON requ
 
 ## Supabase deployment (reviewed operator action)
 
-After reviewing the code and setting the new secret through Supabase's secret manager:
+After reviewing the SQL setup, setting the restricted connection secret and new service key through Supabase's secret manager:
 
     supabase functions deploy ugai-institutional-retrieve --no-verify-jwt
 
