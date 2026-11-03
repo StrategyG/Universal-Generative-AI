@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
 from typing import Protocol
@@ -9,6 +10,29 @@ from urllib.parse import urlparse
 from uuid import UUID
 
 import httpx
+
+
+MAX_RESPONSE_BYTES = 65_536
+MAX_BEARER_TOKEN_LENGTH = 8_192
+EXECUTION_STATES = frozenset(
+    {
+        "ACCEPTED",
+        "QUEUED",
+        "CREATED",
+        "PLANNED",
+        "ASSIGNED",
+        "RUNNING",
+        "WAITING",
+        "BLOCKED",
+        "REVIEW",
+        "VALIDATION",
+        "APPROVAL",
+        "COMPLETED",
+        "FAILED",
+        "CANCELLED",
+        "EXPIRED",
+    }
+)
 
 
 class StudioExecutionError(RuntimeError):
@@ -66,8 +90,47 @@ class ExecutionReceipt:
     state: str
 
 
+async def _read_json_object(response: httpx.Response) -> dict[str, object]:
+    """Read a bounded JSON response; reject redirects, HTML and oversized bodies."""
+    response.raise_for_status()
+    media_type = response.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+    if media_type != "application/json" and not media_type.endswith("+json"):
+        raise ValueError("Studio response content type is not JSON")
+
+    content_length = response.headers.get("content-length")
+    if content_length is not None:
+        try:
+            declared_size = int(content_length)
+        except ValueError as exc:
+            raise ValueError("Studio response has an invalid content length") from exc
+        if declared_size < 0 or declared_size > MAX_RESPONSE_BYTES:
+            raise ValueError("Studio response exceeds the permitted size")
+
+    body = bytearray()
+    async for chunk in response.aiter_bytes():
+        if len(body) + len(chunk) > MAX_RESPONSE_BYTES:
+            raise ValueError("Studio response exceeds the permitted size")
+        body.extend(chunk)
+
+    payload = json.loads(body)
+    if not isinstance(payload, dict):
+        raise ValueError("Studio response must be a JSON object")
+    return payload
+
+
+def _validate_execution_state(value: object) -> str:
+    if not isinstance(value, str) or value not in EXECUTION_STATES:
+        raise ValueError("Studio returned an unknown execution state")
+    return value
+
+
 class StudioExecutionClient:
-    """UGAI-side adapter; it never sends raw notebook source or provider secrets."""
+    """UGAI-side adapter; it never sends raw notebook source or provider secrets.
+
+    Responses are size-limited and state-validated. A submission failure is
+    treated as uncertain: callers must reconcile with the same idempotency key
+    rather than issue a new submission blindly.
+    """
 
     def __init__(
         self,
@@ -78,10 +141,15 @@ class StudioExecutionClient:
         timeout_seconds: float = 10.0,
         http_client: httpx.AsyncClient | None = None,
     ) -> None:
-        parsed = urlparse(base_url)
+        try:
+            parsed = urlparse(base_url)
+            hostname = parsed.hostname
+            _ = parsed.port
+        except ValueError as exc:
+            raise ValueError("Studio execution URL must be a valid HTTPS origin") from exc
         if (
             parsed.scheme != "https"
-            or not parsed.netloc
+            or not hostname
             or parsed.username
             or parsed.password
             or parsed.path not in ("", "/")
@@ -89,7 +157,7 @@ class StudioExecutionClient:
             or parsed.fragment
         ):
             raise ValueError("Studio execution URL must be an HTTPS origin")
-        if not resource or len(resource) > 255:
+        if not resource or len(resource) > 255 or any(ch.isspace() for ch in resource):
             raise ValueError("A bounded Studio resource identifier is required")
         if not 0 < timeout_seconds <= 60:
             raise ValueError("timeout_seconds must be between 0 and 60")
@@ -112,7 +180,7 @@ class StudioExecutionClient:
         request_id: UUID,
         idempotency_key: UUID | None = None,
     ) -> dict[str, str]:
-        if not actor_id or len(actor_id) > 255:
+        if not isinstance(actor_id, str) or not actor_id.strip() or len(actor_id) > 255:
             raise ValueError("A trusted actor identity is required")
         token = await self._tokens.get_access_token(
             resource=self._resource,
@@ -120,7 +188,12 @@ class StudioExecutionClient:
             actor_id=actor_id,
             tenant_id=tenant_id,
         )
-        if not token or any(ch.isspace() for ch in token):
+        if (
+            not isinstance(token, str)
+            or not token
+            or len(token) > MAX_BEARER_TOKEN_LENGTH
+            or any(ord(ch) < 33 or ord(ch) == 127 for ch in token)
+        ):
             raise StudioUnavailable("Token provider returned an invalid service token")
         headers = {
             "Authorization": f"Bearer {token}",
@@ -130,6 +203,23 @@ class StudioExecutionClient:
         if idempotency_key is not None:
             headers["Idempotency-Key"] = str(idempotency_key)
         return headers
+
+    async def _request_json(
+        self,
+        method: str,
+        path: str,
+        *,
+        headers: dict[str, str],
+        payload: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        async with self._http.stream(
+            method,
+            f"{self._base_url}{path}",
+            headers=headers,
+            json=payload,
+            timeout=self._timeout,
+        ) as response:
+            return await _read_json_object(response)
 
     async def submit(
         self,
@@ -147,7 +237,7 @@ class StudioExecutionClient:
             request_id=request_id,
             idempotency_key=idempotency_key,
         )
-        payload = {
+        payload: dict[str, object] = {
             "task_id": str(request.task_id),
             "notebook_id": str(request.notebook_id),
             "source_sha256": request.source_sha256.lower(),
@@ -160,25 +250,21 @@ class StudioExecutionClient:
             },
         }
         try:
-            response = await self._http.post(
-                f"{self._base_url}/api/v1/internal/executions",
-                headers=headers,
-                json=payload,
-                timeout=self._timeout,
+            body = await self._request_json(
+                "POST", "/api/v1/internal/executions", headers=headers, payload=payload
             )
-            response.raise_for_status()
-            body = response.json()
             receipt = ExecutionReceipt(
-                execution_id=UUID(body["execution_id"]),
-                task_id=UUID(body["task_id"]),
-                state=str(body["state"]),
+                execution_id=UUID(str(body["execution_id"])),
+                task_id=UUID(str(body["task_id"])),
+                state=_validate_execution_state(body["state"]),
             )
             if receipt.task_id != request.task_id:
                 raise ValueError("Studio returned a receipt for a different task")
             return receipt
         except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
             raise StudioUnavailable(
-                "Studio execution submission failed or returned an invalid receipt; reconcile before retry"
+                "Studio execution submission failed or returned an invalid receipt; "
+                "reconcile before retry"
             ) from exc
 
     async def get_status(
@@ -188,17 +274,14 @@ class StudioExecutionClient:
             actor_id=actor_id, tenant_id=tenant_id, request_id=request_id
         )
         try:
-            response = await self._http.get(
-                f"{self._base_url}/api/v1/internal/executions/{execution_id}",
-                headers=headers,
-                timeout=self._timeout,
+            body = await self._request_json(
+                "GET", f"/api/v1/internal/executions/{execution_id}", headers=headers
             )
-            response.raise_for_status()
-            body = response.json()
-            if not isinstance(body, dict) or body.get("execution_id") != str(execution_id):
+            if body.get("execution_id") != str(execution_id):
                 raise ValueError("Invalid execution status response")
+            _validate_execution_state(body.get("state"))
             return body
-        except (httpx.HTTPError, ValueError, TypeError) as exc:
+        except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
             raise StudioUnavailable("Studio execution status request failed") from exc
 
     async def cancel(
@@ -208,15 +291,14 @@ class StudioExecutionClient:
             actor_id=actor_id, tenant_id=tenant_id, request_id=request_id
         )
         try:
-            response = await self._http.post(
-                f"{self._base_url}/api/v1/internal/executions/{execution_id}/cancel",
+            body = await self._request_json(
+                "POST",
+                f"/api/v1/internal/executions/{execution_id}/cancel",
                 headers=headers,
-                timeout=self._timeout,
             )
-            response.raise_for_status()
-            body = response.json()
-            if not isinstance(body, dict) or body.get("execution_id") != str(execution_id):
+            if body.get("execution_id") != str(execution_id):
                 raise ValueError("Invalid cancellation response")
+            _validate_execution_state(body.get("state"))
             return body
-        except (httpx.HTTPError, ValueError, TypeError) as exc:
+        except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
             raise StudioUnavailable("Studio cancellation request failed") from exc
