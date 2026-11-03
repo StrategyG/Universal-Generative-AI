@@ -458,3 +458,52 @@ async def test_mcp_evidence_source_rejects_actor_mismatch() -> None:
         await source.collect("market outlook", "user-two")
 
     assert provider.executed == []
+
+
+
+@pytest.mark.asyncio
+async def test_supplied_idempotency_key_stabilizes_workflow_and_approval_identity() -> None:
+    sources = [
+        FakeSource("mcp-a", (evidence("e1", "mcp-a", "origin-a"),)),
+        FakeSource("mcp-b", (evidence("e2", "mcp-b", "origin-b"),)),
+        FakeSource("mcp-c", (evidence("e3", "mcp-c", "origin-c"),)),
+    ]
+    approval = FakeApprovalGateway()
+    workflow, _, _ = make_workflow(sources, approval=approval)
+    stable_key = "tenant-scoped-decision-idempotency-0001"
+
+    first = await workflow.evaluate(
+        question="Should we expand?",
+        options=options(),
+        actor_id="trusted-user",
+        idempotency_key=stable_key,
+    )
+    second = await workflow.evaluate(
+        question="Should we expand?",
+        options=options(),
+        actor_id="trusted-user",
+        idempotency_key=stable_key,
+    )
+
+    assert first.workflow_id == second.workflow_id
+    assert first.decision_id == second.decision_id
+    assert [request["idempotency_key"] for request in approval.requests] == [
+        stable_key,
+        stable_key,
+    ]
+
+
+@pytest.mark.asyncio
+async def test_decision_idempotency_key_rejects_unsafe_values() -> None:
+    workflow, _, approval = make_workflow(
+        [FakeSource("mcp-a", (evidence("e1", "mcp-a", "origin-a"),))]
+    )
+    with pytest.raises(ValueError, match="decision_idempotency_key_invalid"):
+        await workflow.evaluate(
+            question="Should we expand?",
+            options=options(),
+            actor_id="trusted-user",
+            idempotency_key="short",
+        )
+
+    assert approval.requests == []
