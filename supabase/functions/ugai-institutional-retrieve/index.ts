@@ -76,7 +76,7 @@ function validateRetrievalRows(value: unknown): RetrievalRow[] {
   if (!Array.isArray(value)) throw new Error("Invalid retrieval result shape");
   const output: RetrievalRow[] = [];
   for (const row of value) {
-    if (!row || typeof row !== "object") continue;
+    if (!row || typeof row !== "object") throw new Error("Malformed approved evidence row");
     const item = row as Record<string, unknown>;
     const page = Number(item.page);
     const score = Number(item.relevance_score ?? 0);
@@ -89,7 +89,10 @@ function validateRetrievalRows(value: unknown): RetrievalRow[] {
       !Number.isFinite(score) ||
       typeof item.content_sha256 !== "string" ||
       !/^[a-f0-9]{64}$/.test(item.content_sha256)
-    ) continue;
+    ) throw new Error("Malformed approved evidence row");
+    if (output.some((existing) => existing.chunk_id === item.chunk_id)) {
+      throw new Error("Duplicate approved evidence chunk");
+    }
     output.push({
       chunk_id: item.chunk_id,
       document_id: item.document_id,
