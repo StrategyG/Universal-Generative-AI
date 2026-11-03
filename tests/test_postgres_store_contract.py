@@ -5,6 +5,7 @@ from ugai_workflow.postgres_store import (
     _safe_event_details,
     _safe_metadata,
     canonical_json_digest,
+    retry_backoff_seconds,
 )
 
 
@@ -45,3 +46,25 @@ def test_event_metadata_rejects_secrets_and_free_text() -> None:
     }
     with pytest.raises(ValueError, match="not_allowlisted"):
         _safe_event_details({"access_token": "never-store"})
+
+
+
+@pytest.mark.parametrize(
+    ("attempt", "expected"),
+    [(0, 30), (1, 60), (2, 120), (3, 240), (7, 3840), (16, 3600), (32, 3600)],
+)
+def test_retry_backoff_is_exponential_and_capped(attempt, expected) -> None:
+    assert retry_backoff_seconds(attempt) == expected
+
+
+@pytest.mark.parametrize("attempt", [-1, True, 1.5, "1"])
+def test_retry_backoff_rejects_invalid_attempt(attempt) -> None:
+    with pytest.raises(ValueError, match="retry_attempt_invalid"):
+        retry_backoff_seconds(attempt)
+
+
+def test_retry_backoff_rejects_unsafe_bounds() -> None:
+    with pytest.raises(ValueError, match="retry_base_delay_out_of_bounds"):
+        retry_backoff_seconds(0, base_delay_seconds=0)
+    with pytest.raises(ValueError, match="retry_max_delay_out_of_bounds"):
+        retry_backoff_seconds(0, base_delay_seconds=30, max_delay_seconds=29)
