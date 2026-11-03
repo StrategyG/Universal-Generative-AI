@@ -1,6 +1,6 @@
-import asyncio
 from datetime import UTC, datetime, timedelta
-from typing import Any, Mapping, Sequence
+from collections.abc import Mapping, Sequence
+from typing import Any
 
 import pytest
 
@@ -197,7 +197,7 @@ async def test_three_independent_mcp_sources_flow_to_approval_request() -> None:
     assert result.plan_digest is not None
     assert approval.requests[0]["plan_digest"] == result.plan_digest
     assert approval.requests[0]["idempotency_key"] == result.decision_id
-    assert [event.stage for event in audit.events][0] == "workflow_started"
+    assert next(event.stage for event in audit.events) == "workflow_started"
     assert "decision_evaluated" in [event.stage for event in audit.events]
     assert [source.calls for source in sources] == [1, 1, 1]
 
