@@ -40,6 +40,40 @@ create policy decision_events_service_insert
     to service_role
     with check (true);
 
+-- The table schema stays out of the exposed Data API schemas. This narrow RPC
+-- is the only Data API surface and is executable only by service_role.
+create or replace function public.append_ugai_decision_event(
+    p_event_id text,
+    p_workflow_id text,
+    p_decision_id text,
+    p_actor_id text,
+    p_stage text,
+    p_outcome text,
+    p_occurred_at timestamptz,
+    p_details jsonb
+)
+returns void
+language sql
+security invoker
+set search_path = pg_catalog
+as $$
+    insert into ugai_audit.decision_events (
+        event_id, workflow_id, decision_id, actor_id,
+        stage, outcome, occurred_at, details
+    )
+    values (
+        p_event_id, p_workflow_id, p_decision_id, p_actor_id,
+        p_stage, p_outcome, p_occurred_at, coalesce(p_details, '{}'::jsonb)
+    );
+$$;
+
+revoke all on function public.append_ugai_decision_event(
+    text, text, text, text, text, text, timestamptz, jsonb
+) from public, anon, authenticated;
+grant execute on function public.append_ugai_decision_event(
+    text, text, text, text, text, text, timestamptz, jsonb
+) to service_role;
+
 create or replace function ugai_audit.reject_decision_event_mutation()
 returns trigger
 language plpgsql
