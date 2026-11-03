@@ -7,9 +7,14 @@ contract. It writes redacted UGAI workflow events to
 
 ## Security boundary
 
-- The schema is private and is not added to the Supabase exposed Data API schemas.
+- The `ugai_audit` table schema is private and is not added to the exposed
+  Supabase Data API schemas.
 - `anon` and `authenticated` receive no schema or table privileges.
-- Only the server-side `service_role` is granted schema usage and table INSERT.
+- The only Data API surface is the narrow
+  `public.append_ugai_decision_event` RPC, with EXECUTE revoked from
+  `PUBLIC`, `anon`, and `authenticated`, and granted only to
+  `service_role`.
+- The RPC is SECURITY INVOKER; it does not bypass RLS.
 - RLS is enabled with an INSERT-only service-role policy.
 - UPDATE, DELETE, and TRUNCATE are blocked by database triggers.
 - The adapter accepts an already-configured server-side async Supabase client;
@@ -27,11 +32,12 @@ immutable/WORM retention or independently signed export checkpoints.
 1. Review `supabase/migrations/20261104000100_create_ugai_decision_audit.sql`.
 2. Apply it to a Supabase development branch, not the production project.
 3. Verify schema/table existence, RLS, grants, and mutation-trigger behavior.
-4. Configure a server-side async Supabase client with the least-privilege
-   service identity and instantiate `SupabaseDecisionAuditSink(client)`.
+4. Configure a server-side async Supabase client with a service identity and
+   instantiate `SupabaseDecisionAuditSink(client)`.
 5. Inject the sink into `DecisionWorkflow`; audit failure remains fail-closed.
-6. Run staging tests for denied anon/authenticated access, successful append,
-   duplicate event IDs, update/delete/truncate rejection, and audit outage.
+6. Run staging tests for denied anon/authenticated RPC access, successful
+   append, duplicate event IDs, update/delete/truncate rejection, and audit
+   outage.
 
-This change does not apply a database migration, configure credentials, connect
-a live endpoint, or enable production execution.
+This change does not apply a database migration, configure credentials,
+connect a live endpoint, or enable production execution.
