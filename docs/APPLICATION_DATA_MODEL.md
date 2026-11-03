@@ -6,12 +6,13 @@
 
 Institutional RAG remains the authority for source documents, evidence excerpts, source hashes, embedding attestations, review quorum, publication state, and knowledge relations. UGAI owns application execution state. Do not duplicate evidence approval fields inside UGAI and do not add UGAI workflow columns to existing RAG tables.
 
-Proposed application schema: ugai. It is separate from institutional_rag and rag.
+Proposed application schema: ugai. It is separate from institutional_rag and rag. Private notebook documents/chunks belong to UGAI-owned tables (for example notebook_documents and notebook_chunks), not to the institutional evidence approval tables.
 
 ## 2. Logical entities
 
 | Entity | Key | Purpose | Retention |
 |---|---|---|---|
+| notebook_documents / notebook_chunks | document_id / chunk_id | Private user uploads, tenant/notebook ACL, page provenance and private embeddings | Notebook retention |
 | conversations | conversation_id | User-facing thread metadata and ownership | Tenant policy |
 | messages | message_id | User and assistant visible messages | Tenant policy |
 | workflow_runs | workflow_id | State, request association, budgets and terminal outcome | Operational/audit policy |
@@ -30,7 +31,7 @@ Proposed application schema: ugai. It is separate from institutional_rag and rag
 - One step has many attempt records.
 - One workflow may have many tool invocations, provider usage records, and artifacts.
 - An artifact may be linked to the workflow that created it and the principal that owns it.
-- Workflow evidence references are stored as source/evidence IDs and source hashes, not as a second mutable copy of the RAG approval record.
+- Workflow evidence references are stored as source/evidence IDs and source hashes, not as a second mutable copy of the RAG approval record. Private notebook chunks use request-scoped citation eligibility after ACL validation, not Institutional publication approval.
 - An audit event references principal, workflow, action type, timestamp, and a redacted detail payload.
 
 ## 4. Required common columns
