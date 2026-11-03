@@ -131,6 +131,9 @@ def _decrypt_dump(source: Path, destination: Path, key: bytes) -> str:
         raise MigrationError(
             "Encrypted backup authentication failed; key or backup contents are incorrect"
         ) from exc
+    except MigrationError:
+        destination.unlink(missing_ok=True)
+        raise
     except OSError:
         destination.unlink(missing_ok=True)
         raise
