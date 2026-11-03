@@ -221,3 +221,39 @@ async def test_execution_rejects_wrong_task_receipt():
             idempotency_key=uuid4(),
         )
     await http.aclose()
+
+
+@pytest.mark.asyncio
+async def test_execution_rejects_duplicate_json_keys():
+    task_id = uuid4()
+    duplicate_json = (
+        '{"execution_id":"' + str(uuid4()) + '","task_id":"' + str(task_id)
+        + '","state":"ACCEPTED","state":"COMPLETED"}'
+    )
+    http = httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(
+                202, content=duplicate_json, headers={"content-type": "application/json"}
+            )
+        )
+    )
+    client = StudioExecutionClient(
+        base_url="https://studio.example",
+        resource="https://studio.example",
+        token_provider=TokenProvider(),
+        http_client=http,
+    )
+    with pytest.raises(StudioUnavailable):
+        await client.submit(
+            ExecutionRequest(
+                task_id=task_id,
+                notebook_id=uuid4(),
+                source_sha256="f" * 64,
+                runtime_profile="python-3.11",
+            ),
+            actor_id="actor-1",
+            tenant_id=uuid4(),
+            request_id=uuid4(),
+            idempotency_key=uuid4(),
+        )
+    await http.aclose()
