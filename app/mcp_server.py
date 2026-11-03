@@ -3,8 +3,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from urllib.parse import quote
 from datetime import UTC, datetime
+from urllib.parse import quote
 from typing import Any
 
 import httpx
@@ -108,7 +108,8 @@ def build_mcp_server():
             timeout=15.0,
             headers={"Authorization": f"Bearer {access_token.token}"},
         ) as client:
-            response = await client.get(f"/api/v1/workflows/plans/{quote(plan_id, safe=\"\")}")
+            encoded_plan_id = quote(plan_id, safe="")
+            response = await client.get(f"/api/v1/workflows/plans/{encoded_plan_id}")
             if response.status_code == 404:
                 raise ValueError("Workflow plan not found or not accessible")
             if response.status_code == 403:
