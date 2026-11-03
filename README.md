@@ -9,12 +9,13 @@ The integration branch contains a reusable UGAI remote MCP adapter under `src/ug
 - IM19 owns MCP transport, OAuth resource authentication, provider OAuth, encrypted provider credentials, provider-side quotas and audit.
 - UGAI owns orchestration, tool discovery, workflow-specific allowlists and execution policy.
 - Remote connection uses the deployed IM19 HTTPS Streamable HTTP resource ending in `/mcp`. A GitHub repository URL is not a runtime endpoint.
-- The adapter requires a deployment-specific OAuth token provider, a durable redacted audit sink, and trusted actor identity from the UGAI authentication layer.
+- The adapter requires an exact DNS hostname allowlist, a deployment-specific OAuth token provider, a durable redacted audit sink, and trusted actor identity from UGAI authentication.
+- Endpoint and OAuth resource hostnames must match. Wildcards, IP literals, non-default ports and URL credentials are rejected. Network egress controls are still required to block private/metadata destinations and DNS rebinding.
 - Supabase may store non-secret integration metadata and redacted audit events; credentials, access tokens, refresh tokens, OAuth codes and encryption keys must remain outside RAG.
 
 ### Implemented
 
-- HTTPS endpoint and resource URI validation, including finite timeout and response-size limits.
+- HTTPS endpoint/resource validation and exact DNS host allowlist.
 - OAuth token-provider interface; no static token is committed.
 - Official MCP SDK session initialization and dynamic `tools/list`.
 - Framework-neutral `IM19ToolProvider` facade exposing `discover()` and `execute()` for workflow-registry integration.
@@ -24,7 +25,7 @@ The integration branch contains a reusable UGAI remote MCP adapter under `src/ug
 
 ### Not yet complete
 
-This is a tested adapter, not proof of a live connection. The concrete OAuth token provider, IM19 HTTPS deployment, issuer/client/resource registration, durable audit-sink implementation, connection to a deployed UGAI workflow registry and end-to-end staging tests remain required. This repository branch does not yet contain an existing production agent/workflow registry to wire automatically.
+This is a tested adapter, not proof of a live connection. The concrete OAuth token provider, IM19 HTTPS deployment, issuer/client/resource registration, durable audit-sink implementation, connection to a deployed UGAI workflow registry, network egress protections and end-to-end staging tests remain required. This repository branch does not yet contain an existing production agent/workflow registry to wire automatically.
 
 See [integration design](docs/IM19_MCP_INTEGRATION.md), [validation gates](docs/IM19_MCP_VALIDATION.md), and the [IM19 server repository](https://github.com/StrategyG/im19-universal-mcp).
 
