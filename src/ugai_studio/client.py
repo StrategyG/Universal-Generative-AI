@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Protocol
 from urllib.parse import urlparse
 from uuid import UUID
-import re
 
 import httpx
 
@@ -79,7 +79,15 @@ class StudioExecutionClient:
         http_client: httpx.AsyncClient | None = None,
     ) -> None:
         parsed = urlparse(base_url)
-        if parsed.scheme != "https" or not parsed.netloc or parsed.username or parsed.password:
+        if (
+            parsed.scheme != "https"
+            or not parsed.netloc
+            or parsed.username
+            or parsed.password
+            or parsed.path not in ("", "/")
+            or parsed.query
+            or parsed.fragment
+        ):
             raise ValueError("Studio execution URL must be an HTTPS origin")
         if not resource or len(resource) > 255:
             raise ValueError("A bounded Studio resource identifier is required")
@@ -97,7 +105,12 @@ class StudioExecutionClient:
             await self._http.aclose()
 
     async def _headers(
-        self, *, actor_id: str, tenant_id: UUID, request_id: UUID, idempotency_key: UUID | None = None
+        self,
+        *,
+        actor_id: str,
+        tenant_id: UUID,
+        request_id: UUID,
+        idempotency_key: UUID | None = None,
     ) -> dict[str, str]:
         if not actor_id or len(actor_id) > 255:
             raise ValueError("A trusted actor identity is required")
@@ -129,7 +142,9 @@ class StudioExecutionClient:
     ) -> ExecutionReceipt:
         request.validate()
         headers = await self._headers(
-            actor_id=actor_id, tenant_id=tenant_id, request_id=request_id,
+            actor_id=actor_id,
+            tenant_id=tenant_id,
+            request_id=request_id,
             idempotency_key=idempotency_key,
         )
         payload = {
@@ -147,7 +162,9 @@ class StudioExecutionClient:
         try:
             response = await self._http.post(
                 f"{self._base_url}/api/v1/internal/executions",
-                headers=headers, json=payload, timeout=self._timeout,
+                headers=headers,
+                json=payload,
+                timeout=self._timeout,
             )
             response.raise_for_status()
             body = response.json()
@@ -173,7 +190,8 @@ class StudioExecutionClient:
         try:
             response = await self._http.get(
                 f"{self._base_url}/api/v1/internal/executions/{execution_id}",
-                headers=headers, timeout=self._timeout,
+                headers=headers,
+                timeout=self._timeout,
             )
             response.raise_for_status()
             body = response.json()
@@ -192,7 +210,8 @@ class StudioExecutionClient:
         try:
             response = await self._http.post(
                 f"{self._base_url}/api/v1/internal/executions/{execution_id}/cancel",
-                headers=headers, timeout=self._timeout,
+                headers=headers,
+                timeout=self._timeout,
             )
             response.raise_for_status()
             body = response.json()
