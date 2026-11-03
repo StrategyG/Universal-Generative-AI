@@ -18,6 +18,8 @@ The UGAI adapter calls only the dedicated gateway. It never calls the legacy Edg
 
 The evidence trust fields are derived by the gateway only after the database release view returns GO and the existing trusted RPC returns a validated page-scoped result. They are never accepted from the UGAI request.
 
+The current `institutional_rag.search_chunks` implementation also enforces the underlying evidence conditions before the adapter sees a row: source-document SHA must match the staged source SHA; the approved candidate excerpt, evidence quote and chunk content must match; source/document/page locators must reconcile; candidate and excerpt review must be approved; the excerpt must be trusted and locally page-matched; the review quorum must contain at least two valid approvals and zero vetoes; current AI attribution must be supported; the embedding model must be approved and attested; and the embedding metadata must match the source/content hashes, the approved 384-dimensional model profile and the expected vector-norm range. The wrapper RPC further restricts results to exact single-page cited excerpts. The gateway does not replace these database checks.
+
 ## Fail-closed behavior
 
 The live Supabase release view currently reports NO_GO (2/9 technical and 0/4 operational). The gateway therefore returns 503 RELEASE_GATE_NO_GO and does not call the search function. Missing DB connectivity, malformed gate results, unavailable upstream retrieval, wrong service authentication or invalid evidence produce safe errors; none falls back to staging or legacy data.
