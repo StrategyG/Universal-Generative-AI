@@ -28,7 +28,7 @@ This is an integration implementation, not production approval. Repository CI an
 
 The gate view is configured with security_invoker=true, so granting SELECT on that view would also require privileges on underlying reviewer/evidence tables. Do not grant those broad read privileges to the Edge Function. Instead, the staged SQL setup creates a narrow SECURITY DEFINER function in the non-exposed institutional_rag schema, pins search_path to pg_catalog, returns only five release gate fields, revokes execution from PUBLIC/anon/authenticated, and grants execution only to ugai_rag_gate_reader.
 
-Review and apply supabase/sql/ugai_release_gate_reader.sql through the project's controlled migration process. Then set a strong password out-of-band for the role:
+Run the CREATE ROLE statement in supabase/sql/ugai_release_gate_reader.sql once by itself (CREATE ROLE cannot be run inside a transaction). Then run the remaining GRANT / CREATE FUNCTION statements through the controlled SQL process. Set a strong password out-of-band for the role:
 
     ALTER ROLE ugai_rag_gate_reader LOGIN PASSWORD '<new-generated-secret>';
 
@@ -75,4 +75,4 @@ The function disables platform JWT verification only because it authenticates ev
 
 ## Verification
 
-CI runs Python compilation and unit/API tests using mocked HTTP transport. A production integration test must still verify: gateway authentication; NO_GO blocks before the legacy search is invoked; GO permits only validated published citations; no private/staging corpus can be selected; source hashes and exact page locators survive the mapping; and request IDs are preserved end-to-end. Production remains NO_GO until the live database release view changes through its independent governance process.
+CI runs Python compilation and unit/API tests using mocked HTTP transport, plus Deno type-checking and deterministic gateway policy/evidence-mapping tests. A production integration test must still verify: gateway authentication; NO_GO blocks before the legacy search is invoked; GO permits only validated published citations; no private/staging corpus can be selected; source hashes and exact page locators survive the mapping; and request IDs are preserved end-to-end. Production remains NO_GO until the live database release view changes through its independent governance process.
