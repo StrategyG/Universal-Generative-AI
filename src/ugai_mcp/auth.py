@@ -1,12 +1,12 @@
 """Authentication seam. The concrete OAuth client is deployment-specific."""
 
-from typing import Protocol
+import typing
 
 
 IM19_REQUIRED_SCOPES = ("im19:read",)
 
 
-class AccessTokenProvider(Protocol):
+class AccessTokenProvider(typing.Protocol):
     async def get_access_token(
         self,
         *,
