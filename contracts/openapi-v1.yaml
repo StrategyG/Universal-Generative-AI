@@ -88,7 +88,7 @@ paths:
       operationId: retrieveKnowledge
       summary: Retrieve eligible knowledge through server-side RAG adapter
       description: >
-        User-facing operation MUST NOT expose private staging results.
+        User-facing operation MUST NOT expose private staging results. Private notebook results are permitted only after server-side notebook ACL verification.
         The approved corpus route currently has no demonstrated production
         evidence availability; see the live Supabase release gate.
       requestBody:
@@ -212,7 +212,7 @@ components:
           uniqueItems: true
           items:
             type: string
-            enum: [institutional_approved, legacy_rag]
+            enum: [institutional_approved, legacy_rag, private_notebook]
         limit:
           type: integer
           minimum: 1
@@ -242,7 +242,7 @@ components:
           type: number
         evidence_tier:
           type: string
-          enum: [approved, legacy, private_staging]
+          enum: [approved, legacy, private_notebook, private_staging]
         review_status:
           type: string
         publication_state:
