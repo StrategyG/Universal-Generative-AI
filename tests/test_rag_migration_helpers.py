@@ -145,3 +145,37 @@ def test_drive_destination_rejects_folder_without_add_permission():
     )
     with pytest.raises(MigrationError, match="Contributor"):
         _drive_folder_info(drive, "folder-123")
+
+
+class _FakeRows:
+    def __init__(self, rows):
+        self.rows = rows
+
+    def fetchall(self):
+        return self.rows
+
+
+class _FakeRoutineConnection:
+    def __init__(self, rows):
+        self.rows = rows
+
+    def execute(self, query, params):
+        assert "p.prosecdef" in query
+        assert params == (["rag", "institutional_rag"],)
+        return _FakeRows(self.rows)
+
+
+def test_security_definer_guard_allows_only_invoker_routines():
+    from ugai_decision.rag_migration import _assert_no_security_definer
+
+    _assert_no_security_definer(_FakeRoutineConnection([]))
+
+
+def test_security_definer_guard_fails_closed_with_routine_names():
+    from ugai_decision.rag_migration import _assert_no_security_definer
+
+    connection = _FakeRoutineConnection(
+        [("institutional_rag", "unsafe_review", "p_actor_id uuid")]
+    )
+    with pytest.raises(MigrationError, match="SECURITY DEFINER.*unsafe_review"):
+        _assert_no_security_definer(connection)
