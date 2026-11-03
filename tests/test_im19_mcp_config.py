@@ -37,6 +37,7 @@ def test_config_accepts_https_mcp_endpoint(monkeypatch):
         "https://im19.example:8443/mcp",
         "https://im19.example/mcp?token=secret",
         "https://127.0.0.1/mcp",
+        "https://im19.example/mcp/",
     ],
 )
 def test_config_rejects_unsafe_endpoint(monkeypatch, endpoint):
@@ -63,15 +64,53 @@ def test_config_rejects_invalid_or_mismatched_resource(monkeypatch, resource):
         IM19Config.from_env()
 
 
-def test_config_requires_exact_host_allowlist(monkeypatch):
+@pytest.mark.parametrize(
+    "host",
+    [
+        "*.example",
+        "im19.*.example",
+        "bad host.example",
+        "foo..example",
+        "127.0.0.1",
+        "localhost",
+        "host.example.",
+    ],
+)
+def test_config_rejects_non_exact_or_invalid_hosts(monkeypatch, host):
     set_valid_env(monkeypatch)
-    monkeypatch.setenv("IM19_MCP_ALLOWED_HOSTS", "*.example")
-    with pytest.raises(ConfigurationError):
+    monkeypatch.setenv("IM19_MCP_ALLOWED_HOSTS", host)
+    if host == "host.example.":
+        config = IM19Config.from_env()
+        assert config.allowed_hosts == frozenset({"host.example"})
+    else:
+        with pytest.raises(ConfigurationError):
+            IM19Config.from_env()
+
+
+def test_config_rejects_duplicate_allowlist_entries(monkeypatch):
+    set_valid_env(monkeypatch)
+    monkeypatch.setenv("IM19_MCP_ALLOWED_HOSTS", "im19.example,im19.example")
+    with pytest.raises(ConfigurationError, match="duplicate"):
+        IM19Config.from_env()
+
+
+def test_config_rejects_duplicate_or_malformed_tool_names(monkeypatch):
+    set_valid_env(monkeypatch)
+    monkeypatch.setenv("IM19_ALLOWED_READ_TOOLS", "drive_search,drive_search")
+    with pytest.raises(ConfigurationError, match="duplicate"):
+        IM19Config.from_env()
+
+    monkeypatch.setenv("IM19_ALLOWED_READ_TOOLS", "drive search")
+    with pytest.raises(ConfigurationError, match="invalid tool"):
+        IM19Config.from_env()
+
+    monkeypatch.setenv("IM19_ALLOWED_READ_TOOLS", "drive_search,")
+    with pytest.raises(ConfigurationError, match="duplicate or empty"):
         IM19Config.from_env()
 
 
 def test_config_rejects_nan_timeout(monkeypatch):
     set_valid_env(monkeypatch)
     monkeypatch.setenv("IM19_MCP_TIMEOUT_SECONDS", "nan")
-    with pytest.raises(ConfigurationError):
+    with pytest.raises(ConfigurationError, match="finite"):
         IM19Config.from_env()
