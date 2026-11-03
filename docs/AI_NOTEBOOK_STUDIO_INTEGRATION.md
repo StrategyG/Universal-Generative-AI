@@ -65,7 +65,7 @@ The browser and notebook kernel must never receive IM19 bearer tokens, Google re
 7. Studio returns a bounded status and result reference to UGAI. UGAI associates it with the task and returns a sanitized result to Studio.
 8. Any consequential external write remains a separate operation requiring an action-bound, unexpired, actor-scoped approval receipt. A model statement that approval occurred is never evidence of approval.
 
-## 4. Proposed API contracts (not implemented)
+## 4. API contracts (server endpoints not implemented; outbound clients implemented)
 
 The route names below are proposed versioned interfaces, not claims about existing endpoints.
 
@@ -120,6 +120,8 @@ Every inter-service call carries a request ID and distributed trace context. Log
 | IM19 remote MCP gateway and provider identity/scopes | Implemented code foundation; deployed HTTPS/OAuth acceptance remains outstanding |
 | Studio JWT/JWKS identity foundation | Implemented foundation; active tenant membership and resource authorization remain outstanding |
 | Studio notebook runtime, sandbox and execution API | Not implemented / not verified |
+| Studio-to-UGAI task client | Implemented in this branch with identity-bound token provider, HTTPS-only endpoint, request correlation, idempotency and bounded schemas; server endpoint is still absent |
+| UGAI-to-Studio execution client | Implemented in this branch with identity-bound token provider, HTTPS-only endpoint, approved runtime profiles, bounded resource limits and digest-only source reference; server endpoint is still absent |
 | End-to-end live integration across all three systems | Not tested; not operational |
 
 ## 7. Delivery sequence and release gates
@@ -127,10 +129,10 @@ Every inter-service call carries a request ID and distributed trace context. Log
 1. Review and stabilize the existing UGAI-to-IM19 adapter dependency chain. Keep stacked PRs separate until prerequisite PRs are reviewed and merged in order.
 2. Complete Studio identity authorization, tenant isolation and resource ownership before enabling task or execution routes.
 3. Implement and test the Studio execution service independently, including sandbox escape, egress, quota, cancellation, crash recovery and artifact isolation.
-4. Implement UGAI's authenticated task API and workflow registry, then attach the IM19 provider and Studio execution adapter.
+4. Implement UGAI's authenticated task API and durable workflow registry; connect the Studio task client and Studio execution client to the corresponding server endpoints.
 5. Run contract tests with fake services, then staging tests using real issuer-bound credentials and isolated test tenants.
 6. Verify traceability, idempotency, audit fail-closed behavior, revoked/expired credentials, cross-tenant denial, rate limits, timeouts and uncertain-outcome reconciliation.
 7. Keep external writes disabled until approval verification and recovery acceptance pass.
 8. Production promotion requires independent security review, backup/restore evidence, monitoring, incident response and explicit release approval.
 
-**Release status: NO-GO for end-to-end production integration.** This document defines ownership and interface contracts only. It does not claim an operational UGAI API, a running Studio execution runtime, a live IM19 endpoint or successful cross-repository integration tests.
+**Release status: NO-GO for end-to-end production integration.** This document defines ownership and interface contracts and records the outbound client adapters now present in the integration branches. It does not claim an operational UGAI API, a running Studio execution runtime, a live IM19 endpoint or successful cross-repository integration tests.
