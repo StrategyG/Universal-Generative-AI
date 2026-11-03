@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, Self
 
-from .auth import AccessTokenProvider
 from .audit import AuditSink
+from .auth import AccessTokenProvider
 from .client import IM19MCPClient
 from .config import IM19Config
 from .policy import ToolPolicy
@@ -37,7 +37,7 @@ class IM19ToolProvider:
             actor_id=actor_id,
         )
 
-    async def __aenter__(self) -> "IM19ToolProvider":
+    async def __aenter__(self) -> Self:
         await self._client.__aenter__()
         return self
 
