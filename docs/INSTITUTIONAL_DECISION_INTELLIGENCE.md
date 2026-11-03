@@ -130,6 +130,15 @@ Do not pass raw credentials, access tokens, secrets, or untrusted executable
 content into this package. A source's claim text is evidence data and must never
 be interpreted as a system instruction.
 
+## Validation evidence
+
+On exact head commit
+`e431a11fd79a2bf50ff2f7591fc999c2d539139d`, GitHub Actions run
+[41687174395](https://github.com/StrategyG/Universal-Generative-AI/actions/runs/41687174395)
+completed successfully. Ruff reported `All checks passed!`; the full test suite
+reported `50 passed in 0.07s`. This verifies package install, lint and unit
+tests only, not runtime registry wiring or live MCP operation.
+
 ## Limitations and production gates
 
 This package does not provide statistical calibration, causal identification,
