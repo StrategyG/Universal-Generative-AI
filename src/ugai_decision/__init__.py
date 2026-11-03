@@ -10,6 +10,7 @@ from .models import (
     PortfolioAllocation,
     StrategicOption,
 )
+from .supabase_audit import SupabaseDecisionAuditSink
 from .workflow import (
     ApprovalDenied,
     ApprovalReceipt,
@@ -42,4 +43,5 @@ __all__ = [
     "OptionAssessment",
     "PortfolioAllocation",
     "StrategicOption",
+    "SupabaseDecisionAuditSink",
 ]
