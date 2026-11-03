@@ -4,7 +4,7 @@
   "title": "UGAI Workflow Plan",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "workflow_type", "goal", "risk_class", "steps", "budgets"],
+  "required": ["schema_version", "workflow_type", "goal", "risk_class", "data_classification", "steps", "budgets", "policy_version"],
   "properties": {
     "schema_version": { "const": "1.0" },
     "workflow_type": {
@@ -20,7 +20,7 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["step_id", "kind", "depends_on", "timeout_ms", "max_attempts", "side_effect"],
+        "required": ["step_id", "kind", "depends_on", "timeout_ms", "max_output_bytes", "max_attempts", "side_effect"],
         "properties": {
           "step_id": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{1,63}$" },
           "kind": { "enum": ["classify", "retrieve", "rerank", "analyze", "calculate", "tool", "verify", "compose"] },
@@ -40,7 +40,17 @@
           "side_effect": { "enum": ["none", "reversible", "external", "destructive"] },
           "requires_confirmation": { "type": "boolean" },
           "policy_reason": { "type": "string", "maxLength": 500 }
-        }
+        },
+        "allOf": [
+          {
+            "if": { "properties": { "kind": { "const": "tool" } }, "required": ["kind"] },
+            "then": { "required": ["tool_name", "tool_version", "tool_args"] }
+          },
+          {
+            "if": { "properties": { "side_effect": { "enum": ["external", "destructive"] } }, "required": ["side_effect"] },
+            "then": { "required": ["requires_confirmation"], "properties": { "requires_confirmation": { "const": true } } }
+          }
+        ]
       }
     },
     "budgets": {
