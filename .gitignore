@@ -1,0 +1,14 @@
+# Local secrets and credentials
+.env
+.env.*
+!.env.example
+.secrets/
+secrets/
+*service-account*.json
+*credentials*.json
+
+# Local PostgreSQL data and database archives
+pgdata/
+*.dump
+*.dump.enc
+*.sql.gz

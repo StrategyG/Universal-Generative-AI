@@ -7,6 +7,7 @@ on:
       - "src/ugai_decision/**"
       - "tests/test_im19_mcp_*.py"
       - "tests/test_decision_*.py"
+      - "tests/test_rag_migration_helpers.py"
       - "pyproject.toml"
       - ".github/workflows/im19-mcp-adapter.yml"
 
@@ -24,8 +25,8 @@ jobs:
           python-version: "3.11"
           cache: "pip"
       - name: Install package and test dependencies
-        run: python -m pip install -e ".[mcp,dev]"
+        run: python -m pip install -e ".[mcp,rag-migration,dev]"
       - name: Lint
-        run: ruff check src/ugai_mcp src/ugai_decision tests/test_im19_mcp_*.py tests/test_decision_*.py
+        run: ruff check src/ugai_mcp src/ugai_decision tests/test_im19_mcp_*.py tests/test_decision_*.py tests/test_rag_migration_helpers.py
       - name: Unit tests
         run: pytest -q tests
