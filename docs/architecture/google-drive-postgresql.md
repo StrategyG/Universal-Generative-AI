@@ -34,7 +34,7 @@ Install optional dependencies:
     pip install asyncpg google-api-python-client
 
 Apply the standalone PostgreSQL migration:
-    psql "$UGAI_DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/20261104000200_create_ugai_audit_postgres_drive.sql
+    psql "$UGAI_DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/postgresql/001_create_ugai_audit.sql
 
 Create an asyncpg pool and inject it into PostgresDecisionAuditSink and PostgresEvidenceRegistry. Construct an authenticated Google Drive API v3 service outside this package and inject it into GoogleDriveEvidenceArchive.
 
