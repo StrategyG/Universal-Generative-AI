@@ -5,6 +5,7 @@ from __future__ import annotations
 import ipaddress
 import math
 import os
+import re
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 
@@ -13,12 +14,21 @@ class ConfigurationError(ValueError):
     """Raised when remote MCP configuration is unsafe or incomplete."""
 
 
+_DNS_LABEL = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
+_TOOL_NAME = re.compile(r"^[a-zA-Z][a-zA-Z0-9_.-]{0,127}$")
+
+
 def _canonical_host(value: str, setting: str) -> str:
     candidate = value.strip().rstrip(".")
     if not candidate or candidate.startswith("*.") or any(c in candidate for c in "/:@?#"):
         raise ConfigurationError(f"{setting} must contain exact DNS hostnames only")
     try:
         host = candidate.encode("idna").decode("ascii").lower()
+    except UnicodeError as exc:
+        raise ConfigurationError(f"{setting} contains an invalid DNS hostname") from exc
+    if len(host) > 253 or any(not _DNS_LABEL.fullmatch(label) for label in host.split(".")):
+        raise ConfigurationError(f"{setting} contains an invalid DNS hostname")
+    try:
         ipaddress.ip_address(host)
     except ValueError:
         return host
@@ -56,6 +66,31 @@ class IM19Config:
     request_timeout_seconds: float = 20.0
     max_result_bytes: int = 1_000_000
 
+    def __post_init__(self) -> None:
+        allowed_hosts = frozenset(
+            _canonical_host(host, "allowed_hosts") for host in self.allowed_hosts
+        )
+        if not allowed_hosts:
+            raise ConfigurationError("At least one exact DNS host must be allowlisted")
+        endpoint_host, _ = _validate_https_uri(
+            self.endpoint, "endpoint", require_mcp_path=True
+        )
+        resource_host, _ = _validate_https_uri(self.resource, "resource")
+        if endpoint_host not in allowed_hosts or resource_host != endpoint_host:
+            raise ConfigurationError("Endpoint/resource host must match the exact host allowlist")
+        if not math.isfinite(self.request_timeout_seconds) or not (
+            0 < self.request_timeout_seconds <= 120
+        ):
+            raise ConfigurationError("MCP timeout must be finite and between 0 and 120 seconds")
+        if not 1_024 <= self.max_result_bytes <= 10_000_000:
+            raise ConfigurationError("MCP max result size must be between 1 KiB and 10 MB")
+        if len(self.allowed_tools) > 100 or any(
+            not isinstance(name, str) or not _TOOL_NAME.fullmatch(name)
+            for name in self.allowed_tools
+        ):
+            raise ConfigurationError("Tool allowlist contains an invalid or excessive tool name")
+        object.__setattr__(self, "allowed_hosts", allowed_hosts)
+
     @classmethod
     def from_env(cls) -> IM19Config:
         endpoint = os.getenv("IM19_MCP_URL", "").strip()
@@ -73,21 +108,6 @@ class IM19Config:
             for item in raw_hosts.split(",")
             if item.strip()
         )
-        if not allowed_hosts:
-            raise ConfigurationError("IM19_MCP_ALLOWED_HOSTS must contain an exact DNS hostname")
-
-        endpoint_host, _ = _validate_https_uri(
-            endpoint, "IM19_MCP_URL", require_mcp_path=True
-        )
-        resource_host, _ = _validate_https_uri(resource, "IM19_MCP_RESOURCE")
-        if endpoint_host not in allowed_hosts:
-            raise ConfigurationError("IM19_MCP_URL host is not in IM19_MCP_ALLOWED_HOSTS")
-        if resource_host != endpoint_host:
-            raise ConfigurationError("IM19_MCP_RESOURCE host must match IM19_MCP_URL host")
-        if not math.isfinite(timeout) or not 0 < timeout <= 120:
-            raise ConfigurationError("MCP timeout must be finite and between 0 and 120 seconds")
-        if not 1_024 <= max_bytes <= 10_000_000:
-            raise ConfigurationError("MCP max result size must be between 1 KiB and 10 MB")
         return cls(
             endpoint=endpoint,
             resource=resource,
