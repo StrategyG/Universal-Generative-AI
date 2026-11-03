@@ -5,29 +5,29 @@ the explicit UGAI allowlist is the authoritative operator approval. If the serve
 does supply safety annotations, contradictory or destructive annotations deny access.
 """
 
-from collections.abc import Iterable
-from dataclasses import dataclass
-from typing import Any
+import collections.abc
+import dataclasses
+import typing
 
 
 _MISSING = object()
 
 
-@dataclass(frozen=True, slots=True)
+@dataclasses.dataclass(frozen=True, slots=True)
 class ToolDecision:
     allowed: bool
     reason: str
 
 
-def _get(value: Any, key: str, default: Any = None) -> Any:
+def _get(value: typing.Any, key: str, default: typing.Any = None) -> typing.Any:
     return value.get(key, default) if isinstance(value, dict) else getattr(value, key, default)
 
 
 class ToolPolicy:
-    def __init__(self, allowed_tools: Iterable[str] = ()) -> None:
+    def __init__(self, allowed_tools: collections.abc.Iterable[str] = ()) -> None:
         self.allowed = frozenset(x for x in allowed_tools if x)
 
-    def evaluate(self, tool: Any) -> ToolDecision:
+    def evaluate(self, tool: typing.Any) -> ToolDecision:
         name = _get(tool, "name", "")
         if not isinstance(name, str) or not name:
             return ToolDecision(False, "invalid_name")
