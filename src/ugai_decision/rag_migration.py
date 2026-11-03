@@ -123,8 +123,6 @@ def _decrypt_dump(source: Path, destination: Path, key: bytes) -> str:
                         raise MigrationError("Encrypted backup ended before the ciphertext was complete")
                     ciphertext_remaining -= len(block)
                     writer.write(decryptor.update(block))
-                if reader.read(1):
-                    raise MigrationError("Encrypted backup has unexpected trailing bytes")
                 writer.write(decryptor.finalize())
     except InvalidTag as exc:
         destination.unlink(missing_ok=True)
