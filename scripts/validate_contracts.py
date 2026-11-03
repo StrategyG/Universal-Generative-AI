@@ -195,6 +195,17 @@ def validate_semantic_examples(
     })
     assert_valid(evidence_validator, approved_record, "approved published evidence")
 
+    private_notebook_record = json.loads(json.dumps(staging_record))
+    private_notebook_record.update({
+        "evidence_id": "private-notebook-evidence",
+        "corpus_id": "private_notebook",
+        "evidence_tier": "private_notebook",
+        "review_status": "unknown",
+        "trusted": False,
+        "user_citation_eligible": True
+    })
+    assert_valid(evidence_validator, private_notebook_record, "request-authorized private notebook evidence")
+
     retrieval_validator = Draft202012Validator(retrieval_plan_schema)
     retrieval_plan: dict[str, Any] = {
         "schema_version": "1.0",
