@@ -85,7 +85,7 @@ class PostgresDecisionAuditSink:
         if not isinstance(event, DecisionAuditEvent):
             raise TypeError("event must be a DecisionAuditEvent")
         try:
-            occurred_at = datetime.fromisoformat(event.occurred_at.replace("Z", "+00:00"))
+            occurred_at = datetime.fromisoformat(event.occurred_at)
         except (TypeError, ValueError) as exc:
             raise ValueError("occurred_at must be ISO-8601") from exc
         if occurred_at.tzinfo is None:
