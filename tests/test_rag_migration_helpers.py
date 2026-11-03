@@ -206,3 +206,75 @@ def test_auth_dependency_guard_rejects_unmapped_foreign_keys():
     )
     with pytest.raises(MigrationError, match="Unmapped foreign keys.*new_table_actor_fkey"):
         _assert_no_auth_foreign_keys(connection)
+
+
+
+def test_source_database_url_requires_tls():
+    from ugai_decision.rag_migration import _safe_dsn_and_pgpass
+
+    with pytest.raises(MigrationError, match="must enforce TLS"):
+        _safe_dsn_and_pgpass("postgresql://user:password@db.example.com:5432/rag", require_ssl=True)
+
+    safe_dsn, pgpass = _safe_dsn_and_pgpass(
+        "postgresql://user:password@db.example.com:5432/rag?sslmode=require",
+        require_ssl=True,
+    )
+    assert "password" not in safe_dsn
+    assert "sslmode=require" in safe_dsn
+    assert pgpass is not None and pgpass.endswith(":password")
+
+
+class _PreflightResult:
+    def __init__(self, rows):
+        self.rows = rows
+
+    def fetchall(self):
+        return self.rows
+
+    def fetchone(self):
+        return self.rows[0] if self.rows else None
+
+
+class _FakeTargetPreflightConnection:
+    def __init__(self, *, schemas=(), public_objects=()):
+        self.schemas = list(schemas)
+        self.public_objects = list(public_objects)
+
+    def execute(self, query, params=None):
+        if "nspname=ANY" in query:
+            return _PreflightResult([])
+        if "nspname='auth'" in query:
+            return _PreflightResult([])
+        if "nspname NOT IN" in query:
+            return _PreflightResult(self.schemas)
+        if "n.nspname='public'" in query:
+            return _PreflightResult(self.public_objects)
+        if "pg_available_extensions" in query:
+            return _PreflightResult([("vector", "0.8.2"), ("pgcrypto", "1.3")])
+        if "n.nspname <> 'extensions'" in query:
+            return _PreflightResult([])
+        if "rolname=ANY" in query:
+            return _PreflightResult([])
+        raise AssertionError(f"Unexpected preflight query: {query}")
+
+
+def test_target_preflight_accepts_fresh_empty_database():
+    from ugai_decision.rag_migration import _target_preflight
+
+    _target_preflight(_FakeTargetPreflightConnection())
+
+
+def test_target_preflight_rejects_unexpected_schema():
+    from ugai_decision.rag_migration import _target_preflight
+
+    connection = _FakeTargetPreflightConnection(schemas=[("legacy_app",)])
+    with pytest.raises(MigrationError, match="unexpected schema"):
+        _target_preflight(connection)
+
+
+def test_target_preflight_rejects_objects_in_public_schema():
+    from ugai_decision.rag_migration import _target_preflight
+
+    connection = _FakeTargetPreflightConnection(public_objects=[("customer_data",)])
+    with pytest.raises(MigrationError, match="public schema contains objects"):
+        _target_preflight(connection)
