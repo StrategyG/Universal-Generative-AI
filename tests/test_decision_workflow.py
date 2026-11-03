@@ -365,7 +365,8 @@ async def test_plan_mutation_after_approval_request_is_rejected() -> None:
 
 
 class FakeMCPProvider:
-    def __init__(self):
+    def __init__(self, actor_id: str = "trusted-user"):
+        self.actor_id = actor_id
         self.executed: list[tuple[str, Mapping[str, Any]]] = []
 
     async def discover(self) -> list[dict[str, Any]]:
@@ -398,8 +399,53 @@ async def test_mcp_evidence_source_uses_only_configured_discovered_tools() -> No
 
 
 @pytest.mark.asyncio
+async def test_mcp_evidence_source_rejects_misbound_provider_at_construction() -> None:
+    with pytest.raises(PermissionError, match="provider identity"):
+        MCPToolEvidenceSource(
+            source_id="mcp-search",
+            bound_actor_id="trusted-user",
+            provider=FakeMCPProvider("different-user"),
+            queries=(MCPToolQuery("search_records", lambda question: {"query": question}),),
+            extractor=lambda tool, response: (),
+        )
+
+
+@pytest.mark.asyncio
+async def test_expired_approval_blocks_executor() -> None:
+    sources = [
+        FakeSource("mcp-a", (evidence("e1", "mcp-a", "origin-a"),)),
+        FakeSource("mcp-b", (evidence("e2", "mcp-b", "origin-b"),)),
+        FakeSource("mcp-c", (evidence("e3", "mcp-c", "origin-c"),)),
+    ]
+    workflow, _, _ = make_workflow(sources)
+    result = await workflow.evaluate(
+        question="Should we expand?", options=options(), actor_id="trusted-user"
+    )
+    receipt = ApprovalReceipt(
+        approval_reference=result.approval_reference,
+        decision_id=result.decision_id,
+        actor_id="trusted-user",
+        plan_digest=result.plan_digest or "",
+        expires_at=datetime.now(UTC) - timedelta(minutes=1),
+    )
+    executor = FakeExecutor()
+
+    with pytest.raises(ApprovalDenied, match="invalid, expired"):
+        await workflow.execute_approved(
+            workflow_result=result,
+            actor_id="trusted-user",
+            approval_reference=result.approval_reference,
+            idempotency_key="decision-exec-0004",
+            verifier=FakeVerifier(receipt),
+            executor=executor,
+        )
+
+    assert executor.calls == []
+
+
+@pytest.mark.asyncio
 async def test_mcp_evidence_source_rejects_actor_mismatch() -> None:
-    provider = FakeMCPProvider()
+    provider = FakeMCPProvider("user-one")
     source = MCPToolEvidenceSource(
         source_id="mcp-search",
         bound_actor_id="user-one",
