@@ -176,6 +176,29 @@ def _safe_event_details(value: Mapping[str, Any] | None) -> dict[str, str | int 
     return result
 
 
+
+
+def retry_backoff_seconds(
+    attempt: int, *, base_delay_seconds: int = 30, max_delay_seconds: int = 3600
+) -> int:
+    """Return bounded exponential backoff for a zero-based retry attempt."""
+    if not isinstance(attempt, int) or isinstance(attempt, bool) or attempt < 0:
+        raise ValueError("retry_attempt_invalid")
+    if (
+        not isinstance(base_delay_seconds, int)
+        or isinstance(base_delay_seconds, bool)
+        or not 1 <= base_delay_seconds <= 3600
+    ):
+        raise ValueError("retry_base_delay_out_of_bounds")
+    if (
+        not isinstance(max_delay_seconds, int)
+        or isinstance(max_delay_seconds, bool)
+        or not base_delay_seconds <= max_delay_seconds <= 86_400
+    ):
+        raise ValueError("retry_max_delay_out_of_bounds")
+    return min(max_delay_seconds, base_delay_seconds * (2 ** min(attempt, 16)))
+
+
 class PostgresWorkflowStore:
     """Durable task store. All writes use parameterized SQL and DB transactions."""
 
@@ -478,6 +501,9 @@ class PostgresWorkflowStore:
                 if current.state is TaskState.FAILED and target is TaskState.RECEIVED:
                     retry_count += 1
                 stored_retryable = retryable if target is TaskState.FAILED else False
+                effective_retry_delay = retry_delay_seconds
+                if target is TaskState.FAILED and stored_retryable and effective_retry_delay == 0:
+                    effective_retry_delay = retry_backoff_seconds(current.retry_count)
 
                 updated = await connection.fetchrow(
                     """
@@ -488,6 +514,8 @@ class PostgresWorkflowStore:
                         retryable = $5,
                         error_code = CASE WHEN $3 = 'failed' THEN $6 ELSE NULL END,
                         available_at = CASE
+                            WHEN $3 = 'failed' AND $5
+                                THEN clock_timestamp() + make_interval(secs => $7)
                             WHEN $3 = 'received' AND $7 > 0
                                 THEN clock_timestamp() + make_interval(secs => $7)
                             ELSE available_at
@@ -500,7 +528,7 @@ class PostgresWorkflowStore:
                     RETURNING *
                     """,
                     task_id, tenant_id, target.value, retry_count, stored_retryable,
-                    error_code, retry_delay_seconds, expected_version,
+                    error_code, effective_retry_delay, expected_version,
                 )
                 if updated is None:
                     raise StaleWorkflowVersion("task_changed_during_transition")
@@ -519,3 +547,97 @@ class PostgresWorkflowStore:
                     current.state.value, target.value, event_json,
                 )
                 return new_task
+
+    async def requeue_due_retries(
+        self,
+        *,
+        tenant_id: str,
+        scheduler_id: str,
+        batch_size: int = 20,
+    ) -> list[WorkflowTask]:
+        """Atomically requeue due, explicitly retryable failures using bounded batches."""
+        _validate_text("tenant_id", tenant_id, 128)
+        _validate_text("scheduler_id", scheduler_id, 128)
+        if not isinstance(batch_size, int) or isinstance(batch_size, bool) or not 1 <= batch_size <= 100:
+            raise ValueError("retry_batch_size_out_of_bounds")
+
+        requeued: list[WorkflowTask] = []
+        async with self._pool.acquire() as connection:  # noqa: SIM117
+            async with connection.transaction():
+                await connection.fetchval(
+                    "SELECT set_config('app.ugai_tenant_id', $1, true)", tenant_id
+                )
+                rows = await connection.fetch(
+                    """
+                    SELECT * FROM ugai_workflow.tasks
+                    WHERE tenant_id = $1
+                      AND state = 'failed'
+                      AND retryable = true
+                      AND retry_count < max_retries
+                      AND available_at <= clock_timestamp()
+                      AND lease_token IS NULL
+                    ORDER BY available_at ASC, created_at ASC
+                    FOR UPDATE SKIP LOCKED
+                    LIMIT $2
+                    """,
+                    tenant_id, batch_size,
+                )
+                for row in rows:
+                    current = WorkflowTask.from_record(row)
+                    validate_transition(
+                        current.state,
+                        TaskState.RECEIVED,
+                        retry_count=current.retry_count,
+                        max_retries=current.max_retries,
+                        retryable=current.retryable,
+                    )
+                    updated = await connection.fetchrow(
+                        """
+                        UPDATE ugai_workflow.tasks
+                        SET state = 'received',
+                            version = version + 1,
+                            retry_count = retry_count + 1,
+                            retryable = false,
+                            error_code = NULL,
+                            available_at = clock_timestamp(),
+                            lease_owner = NULL,
+                            lease_token = NULL,
+                            lease_expires_at = NULL,
+                            updated_at = clock_timestamp()
+                        WHERE task_id = $1
+                          AND tenant_id = $2
+                          AND version = $3
+                          AND state = 'failed'
+                          AND retryable = true
+                          AND retry_count < max_retries
+                        RETURNING *
+                        """,
+                        current.task_id, tenant_id, current.version,
+                    )
+                    if updated is None:
+                        raise StaleWorkflowVersion("retry_task_changed_during_requeue")
+                    task = WorkflowTask.from_record(updated)
+                    await connection.execute(
+                        """
+                        INSERT INTO ugai_workflow.events (
+                            task_id, task_version, actor_id, worker_id,
+                            event_type, from_state, to_state, details
+                        )
+                        VALUES ($1, $2, $3, $4, 'retry_scheduled',
+                                'failed', 'received', $5::jsonb)
+                        """,
+                        task.task_id,
+                        task.version,
+                        scheduler_id,
+                        scheduler_id,
+                        json.dumps(
+                            {
+                                "attempt": task.retry_count,
+                                "reason_code": "retry_backoff_elapsed",
+                            },
+                            sort_keys=True,
+                            separators=(",", ":"),
+                        ),
+                    )
+                    requeued.append(task)
+        return requeued
