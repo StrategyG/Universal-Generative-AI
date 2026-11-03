@@ -30,6 +30,7 @@ class IM19ToolProvider:
     ) -> None:
         if not actor_id or not actor_id.strip():
             raise ValueError("A trusted authenticated actor_id is required")
+        self.actor_id = actor_id
         self._client = IM19MCPClient(
             config=config,
             token_provider=token_provider,
