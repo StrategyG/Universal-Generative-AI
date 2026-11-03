@@ -52,3 +52,5 @@ jobs:
           deno-version: v2.x
       - name: Type-check Supabase gateway
         run: deno check supabase/functions/ugai-institutional-retrieve/index.ts
+      - name: Test gateway policy and evidence mapping
+        run: deno test supabase/functions/ugai-institutional-retrieve/logic_test.ts
