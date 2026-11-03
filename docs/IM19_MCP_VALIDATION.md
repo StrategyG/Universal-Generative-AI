@@ -4,7 +4,7 @@
 
 The adapter package includes tests for:
 - HTTPS-only MCP endpoint and exact /mcp path.
-- Resource URI validation, invalid ports, embedded credentials, query/fragment rejection and non-finite timeout rejection.
+- Exact DNS host allowlist, same-host OAuth resource, IP-literal/wildcard/non-default-port rejection, malformed URI and non-finite timeout rejection.
 - Explicit operator allowlist, absent optional server annotations, contradictory annotations, object input schema and hard-denied privileged tools.
 - Mandatory pre-execution audit: if the durable audit sink fails before execution, no remote tool call occurs.
 - Post-execution audit failure: adapter reports `execution_may_have_completed=True` so callers do not blindly retry.
@@ -27,10 +27,11 @@ These require a deployed IM19 staging endpoint and registered OAuth client:
 - A permitted read-only provider call.
 - Expired, wrong-audience, insufficient-scope and revoked token rejection.
 - Tenant isolation, 401/403, 429/503, timeout and oversized-result behavior.
+- Egress policy blocks loopback, private, link-local and metadata destinations, with DNS-rebinding tests.
 - Confirmation that no bearer token or provider credential reaches logs/traces.
 - Durable audit sink availability, redacted event delivery and fail-closed behavior during outages.
 - UGAI workflow registry invocation through the facade.
 
 ## Release decision
 
-The latest CI run validates package installation, lint and unit tests only. It does not prove a live IM19 HTTPS/OAuth connection, workflow deployment or production acceptance. Status remains **ADAPTER IMPLEMENTED / LIVE CONNECTION UNVERIFIED**.
+The latest CI run validates package installation, lint and unit tests only. It does not prove a live IM19 HTTPS/OAuth connection, workflow deployment, network isolation or production acceptance. Status remains **ADAPTER IMPLEMENTED / LIVE CONNECTION UNVERIFIED**.
