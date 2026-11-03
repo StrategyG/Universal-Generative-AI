@@ -9,6 +9,7 @@ import pytest
 from ugai_decision.rag_migration import (
     ENCRYPTED_MAGIC,
     MigrationError,
+    _decrypt_dump,
     _encrypt_dump,
     _pgpass_escape,
     _validate_key,
@@ -38,3 +39,32 @@ def test_dump_encryption_is_streamed_and_tagged(tmp_path: Path):
     assert len(output) == len(ENCRYPTED_MAGIC) + 12 + len(content) + 16
     assert len(digest) == 64
     assert encrypted.read_bytes() != content
+
+
+def test_encrypted_backup_can_be_authenticated_and_decrypted(tmp_path: Path):
+    source = tmp_path / "dump"
+    encrypted = tmp_path / "dump.enc"
+    restored = tmp_path / "restored.dump"
+    content = os.urandom(1_250_000)
+    key = os.urandom(32)
+    source.write_bytes(content)
+    _encrypt_dump(source, encrypted, key)
+    restored_sha256 = _decrypt_dump(encrypted, restored, key)
+    assert restored.read_bytes() == content
+    assert len(restored_sha256) == 64
+
+
+def test_tampered_backup_is_rejected_without_leaving_partial_plaintext(tmp_path: Path):
+    source = tmp_path / "dump"
+    encrypted = tmp_path / "dump.enc"
+    restored = tmp_path / "restored.dump"
+    content = b"source database backup"
+    key = os.urandom(32)
+    source.write_bytes(content)
+    _encrypt_dump(source, encrypted, key)
+    corrupted = bytearray(encrypted.read_bytes())
+    corrupted[-1] ^= 0x01
+    encrypted.write_bytes(corrupted)
+    with pytest.raises(MigrationError, match="authentication failed"):
+        _decrypt_dump(encrypted, restored, key)
+    assert not restored.exists()
