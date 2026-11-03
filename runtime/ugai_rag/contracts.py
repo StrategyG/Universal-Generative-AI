@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import AnyUrl, BaseModel, ConfigDict, Field, model_validator
 
 
 Corpus = Literal[
@@ -26,14 +26,28 @@ class EvidenceLocator(StrictModel):
     timestamp_end_ms: int | None = Field(default=None, ge=0)
 
     @model_validator(mode="after")
-    def validate_page_range(self) -> "EvidenceLocator":
+    def validate_locator(self) -> "EvidenceLocator":
         if self.locator_type == "pdf_page":
             if self.page_start is None or self.page_end != self.page_start:
-                raise ValueError("Institutional citations require an exact single page")
+                raise ValueError("Institutional PDF citations require one exact page")
         if self.page_start is not None and self.page_end is not None:
             if self.page_end < self.page_start:
                 raise ValueError("page_end cannot precede page_start")
+        if self.locator_type == "section" and not self.section:
+            raise ValueError("Section locator requires section")
+        if self.locator_type == "web_anchor" and not self.anchor:
+            raise ValueError("Web anchor locator requires anchor")
+        if self.locator_type == "timestamp":
+            if self.timestamp_start_ms is None:
+                raise ValueError("Timestamp locator requires timestamp_start_ms")
         return self
+
+
+class EmbeddingProfile(StrictModel):
+    model_id: str = Field(min_length=1, max_length=256)
+    artifact_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    dimension: int = Field(ge=1)
+    verified: bool
 
 
 class EvidenceRecord(StrictModel):
@@ -43,7 +57,7 @@ class EvidenceRecord(StrictModel):
     chunk_id: str | None = Field(default=None, max_length=256)
     source_title: str = Field(min_length=1, max_length=1000)
     source_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
-    source_url: str | None = Field(default=None, max_length=4096)
+    source_url: AnyUrl | None = None
     locator: EvidenceLocator
     excerpt: str = Field(min_length=1, max_length=12000)
     retrieval_method: Literal["keyword", "semantic", "hybrid_rrf", "reranked"]
@@ -55,11 +69,15 @@ class EvidenceRecord(StrictModel):
     trusted: bool
     user_citation_eligible: bool
     retrieved_at: datetime
-    embedding_profile: dict | None = None
-    warnings: tuple[str, ...] = ()
+    embedding_profile: EmbeddingProfile | None = None
+    warnings: tuple[Annotated[str, Field(max_length=500)], ...] = Field(
+        default_factory=tuple, max_length=20
+    )
 
     @model_validator(mode="after")
     def enforce_trust_boundaries(self) -> "EvidenceRecord":
+        if self.retrieved_at.tzinfo is None or self.retrieved_at.utcoffset() is None:
+            raise ValueError("retrieved_at must include a timezone")
         if self.evidence_tier == "approved":
             if not (
                 self.corpus_id == "institutional_approved"
@@ -84,16 +102,24 @@ class EvidenceRecord(StrictModel):
 
 class RetrievalMetadata(StrictModel):
     strategy: Literal["approved_keyword"]
-    corpora: tuple[Literal["institutional_approved"], ...]
+    corpora: tuple[Literal["institutional_approved"], ...] = Field(
+        min_length=1, max_length=1
+    )
     candidate_count: int = Field(ge=0)
 
 
 class RetrievalResult(StrictModel):
-    request_id: str = Field(min_length=1, max_length=128)
+    request_id: str = Field(
+        min_length=36,
+        max_length=36,
+        pattern=r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$",
+    )
     status: Literal["evidence_found", "no_evidence"]
     retrieval: RetrievalMetadata
     evidence: tuple[EvidenceRecord, ...]
-    warnings: tuple[str, ...] = ()
+    warnings: tuple[Annotated[str, Field(max_length=500)], ...] = Field(
+        default_factory=tuple, max_length=20
+    )
 
     @model_validator(mode="after")
     def validate_result_consistency(self) -> "RetrievalResult":
