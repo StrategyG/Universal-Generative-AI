@@ -2,7 +2,8 @@
 
 _MISSING = object()
 
-# Never expose these tools to a general-purpose UGAI agent, even if misconfigured.
+# Never expose these identity, content, write, or approval-control tools to a
+# general-purpose UGAI agent, even if an allowlist is misconfigured.
 _DENIED_TOOL_NAMES = frozenset(
     {
         "request_service_authorization",
@@ -10,6 +11,7 @@ _DENIED_TOOL_NAMES = frozenset(
         "disconnect_service",
         "drive_read_file",
         "drive_create_folder",
+        "drive_get_write_approval_status",
         "cloudbrowser_get_task",
         "cloudbrowser_list_tasks",
     }
