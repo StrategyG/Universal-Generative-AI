@@ -7,6 +7,8 @@ from ugai_workflow.state_machine import TaskState
 from ugai_workflow.worker import (
     ExternalOutcomeUnknown,
     HybridWorker,
+    RetryScheduler,
+    RetrySchedulerRegistration,
     WorkerOutcome,
     WorkerRegistration,
     WorkerTier,
@@ -125,3 +127,65 @@ async def test_worker_returns_false_when_queue_is_empty() -> None:
     )
     assert await worker.run_once() is False
     assert store.transition_calls == []
+
+
+
+class FakeRetrySchedulerStore:
+    def __init__(self, tasks=None):
+        self.tasks = list(tasks or [])
+        self.calls = []
+
+    async def requeue_due_retries(self, **kwargs):
+        self.calls.append(kwargs)
+        return self.tasks
+
+
+def test_retry_scheduler_registration_bounds_batch_and_poll_interval() -> None:
+    invalid = RetrySchedulerRegistration(
+        scheduler_id="scheduler-1",
+        tenant_id="tenant-001",
+        batch_size=101,
+    )
+    with pytest.raises(ValueError, match="batch_size"):
+        invalid.validate()
+
+
+@pytest.mark.asyncio
+async def test_retry_scheduler_runs_one_tenant_scoped_due_batch() -> None:
+    store = FakeRetrySchedulerStore(tasks=[object(), object()])
+    scheduler = RetryScheduler(
+        store=store,
+        registration=RetrySchedulerRegistration(
+            scheduler_id="retry-scheduler-1",
+            tenant_id="tenant-001",
+            batch_size=10,
+            poll_interval_seconds=1,
+        ),
+    )
+
+    assert await scheduler.run_once() == 2
+    assert store.calls == [
+        {
+            "tenant_id": "tenant-001",
+            "scheduler_id": "retry-scheduler-1",
+            "batch_size": 10,
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_retry_scheduler_stop_event_prevents_polling() -> None:
+    store = FakeRetrySchedulerStore()
+    scheduler = RetryScheduler(
+        store=store,
+        registration=RetrySchedulerRegistration(
+            scheduler_id="retry-scheduler-1",
+            tenant_id="tenant-001",
+            poll_interval_seconds=1,
+        ),
+    )
+    stop = __import__("asyncio").Event()
+    stop.set()
+
+    await scheduler.run(stop)
+    assert store.calls == []
