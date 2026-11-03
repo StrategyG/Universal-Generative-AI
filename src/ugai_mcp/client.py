@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import Mapping
+from datetime import timedelta
 from typing import Any
 
 from .auth import AccessTokenProvider
@@ -64,11 +65,12 @@ class IM19MCPClient:
             if not token or any(ch.isspace() for ch in token):
                 raise MCPUnavailable("OAuth provider returned an invalid bearer token")
 
+            timeout = timedelta(seconds=self._config.request_timeout_seconds)
             self._transport_cm = streamablehttp_client(
                 self._config.endpoint,
                 headers={"Authorization": f"Bearer {token}"},
-                timeout=self._config.request_timeout_seconds,
-                sse_read_timeout=self._config.request_timeout_seconds,
+                timeout=timeout,
+                sse_read_timeout=timeout,
             )
             read_stream, write_stream, _ = await self._transport_cm.__aenter__()
             self._session_cm = ClientSession(read_stream, write_stream)
@@ -129,8 +131,7 @@ class IM19MCPClient:
     async def call_tool(self, name: str, arguments: Mapping[str, Any]) -> dict[str, Any]:
         if self._session is None:
             raise MCPUnavailable("MCP session is not initialized")
-        tool = self._tools.get(name)
-        if tool is None:
+        if name not in self._tools:
             raise ToolDenied("Tool is not in the current approved tools/list snapshot")
         if not isinstance(arguments, Mapping):
             raise ToolDenied("Tool arguments must be a JSON object")
