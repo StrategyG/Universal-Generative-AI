@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
 from typing import Protocol
@@ -88,6 +89,19 @@ class ExecutionReceipt:
     state: str
 
 
+def _unique_json_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("JSON response contains a duplicate object key")
+        result[key] = value
+    return result
+
+
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"JSON response contains a non-finite number: {value}")
+
+
 async def _read_json_object(response: httpx.Response) -> dict[str, object]:
     """Read a bounded JSON response; reject redirects, HTML and oversized bodies."""
     response.raise_for_status()
@@ -110,7 +124,11 @@ async def _read_json_object(response: httpx.Response) -> dict[str, object]:
             raise ValueError("Studio response exceeds the permitted size")
         body.extend(chunk)
 
-    payload = httpx.Response(200, content=bytes(body)).json()
+    payload = json.loads(
+        bytes(body),
+        object_pairs_hook=_unique_json_object,
+        parse_constant=_reject_json_constant,
+    )
     if not isinstance(payload, dict):
         raise TypeError("Studio response must be a JSON object")
     return payload
