@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 import math
 import os
 from dataclasses import dataclass
@@ -12,7 +13,24 @@ class ConfigurationError(ValueError):
     """Raised when remote MCP configuration is unsafe or incomplete."""
 
 
-def _validate_https_uri(value: str, setting: str, *, require_mcp_path: bool = False) -> None:
+def _canonical_host(value: str, setting: str) -> str:
+    candidate = value.strip().rstrip(".")
+    if not candidate or candidate.startswith("*.") or any(c in candidate for c in "/:@?#"):
+        raise ConfigurationError(f"{setting} must contain exact DNS hostnames only")
+    try:
+        host = candidate.encode("idna").decode("ascii").lower()
+        ipaddress.ip_address(host)
+    except ValueError:
+        return host
+    raise ConfigurationError(f"{setting} must not contain IP-literal hosts")
+
+
+def _validate_https_uri(
+    value: str,
+    setting: str,
+    *,
+    require_mcp_path: bool = False,
+) -> tuple[str, int | None]:
     try:
         parsed = urlsplit(value)
         port = parsed.port
@@ -20,18 +38,20 @@ def _validate_https_uri(value: str, setting: str, *, require_mcp_path: bool = Fa
         raise ConfigurationError(f"{setting} must be a valid absolute HTTPS URI") from exc
     if parsed.scheme != "https" or not parsed.hostname:
         raise ConfigurationError(f"{setting} must be an absolute HTTPS URI")
-    if port is not None and not 1 <= port <= 65535:
-        raise ConfigurationError(f"{setting} has an invalid port")
     if parsed.username or parsed.password or parsed.query or parsed.fragment:
         raise ConfigurationError(f"{setting} must not contain credentials, query, or fragment")
+    if port not in (None, 443):
+        raise ConfigurationError(f"{setting} must use the default HTTPS port")
     if require_mcp_path and parsed.path.rstrip("/") != "/mcp":
         raise ConfigurationError("IM19_MCP_URL must point to the exact /mcp resource")
+    return _canonical_host(parsed.hostname, setting), port
 
 
 @dataclass(frozen=True, slots=True)
 class IM19Config:
     endpoint: str
     resource: str
+    allowed_hosts: frozenset[str]
     allowed_tools: frozenset[str]
     request_timeout_seconds: float = 20.0
     max_result_bytes: int = 1_000_000
@@ -40,18 +60,30 @@ class IM19Config:
     def from_env(cls) -> IM19Config:
         endpoint = os.getenv("IM19_MCP_URL", "").strip()
         resource = os.getenv("IM19_MCP_RESOURCE", "").strip()
+        raw_hosts = os.getenv("IM19_MCP_ALLOWED_HOSTS", "")
         raw_tools = os.getenv("IM19_ALLOWED_READ_TOOLS", "")
-        allowed_tools = frozenset(
-            item.strip() for item in raw_tools.split(",") if item.strip()
-        )
         try:
             timeout = float(os.getenv("IM19_MCP_TIMEOUT_SECONDS", "20"))
             max_bytes = int(os.getenv("IM19_MCP_MAX_RESULT_BYTES", "1000000"))
         except ValueError as exc:
             raise ConfigurationError("Invalid MCP timeout or response-size setting") from exc
 
-        _validate_https_uri(endpoint, "IM19_MCP_URL", require_mcp_path=True)
-        _validate_https_uri(resource, "IM19_MCP_RESOURCE")
+        allowed_hosts = frozenset(
+            _canonical_host(item, "IM19_MCP_ALLOWED_HOSTS")
+            for item in raw_hosts.split(",")
+            if item.strip()
+        )
+        if not allowed_hosts:
+            raise ConfigurationError("IM19_MCP_ALLOWED_HOSTS must contain an exact DNS hostname")
+
+        endpoint_host, _ = _validate_https_uri(
+            endpoint, "IM19_MCP_URL", require_mcp_path=True
+        )
+        resource_host, _ = _validate_https_uri(resource, "IM19_MCP_RESOURCE")
+        if endpoint_host not in allowed_hosts:
+            raise ConfigurationError("IM19_MCP_URL host is not in IM19_MCP_ALLOWED_HOSTS")
+        if resource_host != endpoint_host:
+            raise ConfigurationError("IM19_MCP_RESOURCE host must match IM19_MCP_URL host")
         if not math.isfinite(timeout) or not 0 < timeout <= 120:
             raise ConfigurationError("MCP timeout must be finite and between 0 and 120 seconds")
         if not 1_024 <= max_bytes <= 10_000_000:
@@ -59,7 +91,10 @@ class IM19Config:
         return cls(
             endpoint=endpoint,
             resource=resource,
-            allowed_tools=allowed_tools,
+            allowed_hosts=allowed_hosts,
+            allowed_tools=frozenset(
+                item.strip() for item in raw_tools.split(",") if item.strip()
+            ),
             request_timeout_seconds=timeout,
             max_result_bytes=max_bytes,
         )
