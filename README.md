@@ -2,6 +2,20 @@
 
 A modular platform for generative AI workflows, designed to support multimodal generation pipelines and extensible model providers.
 
+## Institutional Decision Intelligence
+
+The feature branch adds a deterministic, framework-neutral decision package at `src/ugai_decision/` that composes Analysis, Evaluation and Holistic Thinking (AEPH) with advisory Hedge-Bet allocation.
+
+- Evidence provenance and independence groups reduce duplicate-source inflation.
+- Conflicting claims are surfaced for review rather than resolved by majority vote.
+- Alternatives are evaluated using expected value, strategic fit, cost, downside and reversibility.
+- System dependencies, stakeholder impacts, assumptions and time horizons are explicitly surfaced.
+- Hedge allocation, capped bet allocation, a gross downside risk budget and reserve are calculated deterministically.
+- Insufficient evidence fails closed to 100% reserve; all outputs require human approval.
+- The engine is advisory only: it does not call MCP tools, execute actions, transfer funds or allocate real-world resources.
+
+See [Institutional Decision Intelligence design](docs/INSTITUTIONAL_DECISION_INTELLIGENCE.md).
+
 ## IM19 remote MCP integration
 
 The integration branch contains a reusable UGAI remote MCP adapter under `src/ugai_mcp/`.
