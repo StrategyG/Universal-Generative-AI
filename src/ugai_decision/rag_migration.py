@@ -305,6 +305,34 @@ def _bootstrap_target(connection, source_extensions: list[dict[str, str]]) -> No
     connection.commit()
 
 
+def _assert_no_auth_foreign_keys(connection) -> None:
+    """Ensure no newly introduced FK to Supabase Auth is silently cascaded away."""
+    foreign_keys = connection.execute(
+        """
+        SELECT source_ns.nspname,source_table.relname,con.conname,
+               target_ns.nspname,target_table.relname
+        FROM pg_constraint con
+        JOIN pg_class source_table ON source_table.oid=con.conrelid
+        JOIN pg_namespace source_ns ON source_ns.oid=source_table.relnamespace
+        JOIN pg_class target_table ON target_table.oid=con.confrelid
+        JOIN pg_namespace target_ns ON target_ns.oid=target_table.relnamespace
+        WHERE con.contype='f'
+          AND source_ns.nspname=ANY(%s)
+          AND target_ns.nspname='auth'
+        ORDER BY source_ns.nspname,source_table.relname,con.conname
+        """,
+        (list(SCHEMAS),),
+    ).fetchall()
+    if foreign_keys:
+        names = ", ".join(
+            f"{schema}.{table}.{constraint} -> {target_schema}.{target_table}"
+            for schema, table, constraint, target_schema, target_table in foreign_keys
+        )
+        raise MigrationError(
+            "Unmapped foreign keys to Supabase Auth remain; refusing CASCADE removal: " + names
+        )
+
+
 def _migrate_auth_dependencies(connection) -> None:
     from psycopg import sql
 
@@ -404,6 +432,7 @@ def _migrate_auth_dependencies(connection) -> None:
         raise MigrationError(
             "Unexpected dependencies on Supabase Auth remain; auth schema was not removed."
         )
+    _assert_no_auth_foreign_keys(connection)
 
     connection.execute("DROP SCHEMA auth CASCADE")
     connection.commit()
