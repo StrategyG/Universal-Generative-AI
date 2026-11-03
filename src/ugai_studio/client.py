@@ -10,7 +10,6 @@ from uuid import UUID
 
 import httpx
 
-
 MAX_RESPONSE_BYTES = 65_536
 MAX_BEARER_TOKEN_LENGTH = 8_192
 EXECUTION_STATES = frozenset(
