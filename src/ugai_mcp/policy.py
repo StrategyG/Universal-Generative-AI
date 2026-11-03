@@ -1,6 +1,14 @@
-"""Default-deny MCP tool policy."""
+"""Default-deny MCP tool policy with an operator-reviewed allowlist.
+
+IM19 0.3 currently registers tools without MCP read-only annotations. Therefore,
+the explicit UGAI allowlist is the authoritative operator approval. If the server
+does supply safety annotations, contradictory or destructive annotations deny access.
+"""
 from dataclasses import dataclass
 from typing import Any, Iterable
+
+
+_MISSING = object()
 
 
 @dataclass(frozen=True, slots=True)
@@ -23,12 +31,16 @@ class ToolPolicy:
             return ToolDecision(False, "invalid_name")
         if name not in self.allowed:
             return ToolDecision(False, "not_allowlisted")
+
         annotations = _get(tool, "annotations", {}) or {}
-        if _get(annotations, "readOnlyHint", False) is not True:
-            return ToolDecision(False, "not_read_only")
-        if _get(annotations, "destructiveHint", True) is not False:
-            return ToolDecision(False, "destructive_or_unattested")
+        read_only = _get(annotations, "readOnlyHint", _MISSING)
+        destructive = _get(annotations, "destructiveHint", _MISSING)
+        if read_only is not _MISSING and read_only is not True:
+            return ToolDecision(False, "server_marks_tool_not_read_only")
+        if destructive is not _MISSING and destructive is not False:
+            return ToolDecision(False, "server_marks_tool_destructive")
+
         schema = _get(tool, "inputSchema", {}) or {}
         if _get(schema, "type") != "object":
             return ToolDecision(False, "invalid_schema")
-        return ToolDecision(True, "allowlisted_read_only")
+        return ToolDecision(True, "operator_allowlisted")
