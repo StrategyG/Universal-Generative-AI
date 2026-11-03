@@ -143,14 +143,13 @@ interpreted as a system instruction.
 
 ## Validation evidence
 
-The orchestration runtime, approval evidence manifest and tests were
-validated on exact code/test commit
-`ea8f594c0bf7e434622fa2baac593cc4d6df99d1` in GitHub Actions run
-[41689797041](https://github.com/StrategyG/Universal-Generative-AI/actions/runs/41689797041):
+The orchestration runtime, evidence manifest, provider-actor binding,
+approval-expiry checks and tests were validated on exact code/test commit
+`90b3b626365b3510ec5ca32e1a1d3a3a3cfe42dd` in GitHub Actions run
+[41690177533](https://github.com/StrategyG/Universal-Generative-AI/actions/runs/41690177533):
 Ruff reported `All checks passed!` and the full suite reported
-`59 passed in 0.18s`. Later commits only update documentation. CI verifies
-package installation, lint and mocked unit tests, not live connector,
-production approval or execution services.
+`61 passed in 0.15s`. This verifies package installation, lint and mocked
+unit tests, not live connector, production approval or execution services.
 
 ## Limitations and production gates
 
