@@ -2,7 +2,16 @@
 
 **Status:** policy specification grounded in Supabase inspection on 2026-11-03.
 
-## 1. Verified retrieval surfaces
+## 1. Corpus and evidence tiers
+
+- Institutional approved: curated and published evidence, subject to live release gate.
+- Legacy: older corpus, separately labelled and governed by its legacy policy.
+- Private notebook: user/tenant-scoped source content; citation eligibility is request-scoped and requires current notebook ACL authorization. It is not institutional approval.
+- Private staging: internal knowledge-mining/research candidates; never eligible for normal user citations.
+
+The client cannot assign any of these tiers. The server resolves them from the selected retrieval route and authoritative records.
+
+## 2. Verified retrieval surfaces
 
 | Surface | Observed behavior | Permitted initial use |
 |---|---|---|
@@ -15,7 +24,7 @@
 
 A function name containing hybrid, trusted, or RRF is not itself release approval. Authorization and trust come from the full database predicates and release policy.
 
-## 2. Critical semantic distinction
+## 3. Critical semantic distinction
 
 Keep independent dimensions:
 - relevance: how well a result matches a query;
@@ -27,7 +36,7 @@ Keep independent dimensions:
 
 A high RRF score cannot change review_state, publication_state, or authorization_scope.
 
-## 3. Corpus routing
+## 4. Corpus routing
 
 ### A. Institutional approved corpus
 
@@ -45,7 +54,11 @@ A zero-row response means “no eligible evidence returned”, not “the answer
 
 Keep legacy records labelled legacy_rag. It has a different ingestion model and source identity shape. Normalize outputs to common EvidenceRecord while preserving corpus provenance and original identifiers. Do not silently merge its records into Institutional corpus.
 
-### C. Private staging research
+### C. Private notebook corpus
+
+Private notebook search must verify tenant membership, notebook ACL, document visibility, retention, and current access on every request. Apply those predicates inside both lexical and vector retrieval; filter-before-ranking is mandatory. A private notebook citation may be eligible for the current authorized user after source hash/locator validation, but that does not make the source trusted or institutionally published. Never expose one tenant's text, IDs, scores, or result counts to another tenant.
+
+### D. Private staging research
 
 Use only a separate service operation requiring privileged research scope. Return explicit labels:
 - evidence_tier = private_staging
@@ -55,11 +68,11 @@ Use only a separate service operation requiring privileged research scope. Retur
 
 Never pass these rows to the standard final citation resolver. UI and final answer must state that material is provisional/internal research.
 
-### D. Web captures and derived synthesis
+### E. Web captures and derived synthesis
 
 Web captures, AI-derived claims, graph edges, and synthesis staging are candidates until source verification and human publication gates pass. A browser anchor or URL is not equivalent to a verified page citation. Capture time and source modification time are distinct fields.
 
-## 4. Hybrid retrieval algorithm (target after approval)
+## 5. Hybrid retrieval algorithm (target after approval)
 
 1. Normalize query without deleting proper nouns, numbers, negation, dates, or domain-specific terms.
 2. Detect language and domain; generate a small number of transparent query variants.
@@ -75,7 +88,7 @@ Web captures, AI-derived claims, graph edges, and synthesis staging are candidat
 
 Start with k = 60 only as a baseline for evaluation; tune on a held-out dataset. Do not add arbitrary domain multipliers until they show measured improvement. If corpora are combined, preserve per-corpus rank and use a separately calibrated fusion policy.
 
-## 5. Embedding invariants
+## 6. Embedding invariants
 
 The inspected Institutional staged hybrid function expects:
 - vector dimension = 384;
@@ -88,7 +101,7 @@ The inspected Institutional staged hybrid function expects:
 
 Legacy semantic retrieval also enforces 384 dimensions and checks intfloat/multilingual-e5-small. Do not assume those requirements apply to every future model; define an immutable versioned embedding profile. Never compare vectors from different embedding spaces.
 
-## 6. Citation object
+## 7. Citation object
 
 Every citation binds:
 - evidence_id;
@@ -107,7 +120,7 @@ Every citation binds:
 
 Citation resolution is server-side. The model may reference an existing evidence handle but cannot invent one. If source hash changes since indexing, invalidate citation and require re-ingestion or revalidation.
 
-## 7. Contradiction and temporal handling
+## 8. Contradiction and temporal handling
 
 - Preserve claims from multiple sources when they conflict.
 - Record source publication date, capture time, effective date, event date, and last verified time separately.
@@ -115,7 +128,7 @@ Citation resolution is server-side. The model may reference an existing evidence
 - Distinguish latest available source from source describing latest event.
 - For political/business intelligence, track actor, organization, interest, action, relationship, and validity interval, each linked to source evidence.
 
-## 8. Retrieval evaluation
+## 9. Retrieval evaluation
 
 Benchmark dimensions:
 - Indonesian and English queries;
