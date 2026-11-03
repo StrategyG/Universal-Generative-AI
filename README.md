@@ -9,17 +9,17 @@ The integration branch contains a reusable UGAI remote MCP adapter under `src/ug
 - IM19 owns MCP transport, OAuth resource authentication, provider OAuth, encrypted provider credentials, provider-side quotas and audit.
 - UGAI owns orchestration, tool discovery, workflow-specific allowlists and execution policy.
 - Remote connection uses the deployed IM19 HTTPS Streamable HTTP resource ending in `/mcp`. A GitHub repository URL is not a runtime endpoint.
-- The adapter requires an exact DNS hostname allowlist, a deployment-specific OAuth token provider, a durable redacted audit sink, and trusted actor identity from UGAI authentication.
+- The adapter requires an exact DNS hostname allowlist, a deployment-specific OAuth token provider requesting the exact IM19 resource audience and `im19:read` scope, a durable redacted audit sink, and trusted actor identity from UGAI authentication.
 - Endpoint and OAuth resource hostnames must match. Wildcards, IP literals, non-default ports and URL credentials are rejected. Network egress controls are still required to block private/metadata destinations and DNS rebinding.
 - Supabase may store non-secret integration metadata and redacted audit events; credentials, access tokens, refresh tokens, OAuth codes and encryption keys must remain outside RAG.
 
 ### Implemented
 
 - HTTPS endpoint/resource validation and exact DNS host allowlist.
-- OAuth token-provider interface; no static token is committed.
+- OAuth token-provider interface requests the exact resource audience and `im19:read` scope; no static token is committed.
 - Official MCP SDK session initialization and dynamic `tools/list`.
 - Framework-neutral `IM19ToolProvider` facade exposing `discover()` and `execute()` for workflow-registry integration.
-- Default-deny operator allowlist plus hard-deny rules for OAuth linking, Drive content/write and raw Cloudbrowser task tools.
+- Default-deny operator allowlist plus hard-deny rules for OAuth linking, Drive content/write/approval-status and raw Cloudbrowser task tools.
 - Mandatory redacted audit before and after remote tool execution; fail closed if the audit sink is unavailable.
 - Bounded calls and tests for configuration, policy and audit lifecycle.
 
