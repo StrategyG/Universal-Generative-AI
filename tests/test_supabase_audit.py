@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import UTC, datetime
 
 import pytest
@@ -76,10 +77,7 @@ def test_supabase_sink_rejects_public_or_unexpected_schema() -> None:
 async def test_supabase_sink_rejects_naive_timestamp_before_write() -> None:
     client = FakeSupabase()
     sink = SupabaseDecisionAuditSink(client)
-    event = sample_event()
-    event = DecisionAuditEvent(
-        **{**event.__dict__, "occurred_at": "2026-11-04T12:00:00"}
-    )
+    event = replace(sample_event(), occurred_at="2026-11-04T12:00:00")
 
     with pytest.raises(ValueError, match="timezone"):
         await sink.append(event)
