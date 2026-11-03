@@ -97,6 +97,34 @@ async def test_database_enforces_tenant_rls_and_idempotency(workflow_database) -
     repeated = await store.create_task(**args)
     assert repeated.task_id == first.task_id
 
+    # Prove the runtime database role is not privileged and that row visibility
+    # is enforced by PostgreSQL RLS itself, not only by an application WHERE clause.
+    async with pool.acquire() as connection:
+        role = await connection.fetchrow(
+            """
+            SELECT r.rolsuper, r.rolbypassrls,
+                   pg_get_userbyid(c.relowner) = current_user AS owns_tasks
+            FROM pg_roles r
+            CROSS JOIN pg_class c
+            WHERE r.rolname = current_user
+              AND c.oid = 'ugai_workflow.tasks'::regclass
+            """
+        )
+        assert role is not None
+        assert role["rolsuper"] is False
+        assert role["rolbypassrls"] is False
+        assert role["owns_tasks"] is False
+        async with connection.transaction():
+            await connection.fetchval(
+                "SELECT set_config('app.ugai_tenant_id', $1, true)",
+                f"other-{uuid4()}",
+            )
+            visible = await connection.fetchval(
+                "SELECT count(*) FROM ugai_workflow.tasks WHERE task_id = $1",
+                first.task_id,
+            )
+            assert visible == 0
+
     with pytest.raises(IdempotencyConflict):
         await store.create_task(**{**args, "input_digest": "b" * 64})
 
