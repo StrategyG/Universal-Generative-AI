@@ -409,7 +409,29 @@ def _migrate_auth_dependencies(connection) -> None:
     connection.commit()
 
 
+def _assert_no_security_definer(connection) -> None:
+    """Fail closed rather than grant access to superuser-owned definer routines."""
+    routines = connection.execute(
+        """
+        SELECT n.nspname,p.proname,pg_get_function_identity_arguments(p.oid)
+        FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+        WHERE n.nspname=ANY(%s) AND p.prosecdef
+        ORDER BY n.nspname,p.proname
+        """,
+        (list(SCHEMAS),),
+    ).fetchall()
+    if routines:
+        names = ", ".join(
+            f"{schema}.{name}({arguments})" for schema, name, arguments in routines
+        )
+        raise MigrationError(
+            "SECURITY DEFINER routines require explicit owner/search_path review before "
+            f"runtime grants are applied: {names}"
+        )
+
+
 def _secure_target(connection) -> None:
+    _assert_no_security_definer(connection)
     connection.execute(
         "GRANT USAGE ON SCHEMA rag,institutional_rag,extensions,ugai_identity TO ugai_runtime"
     )
