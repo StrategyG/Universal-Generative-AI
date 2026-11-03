@@ -53,5 +53,28 @@
       }
     },
     "warnings": { "type": "array", "items": { "type": "string", "maxLength": 500 }, "maxItems": 20 }
-  }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "evidence_tier": { "const": "private_staging" } }, "required": ["evidence_tier"] },
+      "then": {
+        "properties": {
+          "trusted": { "const": false },
+          "user_citation_eligible": { "const": false },
+          "publication_state": { "const": "unpublished" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "evidence_tier": { "const": "approved" } }, "required": ["evidence_tier"] },
+      "then": {
+        "properties": {
+          "trusted": { "const": true },
+          "user_citation_eligible": { "const": true },
+          "review_status": { "const": "approved" },
+          "publication_state": { "const": "published" }
+        }
+      }
+    }
+  ]
 }
