@@ -1,9 +1,18 @@
 """Deterministic evidence-led analysis, evaluation, holistic review and hedge-bet engine."""
-from __future__ import annotations
-from collections import defaultdict
-from typing import Iterable
 
-from .models import DecisionRequest, DecisionResult, EvidenceItem, OptionAssessment, PortfolioAllocation, StrategicOption
+from __future__ import annotations
+
+from collections import defaultdict
+from collections.abc import Iterable
+
+from .models import (
+    DecisionRequest,
+    DecisionResult,
+    EvidenceItem,
+    OptionAssessment,
+    PortfolioAllocation,
+    StrategicOption,
+)
 
 _EVIDENCE_WEIGHTS = {
     "source_reliability": 0.25,
@@ -30,7 +39,11 @@ def _evidence_item_score(item: EvidenceItem) -> float:
     return sum(_EVIDENCE_WEIGHTS[key] * values[key] for key in _EVIDENCE_WEIGHTS)
 
 
-def _water_fill(candidates: Iterable[tuple[StrategicOption, float]], available: float, request_cap: float) -> dict[str, float]:
+def _water_fill(
+    candidates: Iterable[tuple[StrategicOption, float]],
+    available: float,
+    request_cap: float,
+) -> dict[str, float]:
     """Pro-rata allocation with per-option caps; deterministic and side-effect free."""
     rows = [(option, score) for option, score in candidates if score > 0]
     remaining = max(0.0, available)
@@ -40,7 +53,10 @@ def _water_fill(candidates: Iterable[tuple[StrategicOption, float]], available: 
         total_score = sum(score for _, score in active)
         if total_score <= 0:
             break
-        proposed = [(option, score, remaining * score / total_score) for option, score in active]
+        proposed = [
+            (option, score, remaining * score / total_score)
+            for option, score in active
+        ]
         capped_any = False
         next_active = []
         spent = 0.0
@@ -78,67 +94,101 @@ class DecisionEngine:
             positions[item.topic].add(item.position)
             topic_groups[item.topic].add(item.independence_group)
 
-        group_scores = [max(_evidence_item_score(item) for item in group) for group in by_independence.values()]
+        group_scores = [
+            max(_evidence_item_score(item) for item in group)
+            for group in by_independence.values()
+        ]
         quality_score = sum(group_scores) / len(group_scores) if group_scores else 0.0
         independent_count = len(by_independence)
         sufficiency_score = quality_score * min(1.0, independent_count / 3.0)
-        conflicts = tuple(sorted(
-            topic for topic, values in positions.items()
-            if len(values) > 1 and len(topic_groups[topic]) > 1
-        ))
+        conflicts = tuple(
+            sorted(
+                topic for topic, values in positions.items()
+                if len(values) > 1 and len(topic_groups[topic]) > 1
+            )
+        )
         assessments = tuple(
             self._assess_option(option, evidence_by_id, set(conflicts), request)
             for option in request.options
         )
         if not request.evidence or sufficiency_score < request.evidence_threshold:
-            return self._hold_for_evidence(request, quality_score, sufficiency_score, independent_count, conflicts, assessments)
+            return self._hold_for_evidence(
+                request, quality_score, sufficiency_score, independent_count, conflicts, assessments
+            )
 
         assessment_by_id = {item.option_id: item for item in assessments}
-        hedge_candidates = [option for option in request.options
-                            if option.role == "hedge" and assessment_by_id[option.option_id].score > 0]
-        bet_candidates = [option for option in request.options
-                          if option.role == "bet" and assessment_by_id[option.option_id].score > 0]
+        hedge_candidates = [
+            option for option in request.options
+            if option.role == "hedge" and assessment_by_id[option.option_id].score > 0
+        ]
+        bet_candidates = [
+            option for option in request.options
+            if option.role == "bet" and assessment_by_id[option.option_id].score > 0
+        ]
 
         selected_hedge = None
         hedge_allocation = 0.0
         if hedge_candidates and request.hedge_target > 0:
-            selected_hedge = sorted(
+            selected_hedge = min(
                 hedge_candidates,
                 key=lambda item: (-assessment_by_id[item.option_id].score, item.option_id),
-            )[0]
-            hedge_allocation = min(request.hedge_target, selected_hedge.max_allocation, 1.0 - request.reserve_floor)
+            )
+            hedge_allocation = min(
+                request.hedge_target,
+                selected_hedge.max_allocation,
+                1.0 - request.reserve_floor,
+            )
 
         bet_capacity = max(0.0, 1.0 - request.reserve_floor - hedge_allocation)
         bet_allocations = _water_fill(
-            ((option, assessment_by_id[option.option_id].score) for option in bet_candidates),
+            (
+                (option, assessment_by_id[option.option_id].score)
+                for option in bet_candidates
+            ),
             available=bet_capacity,
             request_cap=request.max_bet_allocation,
         )
         # Never use estimated hedge effectiveness to justify extra risky exposure.
-        gross_downside = sum(bet_allocations.get(option.option_id, 0.0) * option.downside_loss
-                             for option in bet_candidates)
+        gross_downside = sum(
+            bet_allocations.get(option.option_id, 0.0) * option.downside_loss
+            for option in bet_candidates
+        )
         if gross_downside > request.risk_budget and gross_downside > 0:
             scale = request.risk_budget / gross_downside
-            bet_allocations = {key: value * scale for key, value in bet_allocations.items()}
+            bet_allocations = {
+                key: value * scale for key, value in bet_allocations.items()
+            }
 
         allocation_rows = []
         if selected_hedge is not None and hedge_allocation > 0:
-            allocation_rows.append(PortfolioAllocation(selected_hedge.option_id, "hedge", hedge_allocation, 0.0))
+            allocation_rows.append(
+                PortfolioAllocation(selected_hedge.option_id, "hedge", hedge_allocation, 0.0)
+            )
         for option in sorted(bet_candidates, key=lambda item: item.option_id):
             amount = bet_allocations.get(option.option_id, 0.0)
             if amount > 0:
-                allocation_rows.append(PortfolioAllocation(
-                    option.option_id, "bet", amount, amount * option.downside_loss
-                ))
+                allocation_rows.append(
+                    PortfolioAllocation(option.option_id, "bet", amount, amount * option.downside_loss)
+                )
 
         allocated = sum(item.allocation for item in allocation_rows)
         reserve_allocation = _clamp(1.0 - allocated)
         expected_gross_downside = sum(item.downside_contribution for item in allocation_rows)
-        hedge_effectiveness = selected_hedge.risk_mitigation * hedge_allocation if selected_hedge else 0.0
+        hedge_effectiveness = (
+            selected_hedge.risk_mitigation * hedge_allocation
+            if selected_hedge is not None
+            else 0.0
+        )
         expected_net_downside = expected_gross_downside * (1.0 - _clamp(hedge_effectiveness))
-        missing_hedge = selected_hedge is None
-        no_viable_bet = not any(bet_allocations.get(item.option_id, 0.0) > 0 for item in bet_candidates)
-        status = "REVIEW_REQUIRED" if conflicts or missing_hedge or no_viable_bet else "RECOMMENDATION_READY"
+        missing_hedge = selected_hedge is None or hedge_allocation <= 0
+        no_viable_bet = not any(
+            bet_allocations.get(item.option_id, 0.0) > 0 for item in bet_candidates
+        )
+        status = (
+            "REVIEW_REQUIRED"
+            if conflicts or missing_hedge or no_viable_bet
+            else "RECOMMENDATION_READY"
+        )
 
         caveats = [
             "All numeric option estimates are upstream assumptions and require validation.",
@@ -175,22 +225,37 @@ class DecisionEngine:
             caveats=tuple(caveats),
         )
 
-    def _assess_option(self, option: StrategicOption, evidence_by_id: dict[str, EvidenceItem],
-                       conflicts: set[str], request: DecisionRequest) -> OptionAssessment:
+    def _assess_option(
+        self,
+        option: StrategicOption,
+        evidence_by_id: dict[str, EvidenceItem],
+        conflicts: set[str],
+        request: DecisionRequest,
+    ) -> OptionAssessment:
         linked = [evidence_by_id[item] for item in option.evidence_ids]
         linked_groups = {item.independence_group for item in linked}
         coverage = min(1.0, len(linked_groups) / 2.0)
         overlap = tuple(sorted({item.topic for item in linked if item.topic in conflicts}))
         conflict_penalty = min(0.50, 0.20 * len(overlap))
-        risk_aversion = {"defensive": 0.20, "balanced": 0.12, "opportunity_seeking": 0.05}[request.risk_tolerance]
+        risk_aversion = {
+            "defensive": 0.20,
+            "balanced": 0.12,
+            "opportunity_seeking": 0.05,
+        }[request.risk_tolerance]
         expected_value = None
         if option.role == "bet":
-            expected_value = option.probability_success * option.expected_upside - (1.0 - option.probability_success) * option.downside_loss
+            expected_value = (
+                option.probability_success * option.expected_upside
+                - (1.0 - option.probability_success) * option.downside_loss
+            )
             normalized_value = (expected_value + 1.0) / 2.0
             base_score = (
-                0.35 * option.strategic_fit + 0.30 * normalized_value
-                + 0.20 * option.reversibility + 0.15 * (1.0 - option.downside_loss)
-                - 0.15 * option.cost - risk_aversion * option.downside_loss
+                0.35 * option.strategic_fit
+                + 0.30 * normalized_value
+                + 0.20 * option.reversibility
+                + 0.15 * (1.0 - option.downside_loss)
+                - 0.15 * option.cost
+                - risk_aversion * option.downside_loss
             )
             rationale = (
                 "Expected value combines success-weighted upside and failure downside.",
@@ -198,9 +263,12 @@ class DecisionEngine:
             )
         else:
             base_score = (
-                0.40 * option.risk_mitigation + 0.25 * option.strategic_fit
-                + 0.15 * option.reversibility + 0.10 * option.probability_success
-                + 0.10 * (1.0 - option.cost) - risk_aversion * option.cost
+                0.40 * option.risk_mitigation
+                + 0.25 * option.strategic_fit
+                + 0.15 * option.reversibility
+                + 0.10 * option.probability_success
+                + 0.10 * (1.0 - option.cost)
+                - risk_aversion * option.cost
             )
             rationale = (
                 "Hedge score emphasizes downside mitigation, strategic fit and reversibility.",
@@ -214,21 +282,35 @@ class DecisionEngine:
             reasons.append("Linked evidence includes unresolved conflicting topics.")
         if not linked:
             reasons.append("No linked evidence supports this option.")
-        return OptionAssessment(option.option_id, option.role, score, coverage, expected_value, overlap, tuple(reasons))
+        return OptionAssessment(
+            option.option_id, option.role, score, coverage, expected_value, overlap, tuple(reasons)
+        )
 
     @staticmethod
     def _holistic_review(request: DecisionRequest) -> tuple[str, ...]:
         return (
-            "System dependencies: " + ("; ".join(request.system_factors) if request.system_factors else "not supplied; review required"),
-            "Stakeholder impacts: " + ("; ".join(request.stakeholder_impacts) if request.stakeholder_impacts else "not supplied; review required"),
+            "System dependencies: " + (
+                "; ".join(request.system_factors) if request.system_factors else "not supplied; review required"
+            ),
+            "Stakeholder impacts: " + (
+                "; ".join(request.stakeholder_impacts) if request.stakeholder_impacts else "not supplied; review required"
+            ),
             "Time horizons: " + ", ".join(request.time_horizons),
-            "Assumptions: " + ("; ".join(request.assumptions) if request.assumptions else "none declared"),
+            "Assumptions: " + (
+                "; ".join(request.assumptions) if request.assumptions else "none declared"
+            ),
             "Second-order effects, reversibility and resilience must be reviewed before approval.",
         )
 
-    def _hold_for_evidence(self, request: DecisionRequest, quality_score: float, sufficiency_score: float,
-                           independent_count: int, conflicts: tuple[str, ...],
-                           assessments: tuple[OptionAssessment, ...]) -> DecisionResult:
+    def _hold_for_evidence(
+        self,
+        request: DecisionRequest,
+        quality_score: float,
+        sufficiency_score: float,
+        independent_count: int,
+        conflicts: tuple[str, ...],
+        assessments: tuple[OptionAssessment, ...],
+    ) -> DecisionResult:
         return DecisionResult(
             status="HOLD_FOR_EVIDENCE",
             evidence_quality_score=quality_score,
