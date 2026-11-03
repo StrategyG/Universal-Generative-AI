@@ -1,3 +1,4 @@
+import asyncio
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -184,7 +185,7 @@ async def test_retry_scheduler_stop_event_prevents_polling() -> None:
             poll_interval_seconds=1,
         ),
     )
-    stop = __import__("asyncio").Event()
+    stop = asyncio.Event()
     stop.set()
 
     await scheduler.run(stop)
