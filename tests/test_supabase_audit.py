@@ -11,36 +11,23 @@ class FakeResponse:
     error = None
 
 
-class FakeQuery:
-    def __init__(self, calls):
+class FakeRPC:
+    def __init__(self, calls, name, params):
         self.calls = calls
-        self.payload = None
-
-    def insert(self, payload):
-        self.payload = payload
-        return self
+        self.name = name
+        self.params = params
 
     async def execute(self):
-        self.calls.append(self.payload)
+        self.calls.append((self.name, self.params))
         return FakeResponse()
-
-
-class FakeSchema:
-    def __init__(self, calls):
-        self.calls = calls
-
-    def table(self, name):
-        assert name == "decision_events"
-        return FakeQuery(self.calls)
 
 
 class FakeSupabase:
     def __init__(self):
         self.calls = []
 
-    def schema(self, name):
-        assert name == "ugai_audit"
-        return FakeSchema(self.calls)
+    def rpc(self, name, params):
+        return FakeRPC(self.calls, name, params)
 
 
 def sample_event():
@@ -57,20 +44,17 @@ def sample_event():
 
 
 @pytest.mark.asyncio
-async def test_supabase_sink_persists_redacted_event() -> None:
+async def test_supabase_sink_persists_redacted_event_through_narrow_rpc() -> None:
     client = FakeSupabase()
     sink = SupabaseDecisionAuditSink(client)
 
     await sink.append(sample_event())
 
     assert len(client.calls) == 1
-    assert client.calls[0]["event_id"] == "evt-001"
-    assert client.calls[0]["details"] == {"source_count": "3"}
-
-
-def test_supabase_sink_rejects_public_or_unexpected_schema() -> None:
-    with pytest.raises(ValueError, match="pinned"):
-        SupabaseDecisionAuditSink(FakeSupabase(), schema="public")
+    name, payload = client.calls[0]
+    assert name == "append_ugai_decision_event"
+    assert payload["p_event_id"] == "evt-001"
+    assert payload["p_details"] == {"source_count": "3"}
 
 
 @pytest.mark.asyncio
