@@ -1,14 +1,12 @@
 """Authentication seam. The concrete OAuth client is deployment-specific."""
 
-from __future__ import annotations
-
-from typing import Protocol
-
 
 IM19_REQUIRED_SCOPES = ("im19:read",)
 
 
-class AccessTokenProvider(Protocol):
+class AccessTokenProvider:
+    """Interface for the deployment's short-lived IM19 OAuth token provider."""
+
     async def get_access_token(
         self,
         *,
@@ -21,3 +19,4 @@ class AccessTokenProvider(Protocol):
         Implement this with the organization's approved OAuth client/secret manager.
         Never implement this by asking an LLM to construct a token.
         """
+        raise NotImplementedError
