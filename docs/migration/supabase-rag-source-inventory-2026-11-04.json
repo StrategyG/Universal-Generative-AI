@@ -100,5 +100,27 @@
     "No source rows, schemas, permissions, or migrations were changed.",
     "No target database or Google Drive folder is connected.",
     "Original Dropbox binaries are not stored in Supabase Storage."
-  ]
+  ],
+  "portability_checks": {
+    "user_defined_column_types": [
+      "extensions.vector"
+    ],
+    "other_user_defined_column_types": 0,
+    "rag_functions_referencing_external_schemas": {
+      "auth": 0,
+      "storage": 0,
+      "vault": 0,
+      "public": 0
+    },
+    "external_foreign_keys": [
+      "institutional_rag.reviewer_registry.reviewer_id -> auth.users.id",
+      "institutional_rag.embedding_model_approvals.attested_by -> auth.users.id",
+      "institutional_rag.production_release_evidence.attested_by -> auth.users.id"
+    ],
+    "auth_dependent_views": [
+      "institutional_rag.production_readiness_v1",
+      "institutional_rag.production_release_decision_v1",
+      "institutional_rag.review_quorum"
+    ]
+  }
 }
