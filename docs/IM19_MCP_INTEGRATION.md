@@ -61,7 +61,10 @@ Replace the example hostname with the exact deployed IM19 DNS hostname. The endp
 
 OAuth token acquisition is an injected `AccessTokenProvider`; it must request the exact resource audience and IM19's `im19:read` scope from the registered OAuth issuer using the secret manager. No static bearer token is supported or committed.
 
-Supabase may store non-secret integration metadata, approved tool manifests, workflow references and redacted audit records. It must not store MCP bearer tokens, Google refresh tokens, encryption keys, OAuth codes or browser cookies. RAG retrieval is not an authorization decision or source of executable tool permissions.
+## MCP SDK 2.x transport compatibility
+
+The adapter targets `mcp>=2.3.0,<3.0.0` and declares `httpx2>=2.16.0,<3.0.0` directly. It uses `streamable_http_client` with a caller-owned `httpx2.AsyncClient`, a bounded connection pool, explicit timeouts, redirects disabled at the HTTP client, and a configured SSE event-size limit. The SDK's transport follows only same-origin redirects; cross-origin redirects are rejected. Protocol model attributes are snake_case in Python (for example `input_schema`, `is_error`, and `next_cursor`); serialization to MCP wire objects uses Pydantic aliases.
+
 
 ## Remaining live-connection gates
 
