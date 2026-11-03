@@ -17,6 +17,7 @@ from .workflow import (
     DecisionAuditSink,
     DecisionWorkflow,
     DecisionWorkflowResult,
+    EvidenceManifestRecord,
     ExecutionPort,
     ExecutionResult,
 )
@@ -33,6 +34,7 @@ __all__ = [
     "DecisionWorkflowResult",
     "EvidenceExtractionError",
     "EvidenceItem",
+    "EvidenceManifestRecord",
     "ExecutionPort",
     "ExecutionResult",
     "MCPToolEvidenceSource",
