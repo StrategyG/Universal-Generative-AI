@@ -60,3 +60,38 @@ def test_privileged_tools_are_hard_denied_even_if_allowlisted():
     policy = ToolPolicy(dangerous)
     for name in dangerous:
         assert policy.evaluate(tool(name)).reason == "hard_denied_tool"
+
+
+
+def test_mcp_sdk_v2_snake_case_fields_with_optional_annotations():
+    sdk_tool = SimpleNamespace(
+        name="youtube_get_channel",
+        annotations=SimpleNamespace(read_only_hint=None, destructive_hint=None),
+        input_schema={"type": "object"},
+    )
+    decision = ToolPolicy({"youtube_get_channel"}).evaluate(sdk_tool)
+    assert decision.allowed is True
+
+
+def test_mcp_sdk_v2_explicit_mutating_annotations_are_denied():
+    policy = ToolPolicy({"drive_create_folder", "unsafe_mutation"})
+    assert not policy.evaluate(SimpleNamespace(
+        name="drive_create_folder",
+        annotations=SimpleNamespace(read_only_hint=False, destructive_hint=False),
+        input_schema={"type": "object"},
+    )).allowed
+    assert not policy.evaluate(SimpleNamespace(
+        name="unsafe_mutation",
+        annotations=SimpleNamespace(read_only_hint=None, destructive_hint=True),
+        input_schema={"type": "object"},
+    )).allowed
+
+
+def test_mcp_sdk_v2_malformed_schema_is_denied():
+    decision = ToolPolicy({"bad_schema"}).evaluate(SimpleNamespace(
+        name="bad_schema",
+        annotations=None,
+        input_schema={"type": "string"},
+    ))
+    assert decision.allowed is False
+    assert decision.reason == "invalid_schema"
