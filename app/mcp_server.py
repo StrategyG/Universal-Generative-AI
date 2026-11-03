@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from datetime import UTC, datetime
 from urllib.parse import quote
 from typing import Any
 
@@ -35,7 +34,7 @@ class OIDCReadTokenVerifier:
                 subject=principal.subject,
                 scopes=["ugai:read"],
                 resource=None,
-                expires_at=datetime.fromtimestamp(int(claims["exp"]), tz=UTC),
+                expires_at=int(claims["exp"]),
                 claims=claims,
             )
         except Exception:  # noqa: BLE001 - invalid credentials must fail closed
