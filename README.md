@@ -164,3 +164,14 @@ When PostgreSQL is configured, `/api/v1/generate` writes its running and termina
 ## Status
 
 **Advanced prototype scaffold; not production-ready.** The repository does not contain newly trained foundation-model weights. The Diffusers adapter loads a configured pretrained checkpoint; the mock adapter is for tests only. Pipeline plans are contracts and resource estimates, not proof that a pipeline can execute.
+
+
+## Engineering specification and release policy
+
+The engineering roadmap, architecture boundaries, API/event contracts, security model, RAG/model/agent acceptance criteria, SLO proposals and certification workflow are defined in:
+
+- [Master Engineering Specification](docs/MASTER_ENGINEERING_SPECIFICATION.md)
+- [Institutional Production Gates](docs/INSTITUTIONAL_PRODUCTION_GATES.md)
+- [Institutional Workflow Control](docs/INSTITUTIONAL_WORKFLOW_CONTROL.md)
+
+The master specification is a requirements baseline, not proof of implementation. The current inspected hardening baseline remains NO-GO until every mandatory gate passes with evidence tied to an exact release candidate.
