@@ -10,8 +10,8 @@ from ugai_workflow import (
     DecisionWorkflowTaskHandler,
     ExternalOutcomeUnknown,
     TaskState,
-    canonical_json_digest,
 )
+from ugai_workflow.postgres_store import canonical_json_digest
 
 
 class FakeResolver:
