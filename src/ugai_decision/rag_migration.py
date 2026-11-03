@@ -187,8 +187,8 @@ def _target_preflight(connection) -> None:
     for extension, minimum in REQUIRED_EXTENSIONS.items():
         if extension not in available:
             raise MigrationError(f"Destination does not provide required extension: {extension}")
-        if tuple(int(part) for part in available[extension].split(".")[:2]) < tuple(
-            int(part) for part in minimum.split(".")[:2]
+        if tuple(int(part) for part in available[extension].split(".")) < tuple(
+            int(part) for part in minimum.split(".")
         ):
             raise MigrationError(
                 f"Destination {extension} version {available[extension]} is older than {minimum}"
@@ -436,6 +436,7 @@ def run_migration(*, apply: bool) -> dict[str, Any]:
             raise MigrationError("pg_dump and pg_restore version 17 or newer are required")
 
         with _connect(source_dsn) as source, _connect(target_dsn) as target:
+            source.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
             source_version = _server_version(source)
             target_version = _server_version(target)
             if source_version < 170000 or target_version < 170000:
@@ -450,7 +451,6 @@ def run_migration(*, apply: bool) -> dict[str, Any]:
                 raise MigrationError("Source and destination resolve to the same database")
             _target_preflight(target)
 
-            source.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
             snapshot_id = source.execute("SELECT pg_export_snapshot()").fetchone()[0]
             counts = _schema_counts(source)
             extensions = _extension_inventory(source)
@@ -458,6 +458,12 @@ def run_migration(*, apply: bool) -> dict[str, Any]:
             for extension, minimum in REQUIRED_EXTENSIONS.items():
                 if extension not in extension_map:
                     raise MigrationError(f"Source is missing required extension: {extension}")
+                source_version_parts = tuple(int(part) for part in extension_map[extension]["version"].split("."))
+                minimum_parts = tuple(int(part) for part in minimum.split("."))
+                if source_version_parts < minimum_parts:
+                    raise MigrationError(
+                        f"Source {extension} version {extension_map[extension]['version']} is older than {minimum}"
+                    )
             manifest: dict[str, Any] = {
                 "snapshot_id": str(uuid.uuid4()),
                 "created_at": datetime.now(UTC).isoformat(),
@@ -542,8 +548,8 @@ def run_migration(*, apply: bool) -> dict[str, Any]:
                 installed = target_extension_map.get(extension)
                 if installed is None:
                     raise MigrationError(f"Destination extension is missing after restore: {extension}")
-                if tuple(int(part) for part in installed["version"].split(".")[:2]) < tuple(
-                    int(part) for part in minimum.split(".")[:2]
+                if tuple(int(part) for part in installed["version"].split(".")) < tuple(
+                    int(part) for part in minimum.split(".")
                 ):
                     raise MigrationError(
                         f"Destination {extension} version {installed['version']} is older than {minimum}"
