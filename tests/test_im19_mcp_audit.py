@@ -34,7 +34,7 @@ class RecordingAudit:
 
 class FakeSession:
     def __init__(self, result=None):
-        self.result = result or SimpleNamespace(isError=False, content=[{"text": "ok"}])
+        self.result = result or SimpleNamespace(is_error=False, content=[{"text": "ok"}])
         self.calls = 0
 
     async def call_tool(self, name, arguments):
