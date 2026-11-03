@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+from urllib.parse import quote
 from datetime import UTC, datetime
 from typing import Any
 
@@ -96,6 +97,8 @@ def build_mcp_server():
         """Read a saved workflow plan, enforcing the caller's existing tenant/project access."""
         from mcp.server.auth.middleware.auth_context import get_access_token
 
+        if not plan_id or len(plan_id) > 128 or "/" in plan_id or "\\\\" in plan_id:
+            raise ValueError("Invalid workflow plan identifier")
         access_token = get_access_token()
         if access_token is None:
             raise ValueError("Authenticated OIDC access token is required")
@@ -105,7 +108,7 @@ def build_mcp_server():
             timeout=15.0,
             headers={"Authorization": f"Bearer {access_token.token}"},
         ) as client:
-            response = await client.get(f"/api/v1/workflows/plans/{plan_id}")
+            response = await client.get(f"/api/v1/workflows/plans/{quote(plan_id, safe=\"\")}")
             if response.status_code == 404:
                 raise ValueError("Workflow plan not found or not accessible")
             if response.status_code == 403:
