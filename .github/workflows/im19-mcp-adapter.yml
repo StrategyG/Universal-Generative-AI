@@ -1,10 +1,12 @@
-name: UGAI IM19 MCP adapter CI
+name: UGAI MCP and Decision Intelligence CI
 
 on:
   pull_request:
     paths:
       - "src/ugai_mcp/**"
+      - "src/ugai_decision/**"
       - "tests/test_im19_mcp_*.py"
+      - "tests/test_decision_engine.py"
       - "pyproject.toml"
       - ".github/workflows/im19-mcp-adapter.yml"
 
@@ -12,7 +14,7 @@ permissions:
   contents: read
 
 jobs:
-  adapter-tests:
+  adapter-and-decision-tests:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -21,9 +23,9 @@ jobs:
         with:
           python-version: "3.11"
           cache: "pip"
-      - name: Install adapter and test dependencies
+      - name: Install package and test dependencies
         run: python -m pip install -e ".[mcp,dev]"
       - name: Lint
-        run: ruff check src/ugai_mcp tests/test_im19_mcp_*.py
+        run: ruff check src/ugai_mcp src/ugai_decision tests/test_im19_mcp_*.py tests/test_decision_engine.py
       - name: Unit tests
-        run: pytest -q tests/test_im19_mcp_*.py
+        run: pytest -q tests
