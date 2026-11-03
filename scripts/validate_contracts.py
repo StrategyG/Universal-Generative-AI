@@ -269,6 +269,13 @@ def validate_runtime_openapi_contract(spec: dict[str, Any]) -> None:
         raise ValueError("OpenAPI must define POST /v1/knowledge/retrieve")
 
     request_schema = operation["requestBody"]["content"]["application/json"]["schema"]
+    schemas = spec["components"]["schemas"]
+    request_ref = request_schema.get("$ref")
+    if request_ref:
+        prefix = "#/components/schemas/"
+        if not request_ref.startswith(prefix):
+            raise ValueError("RetrievalRequest must use an internal schema reference")
+        request_schema = schemas[request_ref[len(prefix):]]
     if request_schema.get("additionalProperties") is not False:
         raise ValueError("RetrievalRequest must reject unknown fields")
     request_properties = request_schema.get("properties", {})
@@ -282,7 +289,6 @@ def validate_runtime_openapi_contract(spec: dict[str, Any]) -> None:
     response_schema = operation["responses"]["200"]["content"]["application/json"]["schema"]
     if response_schema.get("$ref") != "#/components/schemas/RetrievalResult":
         raise ValueError("Retrieval route must use the RetrievalResult schema")
-    schemas = spec["components"]["schemas"]
     result = schemas["RetrievalResult"]
     required = set(result.get("required", []))
     if not {"request_id", "status", "retrieval", "evidence", "warnings"}.issubset(required):
