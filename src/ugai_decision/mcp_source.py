@@ -14,6 +14,8 @@ from .models import EvidenceItem
 
 
 class MCPToolProvider(Protocol):
+    actor_id: str
+
     async def discover(self) -> list[dict[str, Any]]:
         """Return the provider's currently policy-approved tools."""
 
@@ -50,7 +52,8 @@ class MCPToolEvidenceSource:
     """Collect normalized evidence through a single authenticated MCP provider.
 
     Construct this source for one authenticated actor and keep the provider
-    session open for the duration of DecisionWorkflow.run(). The extractor
+    session open for the duration of DecisionWorkflow.run(). The provider's
+    actor_id is checked against the trusted workflow actor. The extractor
     must resolve primary-source independence groups and attach stable locators.
     """
 
@@ -74,6 +77,9 @@ class MCPToolEvidenceSource:
             raise ValueError("MCP query tool names must be unique per source")
         if not callable(extractor):
             raise TypeError("extractor must be callable")
+        provider_actor_id = getattr(provider, "actor_id", None)
+        if provider_actor_id != bound_actor_id:
+            raise PermissionError("MCP provider identity does not match the trusted actor")
 
         self.source_id = source_id
         self.bound_actor_id = bound_actor_id
