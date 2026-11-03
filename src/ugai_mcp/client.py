@@ -117,9 +117,12 @@ class IM19MCPClient:
             )
             await self.refresh_tools()
             return self
-        except BaseException as exc:
+        except asyncio.CancelledError:
             await asyncio.shield(self._close_safely())
-            if isinstance(exc, (MCPIntegrationError, asyncio.CancelledError)):
+            raise
+        except Exception as exc:
+            await self._close_safely()
+            if isinstance(exc, MCPIntegrationError):
                 raise
             raise MCPUnavailable("IM19 MCP initialization failed") from exc
 
