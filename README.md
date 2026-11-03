@@ -17,6 +17,8 @@ A modular platform for generative AI workflows, multimodal generation, and exten
 - [Security threat model](docs/SECURITY_THREAT_MODEL.md)
 - [Validation and release gates](docs/VALIDATION_AND_RELEASE_GATES.md)
 - [Operations and SRE](docs/OPERATIONS_AND_SRE.md)
+- [Political, business, holistic and strategic analysis](docs/DOMAIN_INTELLIGENCE_FRAMEWORKS.md)
+- [Knowledge graph and multi-source synthesis](docs/KNOWLEDGE_GRAPH_AND_SYNTHESIS.md)
 - [Phased implementation plan](docs/IMPLEMENTATION_PLAN.md)
 
 ## Machine-readable contracts
