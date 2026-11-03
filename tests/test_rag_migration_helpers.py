@@ -179,3 +179,30 @@ def test_security_definer_guard_fails_closed_with_routine_names():
     )
     with pytest.raises(MigrationError, match="SECURITY DEFINER.*unsafe_review"):
         _assert_no_security_definer(connection)
+
+
+class _FakeAuthFkConnection:
+    def __init__(self, rows):
+        self.rows = rows
+
+    def execute(self, query, params):
+        assert "con.contype='f'" in query
+        assert "target_ns.nspname='auth'" in query
+        assert params == (["rag", "institutional_rag"],)
+        return _FakeRows(self.rows)
+
+
+def test_auth_dependency_guard_accepts_only_mapped_auth_foreign_keys():
+    from ugai_decision.rag_migration import _assert_no_auth_foreign_keys
+
+    _assert_no_auth_foreign_keys(_FakeAuthFkConnection([]))
+
+
+def test_auth_dependency_guard_rejects_unmapped_foreign_keys():
+    from ugai_decision.rag_migration import _assert_no_auth_foreign_keys
+
+    connection = _FakeAuthFkConnection(
+        [("institutional_rag", "new_table", "new_table_actor_fkey", "auth", "users")]
+    )
+    with pytest.raises(MigrationError, match="Unmapped foreign keys.*new_table_actor_fkey"):
+        _assert_no_auth_foreign_keys(connection)
