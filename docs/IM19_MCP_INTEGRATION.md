@@ -28,7 +28,7 @@ The provider exposes `discover()` and `execute(tool_name, arguments)`. It is not
 
 The allowlist is empty by default and must be explicitly configured by an operator. The inspected IM19 0.3 server registers tools without MCP read-only annotations; UGAI therefore uses an operator-reviewed allowlist. Contradictory annotations deny access if present.
 
-Hard-denied regardless of allowlist: `request_service_authorization`, `confirm_service_authorization`, `disconnect_service`, `drive_read_file`, `drive_create_folder`, `cloudbrowser_get_task`, and `cloudbrowser_list_tasks`.
+Hard-denied regardless of allowlist: `request_service_authorization`, `confirm_service_authorization`, `disconnect_service`, `drive_read_file`, `drive_create_folder`, `drive_get_write_approval_status`, `cloudbrowser_get_task`, and `cloudbrowser_list_tasks`.
 
 Conservative read-only allowlist candidates, subject to operator review:
 - `list_available_services`
@@ -59,7 +59,7 @@ IM19_MCP_MAX_RESULT_BYTES=1000000
 
 Replace the example hostname with the exact deployed IM19 DNS hostname. The endpoint and OAuth resource must use the same host. Wildcards, IP-literal hosts, non-default ports, URL credentials, query strings and fragments are rejected. The allowlist is an application-level guardrail, **not a complete SSRF defense**: production network egress policy must independently block loopback, private, link-local and cloud metadata destinations and must address DNS rebinding.
 
-OAuth token acquisition is an injected `AccessTokenProvider`; implement it against the registered OAuth issuer and secret manager. No static bearer token is supported or committed.
+OAuth token acquisition is an injected `AccessTokenProvider`; it must request the exact resource audience and IM19's `im19:read` scope from the registered OAuth issuer using the secret manager. No static bearer token is supported or committed.
 
 Supabase may store non-secret integration metadata, approved tool manifests, workflow references and redacted audit records. It must not store MCP bearer tokens, Google refresh tokens, encryption keys, OAuth codes or browser cookies. RAG retrieval is not an authorization decision or source of executable tool permissions.
 
