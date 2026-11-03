@@ -20,7 +20,7 @@ class IM19Config:
     max_result_bytes: int = 1_000_000
 
     @classmethod
-    def from_env(cls) -> "IM19Config":
+    def from_env(cls) -> IM19Config:
         endpoint = os.getenv("IM19_MCP_URL", "").strip()
         resource = os.getenv("IM19_MCP_RESOURCE", "").strip()
         raw_tools = os.getenv("IM19_ALLOWED_READ_TOOLS", "")
