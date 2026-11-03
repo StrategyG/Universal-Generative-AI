@@ -100,6 +100,9 @@ create index if not exists ugai_workflow_artifacts_task_idx
 alter table ugai_workflow.tasks enable row level security;
 alter table ugai_workflow.events enable row level security;
 alter table ugai_workflow.artifacts enable row level security;
+alter table ugai_workflow.tasks force row level security;
+alter table ugai_workflow.events force row level security;
+alter table ugai_workflow.artifacts force row level security;
 
 drop policy if exists ugai_workflow_tasks_runtime on ugai_workflow.tasks;
 create policy ugai_workflow_tasks_runtime on ugai_workflow.tasks
