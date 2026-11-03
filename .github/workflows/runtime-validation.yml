@@ -42,3 +42,13 @@ jobs:
         run: python -m compileall -q ugai_rag tests
       - name: Test
         run: python -m pytest -q
+
+  edge-function-typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Type-check Supabase gateway
+        run: deno check supabase/functions/ugai-institutional-retrieve/index.ts
