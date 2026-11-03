@@ -27,10 +27,11 @@ The transition policy is deterministic and separate from model output. Every tra
 
 - Claim uses PostgreSQL row locking with SKIP LOCKED inside a short transaction.
 - Every claim issues a fresh random fencing token.
-- Each store call sets a transaction-local tenant context; RLS predicates scope task, event and artifact rows to that tenant.
+- Each store call sets a transaction-local tenant context; RLS predicates scope task, event and artifact rows to that tenant. RLS is both enabled and forced so the ordinary table owner is also subject to policies (superusers and `BYPASSRLS` roles remain privileged and must never be used by workers).
 - Heartbeat and transition require the tenant, worker ID, token, and unexpired lease to match.
 - State update and event append commit in one transaction.
 - A crashed worker leaves the last durable state. A new worker can reclaim the task after lease expiry.
+- Explicitly retryable failures receive bounded exponential backoff (30 seconds base, 1 hour cap); a scheduler requeues only due rows using `SKIP LOCKED`, tenant context, retry budget and version checks. Unknown external outcomes remain blocked for reconciliation.
 - Lease expiry does not prove that an external action failed. Reconcile with the same idempotency key before retrying uncertain side effects.
 
 ## Security and evidence
