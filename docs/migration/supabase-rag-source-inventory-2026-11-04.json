@@ -1,0 +1,104 @@
+{
+  "source_project": "institutional-rag",
+  "inspected_on": "2026-11-04",
+  "postgresql": {
+    "version": "17.11.0.003",
+    "major": 17,
+    "region": "ap-southeast-1"
+  },
+  "schemas": {
+    "rag": {
+      "tables": 4,
+      "rows": 27641
+    },
+    "institutional_rag": {
+      "tables": 21,
+      "rows": 3785
+    }
+  },
+  "total": {
+    "base_tables": 25,
+    "rows": 31426
+  },
+  "table_rows": {
+    "rag.audit_events": 1071,
+    "rag.chunks": 26186,
+    "rag.documents": 383,
+    "rag.ingest_jobs": 1,
+    "institutional_rag.ai_deep_reviews_v1": 14,
+    "institutional_rag.ai_evidence_reviews": 578,
+    "institutional_rag.chat_review_pilot_feedback": 2,
+    "institutional_rag.chat_review_pilot_items": 4,
+    "institutional_rag.document_chunks": 1109,
+    "institutional_rag.embedding_jobs": 293,
+    "institutional_rag.embedding_model_approvals": 0,
+    "institutional_rag.evaluation_cases": 34,
+    "institutional_rag.evaluation_results": 38,
+    "institutional_rag.evidence_staging_index": 333,
+    "institutional_rag.ingestion_runs": 4,
+    "institutional_rag.knowledge_candidates": 669,
+    "institutional_rag.knowledge_relations_staging": 53,
+    "institutional_rag.knowledge_synthesis_members": 74,
+    "institutional_rag.knowledge_synthesis_staging": 8,
+    "institutional_rag.production_release_evidence": 0,
+    "institutional_rag.review_votes": 0,
+    "institutional_rag.reviewer_registry": 0,
+    "institutional_rag.source_documents": 434,
+    "institutional_rag.web_evidence_staging": 69,
+    "institutional_rag.web_source_captures": 69
+  },
+  "source_files": {
+    "institutional_source_documents": {
+      "dropbox": 384,
+      "web": 50
+    },
+    "dropbox_records_with_sha256": 358,
+    "dropbox_records_without_valid_sha256": 26,
+    "supabase_storage_buckets": 0
+  },
+  "retrieval_quality": {
+    "legacy_chunks": {
+      "total": 26186,
+      "with_embedding": 682,
+      "missing_embedding": 25504,
+      "dimensions": 384
+    },
+    "institutional_chunks": {
+      "total": 1109,
+      "with_embedding": 0,
+      "missing_embedding": 1109
+    },
+    "institutional_embedding_jobs": {
+      "total": 293,
+      "blocked": 198,
+      "queued": 95,
+      "model_id": "intfloat/multilingual-e5-small",
+      "dimensions": 384
+    },
+    "knowledge_candidates": {
+      "total": 669,
+      "pending": 486,
+      "needs_more_evidence": 183,
+      "published": 0
+    }
+  },
+  "access_and_dependencies": {
+    "institutional_rls_tables_without_policies": 21,
+    "rag_deny_api_roles_policies": 4,
+    "rag_auth_users_foreign_keys": 3,
+    "rag_auth_dependent_views": 3,
+    "rag_functions_referencing_auth_schema": 0,
+    "extensions": {
+      "vector": "0.8.2",
+      "pgcrypto": "1.3",
+      "uuid_ossp": "1.1"
+    }
+  },
+  "migration_status": "source_inspected_only_not_exported_or_migrated",
+  "safety_notes": [
+    "The Supabase source was inspected read-only.",
+    "No source rows, schemas, permissions, or migrations were changed.",
+    "No target database or Google Drive folder is connected.",
+    "Original Dropbox binaries are not stored in Supabase Storage."
+  ]
+}
