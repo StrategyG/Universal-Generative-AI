@@ -1,18 +1,9 @@
--- Narrow release-gate reader for the UGAI Supabase gateway.
--- Apply as a reviewed operator migration; this file does not run automatically.
--- The login password is set separately and must never be committed.
+-- Stage A: run this CREATE ROLE statement once, by itself (outside a transaction).
+-- This file is operator-reviewed setup, not an automatically applied migration.
+-- Do not add a password here; create the login credential out-of-band in Supabase secrets.
+CREATE ROLE ugai_rag_gate_reader
+  NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;
 
-DO $role$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'ugai_rag_gate_reader') THEN
-    CREATE ROLE ugai_rag_gate_reader
-      NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;
-  END IF;
-END
-$role$;
-
-ALTER ROLE ugai_rag_gate_reader
-  NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;
 
 GRANT CONNECT ON DATABASE postgres TO ugai_rag_gate_reader;
 GRANT USAGE ON SCHEMA institutional_rag TO ugai_rag_gate_reader;
@@ -45,3 +36,4 @@ REVOKE ALL ON FUNCTION institutional_rag.ugai_read_production_release_gate_v1() 
 REVOKE ALL ON FUNCTION institutional_rag.ugai_read_production_release_gate_v1() FROM anon, authenticated;
 GRANT EXECUTE ON FUNCTION institutional_rag.ugai_read_production_release_gate_v1()
   TO ugai_rag_gate_reader;
+
