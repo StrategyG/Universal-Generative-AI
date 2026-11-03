@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import json
 import re
 from typing import Protocol
 from urllib.parse import urlparse
@@ -112,7 +111,7 @@ async def _read_json_object(response: httpx.Response) -> dict[str, object]:
             raise ValueError("Studio response exceeds the permitted size")
         body.extend(chunk)
 
-    payload = json.loads(body)
+    payload = httpx.Response(200, content=bytes(body)).json()
     if not isinstance(payload, dict):
         raise TypeError("Studio response must be a JSON object")
     return payload
