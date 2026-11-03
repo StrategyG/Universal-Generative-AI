@@ -30,6 +30,13 @@ def _get(value, key: str, default=None):
     return value.get(key, default) if isinstance(value, dict) else getattr(value, key, default)
 
 
+def _field(value, snake_name: str, camel_name: str, default=None):
+    snake = _get(value, snake_name, _MISSING)
+    if snake is not _MISSING:
+        return snake
+    return _get(value, camel_name, default)
+
+
 class ToolPolicy:
     def __init__(self, allowed_tools=()) -> None:
         self.allowed = frozenset(x for x in allowed_tools if x)
@@ -44,14 +51,23 @@ class ToolPolicy:
             return ToolDecision(False, "not_allowlisted")
 
         annotations = _get(tool, "annotations", {}) or {}
-        read_only = _get(annotations, "readOnlyHint", _MISSING)
-        destructive = _get(annotations, "destructiveHint", _MISSING)
-        if read_only is not _MISSING and read_only is not True:
+        # SDK 2.x exposes snake_case model fields. Keep camelCase compatibility
+        # for raw dictionaries and older providers. None means "not supplied";
+        # the operator allowlist remains the admission authority for such tools.
+        read_only = _field(annotations, "read_only_hint", "readOnlyHint", _MISSING)
+        destructive = _field(annotations, "destructive_hint", "destructiveHint", _MISSING)
+        if read_only is False or (
+            read_only is not None and read_only is not _MISSING and read_only is not True
+        ):
             return ToolDecision(False, "server_marks_tool_not_read_only")
-        if destructive is not _MISSING and destructive is not False:
+        if destructive is True or (
+            destructive is not None
+            and destructive is not _MISSING
+            and destructive is not False
+        ):
             return ToolDecision(False, "server_marks_tool_destructive")
 
-        schema = _get(tool, "inputSchema", {}) or {}
+        schema = _field(tool, "input_schema", "inputSchema", {}) or {}
         if _get(schema, "type") != "object":
             return ToolDecision(False, "invalid_schema")
         return ToolDecision(True, "operator_allowlisted")
