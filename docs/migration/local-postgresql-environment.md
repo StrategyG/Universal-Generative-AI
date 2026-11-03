@@ -61,7 +61,7 @@ set -a
 set +a
 ```
 
-Also provide `SOURCE_DATABASE_URL` from the Supabase database connection settings, `GOOGLE_DRIVE_FOLDER_ID`, `UGAI_EXPORT_ENCRYPTION_KEY_B64` (a securely generated 32-byte key encoded as Base64), and the Google service-account credential path in `GOOGLE_APPLICATION_CREDENTIALS`. The destination **must be a restricted folder inside a Google Shared Drive**: standalone service accounts have no personal Drive storage quota and cannot own files in My Drive. Add the service-account email to the Shared Drive with at least **Contributor** access (API role `writer`). Do not make the folder public and do not paste or commit any secret.
+Also provide `SOURCE_DATABASE_URL` from the Supabase database connection settings with `sslmode=require` (or stronger, such as `verify-full`), `GOOGLE_DRIVE_FOLDER_ID`, `UGAI_EXPORT_ENCRYPTION_KEY_B64` (a securely generated 32-byte key encoded as Base64), and the Google service-account credential path in `GOOGLE_APPLICATION_CREDENTIALS`. The destination **must be a restricted folder inside a Google Shared Drive**: standalone service accounts have no personal Drive storage quota and cannot own files in My Drive. Add the service-account email to the Shared Drive with at least **Contributor** access (API role `writer`). Do not make the folder public and do not paste or commit any secret.
 
 Verify the Drive destination before connecting the database or creating a dump:
 
