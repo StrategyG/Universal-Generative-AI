@@ -81,6 +81,65 @@ class ExternalOutcomeUnknown(RuntimeError):
     """External side effect may have completed; reconcile before any retry."""
 
 
+@dataclass(frozen=True, slots=True)
+class RetrySchedulerRegistration:
+    scheduler_id: str
+    tenant_id: str
+    batch_size: int = 20
+    poll_interval_seconds: float = 5.0
+
+    def validate(self) -> None:
+        if not isinstance(self.scheduler_id, str) or not self.scheduler_id.strip() or len(self.scheduler_id) > 128:
+            raise ValueError("scheduler_id_invalid")
+        if not isinstance(self.tenant_id, str) or not self.tenant_id.strip() or len(self.tenant_id) > 128:
+            raise ValueError("scheduler_tenant_id_invalid")
+        if not isinstance(self.batch_size, int) or isinstance(self.batch_size, bool) or not 1 <= self.batch_size <= 100:
+            raise ValueError("scheduler_batch_size_out_of_bounds")
+        if (
+            isinstance(self.poll_interval_seconds, bool)
+            or not isinstance(self.poll_interval_seconds, (int, float))
+            or not 0.5 <= self.poll_interval_seconds <= 300
+        ):
+            raise ValueError("scheduler_poll_interval_out_of_bounds")
+
+
+class RetryScheduler:
+    """Requeue only due, explicitly retryable failures; database errors fail the process loop."""
+
+    def __init__(
+        self,
+        *,
+        store: PostgresWorkflowStore,
+        registration: RetrySchedulerRegistration,
+    ) -> None:
+        registration.validate()
+        if store is None:
+            raise ValueError("workflow_store_required")
+        self.store = store
+        self.registration = registration
+
+    async def run_once(self) -> int:
+        tasks = await self.store.requeue_due_retries(
+            tenant_id=self.registration.tenant_id,
+            scheduler_id=self.registration.scheduler_id,
+            batch_size=self.registration.batch_size,
+        )
+        return len(tasks)
+
+    async def run(self, stop_event: asyncio.Event) -> None:
+        if not isinstance(stop_event, asyncio.Event):
+            raise TypeError("stop_event_must_be_asyncio_event")
+        while not stop_event.is_set():
+            await self.run_once()
+            try:
+                await asyncio.wait_for(
+                    stop_event.wait(),
+                    timeout=self.registration.poll_interval_seconds,
+                )
+            except asyncio.TimeoutError:
+                continue
+
+
 class HybridWorker:
     """One worker process. Deploy inline and dedicated tiers as separate processes."""
 
