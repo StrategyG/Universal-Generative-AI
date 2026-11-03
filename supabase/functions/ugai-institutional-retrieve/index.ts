@@ -1,22 +1,10 @@
 import postgres from "npm:postgres@3.4.7";
-
-type ReleaseGate = {
-  decision: string;
-  technical_passed: number;
-  technical_total: number;
-  operational_passed: number;
-  operational_total: number;
-};
-
-type RetrievalRow = {
-  chunk_id: string;
-  document_id: string;
-  title: string;
-  page: number;
-  excerpt: string;
-  relevance_score: number;
-  content_sha256: string;
-};
+import {
+  buildApprovedEvidence,
+  isProductionReleaseGateOpen,
+  validateRetrievalRows,
+  type ReleaseGate,
+} from "./logic.ts";
 
 const MAX_BODY_BYTES = 12_000;
 const encoder = new TextEncoder();
@@ -72,40 +60,6 @@ async function readReleaseGate(): Promise<ReleaseGate> {
   return gate;
 }
 
-function validateRetrievalRows(value: unknown): RetrievalRow[] {
-  if (!Array.isArray(value)) throw new Error("Invalid retrieval result shape");
-  const output: RetrievalRow[] = [];
-  for (const row of value) {
-    if (!row || typeof row !== "object") throw new Error("Malformed approved evidence row");
-    const item = row as Record<string, unknown>;
-    const page = Number(item.page);
-    const score = Number(item.relevance_score ?? 0);
-    if (
-      typeof item.chunk_id !== "string" || !item.chunk_id ||
-      typeof item.document_id !== "string" || !item.document_id ||
-      typeof item.title !== "string" || !item.title ||
-      typeof item.excerpt !== "string" || !item.excerpt ||
-      !Number.isInteger(page) || page < 1 ||
-      !Number.isFinite(score) ||
-      typeof item.content_sha256 !== "string" ||
-      !/^[a-f0-9]{64}$/.test(item.content_sha256)
-    ) throw new Error("Malformed approved evidence row");
-    if (output.some((existing) => existing.chunk_id === item.chunk_id)) {
-      throw new Error("Duplicate approved evidence chunk");
-    }
-    output.push({
-      chunk_id: item.chunk_id,
-      document_id: item.document_id,
-      title: item.title.slice(0, 1000),
-      page,
-      excerpt: item.excerpt.slice(0, 12_000),
-      relevance_score: score,
-      content_sha256: item.content_sha256,
-    });
-  }
-  return output;
-}
-
 Deno.serve(async (req: Request) => {
   if (req.method !== "POST") {
     return json({ error: { code: "METHOD_NOT_ALLOWED" } }, 405);
@@ -157,12 +111,7 @@ Deno.serve(async (req: Request) => {
 
   try {
     const gate = await readReleaseGate();
-    const gateIsGo =
-      gate.decision === "GO" &&
-      gate.technical_passed === 9 &&
-      gate.technical_total === 9 &&
-      gate.operational_passed === 4 &&
-      gate.operational_total === 4;
+    const gateIsGo = isProductionReleaseGateOpen(gate);
     if (!gateIsGo) {
       return json({
         error: {
@@ -199,30 +148,7 @@ Deno.serve(async (req: Request) => {
       ? upstreamBody as Record<string, unknown>
       : {};
     const rows = validateRetrievalRows(upstreamRecord.results);
-    const evidence = rows.map((item, index) => ({
-      evidence_id: item.chunk_id,
-      corpus_id: "institutional_approved",
-      source_id: item.document_id,
-      chunk_id: item.chunk_id,
-      source_title: item.title,
-      source_hash: item.content_sha256,
-      locator: {
-        locator_type: "pdf_page",
-        page_start: item.page,
-        page_end: item.page,
-      },
-      excerpt: item.excerpt,
-      retrieval_method: "keyword",
-      relevance_score: item.relevance_score,
-      rank: index + 1,
-      evidence_tier: "approved",
-      review_status: "approved",
-      publication_state: "published",
-      trusted: true,
-      user_citation_eligible: true,
-      retrieved_at: new Date().toISOString(),
-      warnings: [],
-    }));
+    const evidence = buildApprovedEvidence(rows);
 
     return json({
       request_id: requestId,
