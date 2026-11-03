@@ -1,11 +1,19 @@
-"""Default-deny MCP tool policy with an operator-reviewed allowlist.
-
-IM19 0.3 currently registers tools without MCP read-only annotations. Therefore,
-the explicit UGAI allowlist is the authoritative operator approval. If the server
-does supply safety annotations, contradictory or destructive annotations deny access.
-"""
+"""Default-deny MCP tool policy with an operator-reviewed allowlist."""
 
 _MISSING = object()
+
+# Never expose these tools to a general-purpose UGAI agent, even if misconfigured.
+_DENIED_TOOL_NAMES = frozenset(
+    {
+        "request_service_authorization",
+        "confirm_service_authorization",
+        "disconnect_service",
+        "drive_read_file",
+        "drive_create_folder",
+        "cloudbrowser_get_task",
+        "cloudbrowser_list_tasks",
+    }
+)
 
 
 class ToolDecision:
@@ -28,6 +36,8 @@ class ToolPolicy:
         name = _get(tool, "name", "")
         if not isinstance(name, str) or not name:
             return ToolDecision(False, "invalid_name")
+        if name in _DENIED_TOOL_NAMES:
+            return ToolDecision(False, "hard_denied_tool")
         if name not in self.allowed:
             return ToolDecision(False, "not_allowlisted")
 
