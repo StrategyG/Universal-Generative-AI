@@ -4,7 +4,7 @@ Status: Proposed contract. The paths below are target interfaces, not deployed e
 
 ## Existing endpoint (verified)
 
-The active Supabase Edge Function is `institutional-rag-search` v4. It authenticates with `x-rag-api-key`, has Supabase JWT verification disabled, and calls `public.im19_match_trusted_v1(p_query_text, p_match_count)`. The RPC filters for citation-safe, page-scoped excerpts. The function's retrieval mode is approved keyword search, not full hybrid vector retrieval.
+The active Supabase Edge Function is `institutional-rag-search` v4. It authenticates with `x-rag-api-key`, has Supabase JWT verification disabled, and calls `public.im19_match_trusted_v1(p_query_text, p_match_count)`. The RPC filters for citation-safe, page-scoped excerpts. The function labels its retrieval mode `approved_keyword`, and the RPC applies citation-scope, page-locator, and source-hash checks. However, the live release-readiness view is `NO_GO` with zero formally approved/published cited excerpts. Treat the endpoint's label as a retrieval-method label, not proof that the overall corpus or service has passed production release gates. It is not full hybrid vector retrieval.
 
 Do not silently change this endpoint's semantics. Introduce a versioned contract or adapter.
 
