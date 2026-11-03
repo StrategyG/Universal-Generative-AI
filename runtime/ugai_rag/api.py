@@ -4,7 +4,9 @@ import hmac
 from typing import Annotated
 from uuid import UUID, uuid4
 
-from fastapi import Depends, FastAPI, Header, HTTPException, status
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, status
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .adapter import (
@@ -63,6 +65,34 @@ def create_app(
         openapi_url=None,
     )
 
+    @app.exception_handler(HTTPException)
+    async def http_error_handler(request: Request, exc: HTTPException) -> JSONResponse:
+        detail = exc.detail if isinstance(exc.detail, dict) else {}
+        code = str(detail.get("code") or "INTERNAL_ERROR")
+        message = str(detail.get("message") or "Request could not be completed")
+        error = {"code": code, "message": message}
+        if detail.get("request_id"):
+            error["request_id"] = str(detail["request_id"])
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"error": error},
+            headers=exc.headers,
+        )
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_error_handler(
+        request: Request, exc: RequestValidationError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=422,
+            content={
+                "error": {
+                    "code": "INVALID_REQUEST",
+                    "message": "Request validation failed",
+                }
+            },
+        )
+
     async def require_service_token(
         authorization: Annotated[str | None, Header()] = None,
     ) -> None:
@@ -70,13 +100,19 @@ def create_app(
         if not configured.api_auth_configured:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail={"code": "API_AUTH_NOT_CONFIGURED"},
+                detail={
+                    "code": "API_AUTH_NOT_CONFIGURED",
+                    "message": "Runtime service authentication is not configured",
+                },
             )
         supplied = authorization or ""
         if not hmac.compare_digest(supplied, f"Bearer {expected}"):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail={"code": "AUTH_REQUIRED"},
+                detail={
+                    "code": "AUTH_REQUIRED",
+                    "message": "A valid service Bearer token is required",
+                },
                 headers={"WWW-Authenticate": "Bearer"},
             )
 
