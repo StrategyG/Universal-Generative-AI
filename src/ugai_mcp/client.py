@@ -8,7 +8,6 @@ import time
 import uuid
 from collections.abc import Mapping
 from contextlib import suppress
-from datetime import timedelta
 from types import TracebackType
 from typing import Any, Self
 
@@ -40,7 +39,7 @@ class AuditUnavailable(MCPIntegrationError):
 
 def _plain(value: Any) -> Any:
     if hasattr(value, "model_dump"):
-        return value.model_dump(mode="json")
+        return value.model_dump(mode="json", by_alias=True)
     if hasattr(value, "dict") and callable(value.dict):
         return value.dict()
     if isinstance(value, (str, int, float, bool)) or value is None:
@@ -72,13 +71,15 @@ class IM19MCPClient:
         self._policy = policy or ToolPolicy(config.allowed_tools)
         self._session: Any = None
         self._transport_cm: Any = None
+        self._http_client_cm: Any = None
         self._session_cm: Any = None
         self._tools: dict[str, Any] = {}
 
     async def __aenter__(self) -> Self:
         try:
+            import httpx2
             from mcp import ClientSession
-            from mcp.client.streamable_http import streamablehttp_client
+            from mcp.client.streamable_http import streamable_http_client
 
             token = await self._tokens.get_access_token(
                 resource=self._config.resource,
@@ -87,14 +88,24 @@ class IM19MCPClient:
             if not token or any(ch.isspace() for ch in token):
                 raise MCPUnavailable("OAuth provider returned an invalid bearer token")
 
-            timeout = timedelta(seconds=self._config.request_timeout_seconds)
-            self._transport_cm = streamablehttp_client(
-                self._config.endpoint,
+            timeout = httpx2.Timeout(
+                self._config.request_timeout_seconds,
+                read=max(300.0, self._config.request_timeout_seconds),
+            )
+            limits = httpx2.Limits(max_connections=8, max_keepalive_connections=4)
+            self._http_client_cm = httpx2.AsyncClient(
                 headers={"Authorization": f"Bearer {token}"},
                 timeout=timeout,
-                sse_read_timeout=timeout,
+                limits=limits,
+                follow_redirects=False,
             )
-            read_stream, write_stream, _ = await self._transport_cm.__aenter__()
+            await self._http_client_cm.__aenter__()
+            self._transport_cm = streamable_http_client(
+                self._config.endpoint,
+                http_client=self._http_client_cm,
+                max_sse_event_size=self._config.max_result_bytes,
+            )
+            read_stream, write_stream = await self._transport_cm.__aenter__()
             self._session_cm = ClientSession(read_stream, write_stream)
             self._session = await self._session_cm.__aenter__()
             await asyncio.wait_for(
@@ -103,9 +114,9 @@ class IM19MCPClient:
             )
             await self.refresh_tools()
             return self
-        except Exception as exc:
-            await self._close_safely()
-            if isinstance(exc, MCPIntegrationError):
+        except BaseException as exc:
+            await asyncio.shield(self._close_safely())
+            if isinstance(exc, (MCPIntegrationError, asyncio.CancelledError)):
                 raise
             raise MCPUnavailable("IM19 MCP initialization failed") from exc
 
@@ -126,6 +137,10 @@ class IM19MCPClient:
             with suppress(Exception):
                 await self._transport_cm.__aexit__(None, None, None)
             self._transport_cm = None
+        if self._http_client_cm is not None:
+            with suppress(Exception):
+                await self._http_client_cm.__aexit__(None, None, None)
+            self._http_client_cm = None
         self._session = None
         self._tools = {}
 
@@ -210,7 +225,7 @@ class IM19MCPClient:
                     execution_may_have_completed=True,
                 )
                 raise MCPIntegrationError("MCP tool response exceeded configured size limit")
-            if getattr(result, "isError", False):
+            if getattr(result, "is_error", getattr(result, "isError", False)):
                 await self._write_audit(
                     request_id=request_id,
                     tool_name=name,
@@ -235,6 +250,19 @@ class IM19MCPClient:
                 "result": payload,
             }
         except (MCPIntegrationError, AuditUnavailable):
+            raise
+        except asyncio.CancelledError:
+            try:
+                await asyncio.shield(self._write_audit(
+                    request_id=request_id,
+                    tool_name=name,
+                    outcome="CANCELLED_UNCERTAIN",
+                    started_at=started_at,
+                    error_code="CALL_CANCELLED",
+                    execution_may_have_completed=True,
+                ))
+            except Exception:
+                pass
             raise
         except Exception as exc:
             await self._write_audit(
