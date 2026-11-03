@@ -11,7 +11,7 @@ from ugai_decision.rag_migration import (
     MigrationError,
     _encrypt_dump,
     _pgpass_escape,
-    _validate_encryption_key,
+    _validate_key,
 )
 
 
