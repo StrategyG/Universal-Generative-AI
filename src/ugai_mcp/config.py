@@ -19,14 +19,24 @@ _TOOL_NAME = re.compile(r"^[a-zA-Z][a-zA-Z0-9_.-]{0,127}$")
 
 
 def _canonical_host(value: str, setting: str) -> str:
-    candidate = value.strip().rstrip(".")
-    if not candidate or candidate.startswith("*.") or any(c in candidate for c in "/:@?#"):
+    candidate = value.strip()
+    if candidate.endswith("."):
+        candidate = candidate[:-1]
+    if (
+        not candidate
+        or any(c.isspace() or ord(c) < 33 for c in candidate)
+        or any(c in candidate for c in "/:@?#*\\")
+    ):
         raise ConfigurationError(f"{setting} must contain exact DNS hostnames only")
     try:
         host = candidate.encode("idna").decode("ascii").lower()
     except UnicodeError as exc:
         raise ConfigurationError(f"{setting} contains an invalid DNS hostname") from exc
-    if len(host) > 253 or any(not _DNS_LABEL.fullmatch(label) for label in host.split(".")):
+
+    if len(host) > 253:
+        raise ConfigurationError(f"{setting} contains an invalid DNS hostname")
+    labels = host.split(".")
+    if len(labels) < 2 or any(not _DNS_LABEL.fullmatch(label) for label in labels):
         raise ConfigurationError(f"{setting} contains an invalid DNS hostname")
     try:
         ipaddress.ip_address(host)
@@ -41,6 +51,8 @@ def _validate_https_uri(
     *,
     require_mcp_path: bool = False,
 ) -> tuple[str, int | None]:
+    if not value or value != value.strip() or any(char.isspace() for char in value):
+        raise ConfigurationError(f"{setting} must be a non-empty absolute HTTPS URI")
     try:
         parsed = urlsplit(value)
         port = parsed.port
@@ -52,7 +64,7 @@ def _validate_https_uri(
         raise ConfigurationError(f"{setting} must not contain credentials, query, or fragment")
     if port not in (None, 443):
         raise ConfigurationError(f"{setting} must use the default HTTPS port")
-    if require_mcp_path and parsed.path.rstrip("/") != "/mcp":
+    if require_mcp_path and parsed.path != "/mcp":
         raise ConfigurationError("IM19_MCP_URL must point to the exact /mcp resource")
     return _canonical_host(parsed.hostname, setting), port
 
@@ -67,8 +79,9 @@ class IM19Config:
     max_result_bytes: int = 1_000_000
 
     def __post_init__(self) -> None:
+        host_values = list(self.allowed_hosts)
         allowed_hosts = frozenset(
-            _canonical_host(host, "allowed_hosts") for host in self.allowed_hosts
+            _canonical_host(host, "allowed_hosts") for host in host_values
         )
         if not allowed_hosts:
             raise ConfigurationError("At least one exact DNS host must be allowlisted")
@@ -84,12 +97,18 @@ class IM19Config:
             raise ConfigurationError("MCP timeout must be finite and between 0 and 120 seconds")
         if not 1_024 <= self.max_result_bytes <= 10_000_000:
             raise ConfigurationError("MCP max result size must be between 1 KiB and 10 MB")
-        if len(self.allowed_tools) > 100 or any(
+
+        tool_values = list(self.allowed_tools)
+        if len(tool_values) > 128 or len(tool_values) != len(set(tool_values)):
+            raise ConfigurationError("Tool allowlist contains duplicate or excessive entries")
+        if any(
             not isinstance(name, str) or not _TOOL_NAME.fullmatch(name)
-            for name in self.allowed_tools
+            for name in tool_values
         ):
-            raise ConfigurationError("Tool allowlist contains an invalid or excessive tool name")
+            raise ConfigurationError("Tool allowlist contains an invalid tool name")
+
         object.__setattr__(self, "allowed_hosts", allowed_hosts)
+        object.__setattr__(self, "allowed_tools", frozenset(tool_values))
 
     @classmethod
     def from_env(cls) -> IM19Config:
@@ -103,18 +122,27 @@ class IM19Config:
         except ValueError as exc:
             raise ConfigurationError("Invalid MCP timeout or response-size setting") from exc
 
-        allowed_hosts = frozenset(
-            _canonical_host(item, "IM19_MCP_ALLOWED_HOSTS")
-            for item in raw_hosts.split(",")
-            if item.strip()
-        )
+        host_items = [item.strip() for item in raw_hosts.split(",")]
+        if not raw_hosts.strip() or any(not item for item in host_items):
+            raise ConfigurationError("IM19_MCP_ALLOWED_HOSTS must contain exact DNS hostnames")
+        normalized_hosts = [
+            _canonical_host(item, "IM19_MCP_ALLOWED_HOSTS") for item in host_items
+        ]
+        if len(normalized_hosts) != len(set(normalized_hosts)):
+            raise ConfigurationError("IM19_MCP_ALLOWED_HOSTS contains duplicate entries")
+
+        tool_items = [item.strip() for item in raw_tools.split(",") if item.strip()]
+        if raw_tools.strip() and (
+            any(not item.strip() for item in raw_tools.split(","))
+            or len(tool_items) != len(set(tool_items))
+        ):
+            raise ConfigurationError("IM19_ALLOWED_READ_TOOLS contains duplicate or empty entries")
+
         return cls(
             endpoint=endpoint,
             resource=resource,
-            allowed_hosts=allowed_hosts,
-            allowed_tools=frozenset(
-                item.strip() for item in raw_tools.split(",") if item.strip()
-            ),
+            allowed_hosts=frozenset(normalized_hosts),
+            allowed_tools=frozenset(tool_items),
             request_timeout_seconds=timeout,
             max_result_bytes=max_bytes,
         )
