@@ -61,9 +61,17 @@ set -a
 set +a
 ```
 
-Also provide `SOURCE_DATABASE_URL` from the Supabase database connection settings, `GOOGLE_DRIVE_FOLDER_ID`, `UGAI_EXPORT_ENCRYPTION_KEY_B64` (a securely generated 32-byte key encoded as Base64), and the Google service-account credential path in `GOOGLE_APPLICATION_CREDENTIALS`. The Google service account must have access to the restricted destination folder. Do not paste or commit any secret.
+Also provide `SOURCE_DATABASE_URL` from the Supabase database connection settings, `GOOGLE_DRIVE_FOLDER_ID`, `UGAI_EXPORT_ENCRYPTION_KEY_B64` (a securely generated 32-byte key encoded as Base64), and the Google service-account credential path in `GOOGLE_APPLICATION_CREDENTIALS`. The destination **must be a restricted folder inside a Google Shared Drive**: standalone service accounts have no personal Drive storage quota and cannot own files in My Drive. Add the service-account email to the Shared Drive with at least **Contributor** access (API role `writer`). Do not make the folder public and do not paste or commit any secret.
 
-Run the non-destructive preflight first:
+Verify the Drive destination before connecting the database or creating a dump:
+
+```bash
+python -m ugai_decision.rag_migration --check-drive
+```
+
+Expected: `state: drive_destination_ready`, a Shared Drive ID, and a folder ID. The command fails closed if the folder is not in a Shared Drive or the service account cannot add children to it.
+
+Run the non-destructive database preflight next:
 
 ```bash
 python -m ugai_decision.rag_migration
@@ -72,6 +80,19 @@ python -m ugai_decision.rag_migration
 The preflight reads source and target metadata and row counts but does not write to either database. The target must be empty and dedicated; never point it at an existing database containing application schemas.
 
 Only after the preflight matches the intended source and target, the Google Drive folder and backup key have been tested, and the operator explicitly approves the cutover, run the documented `--apply` command. This setup guide does not authorize that operation.
+
+## Create a least-privilege application login
+
+The migration administrator account is for provisioning only. The restored RAG objects are granted to the private `ugai_runtime` role, which is intentionally `NOLOGIN`. After a successful restore, create a separate application login and grant membership; never connect the application as `ugai_admin`:
+
+```sql
+CREATE ROLE ugai_app LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+GRANT CONNECT ON DATABASE ugai_rag TO ugai_app;
+GRANT ugai_runtime TO ugai_app;
+\\password ugai_app
+```
+
+Run this from an administrator `psql` session. The `\\password` command prompts without placing the password in shell history. Configure the application with the new login and a TLS-protected connection in production. Do not grant `ugai_app` superuser, table ownership, or `BYPASSRLS`.
 
 ## Stop and retain data
 
