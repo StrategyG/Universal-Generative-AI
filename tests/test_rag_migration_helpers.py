@@ -16,7 +16,7 @@ from ugai_decision.rag_migration import (
 
 
 def test_pgpass_escapes_delimiters():
-    assert _pgpass_escape(r"db:user\\name") == r"db\\:user\\\\name"
+    assert _pgpass_escape(r"db:user\name") == r"db\:user\\name"
 
 
 def test_encryption_key_requires_32_bytes():
