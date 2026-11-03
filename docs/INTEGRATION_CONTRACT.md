@@ -2,6 +2,10 @@
 
 Status: Proposed contract. The paths below are target interfaces, not deployed endpoints.
 
+## Storage and ownership decision
+
+The concrete project uses Supabase PostgreSQL + pgvector as its active knowledge/vector backend. The existing Institutional RAG database remains authoritative for source identity, evidence status, review, publication, and citation provenance. Astra DB is not currently established as a project dependency. Keep a provider-neutral VectorStore interface, but do not add Astra DB or dual-write the corpus unless load/quality/privacy measurements justify a future adapter. If Astra DB is ever used as a candidate index, every returned candidate must be revalidated against Supabase before citation or user-facing context.
+
 ## Existing endpoint (verified)
 
 The active Supabase Edge Function is `institutional-rag-search` v4. It authenticates with `x-rag-api-key`, has Supabase JWT verification disabled, and calls `public.im19_match_trusted_v1(p_query_text, p_match_count)`. The RPC filters for citation-safe, page-scoped excerpts. The function labels its retrieval mode `approved_keyword`, and the RPC applies citation-scope, page-locator, and source-hash checks. However, the live release-readiness view is `NO_GO` with zero formally approved/published cited excerpts. Treat the endpoint's label as a retrieval-method label, not proof that the overall corpus or service has passed production release gates. It is not full hybrid vector retrieval.
