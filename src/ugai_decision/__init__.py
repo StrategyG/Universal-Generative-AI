@@ -10,6 +10,12 @@ from .models import (
     PortfolioAllocation,
     StrategicOption,
 )
+from .postgres_drive import (
+    DriveEvidenceReceipt,
+    GoogleDriveEvidenceArchive,
+    PostgresDecisionAuditSink,
+    PostgresEvidenceRegistry,
+)
 from .workflow import (
     ApprovalDenied,
     ApprovalReceipt,
@@ -28,6 +34,8 @@ __all__ = [
     "DecisionAuditEvent",
     "DecisionAuditSink",
     "DecisionEngine",
+    "DriveEvidenceReceipt",
+    "GoogleDriveEvidenceArchive",
     "DecisionRequest",
     "DecisionResult",
     "DecisionWorkflow",
@@ -41,5 +49,7 @@ __all__ = [
     "MCPToolQuery",
     "OptionAssessment",
     "PortfolioAllocation",
+    "PostgresDecisionAuditSink",
+    "PostgresEvidenceRegistry",
     "StrategicOption",
 ]
