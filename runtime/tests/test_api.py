@@ -28,7 +28,7 @@ def test_retrieve_requires_service_authentication():
     client = TestClient(create_app(settings, FakeAdapter()))
     response = client.post("/v1/knowledge/retrieve", json={"query": "test"})
     assert response.status_code == 401
-    assert response.json()["detail"]["code"] == "AUTH_REQUIRED"
+    assert response.json()["error"]["code"] == "AUTH_REQUIRED"
 
 
 def test_retrieve_rejects_private_staging_scope():
@@ -52,3 +52,16 @@ def test_retrieve_returns_explicit_no_evidence_state():
     )
     assert response.status_code == 200
     assert response.json()["status"] == "no_evidence"
+
+
+def test_invalid_request_uses_stable_error_envelope():
+    settings = Settings(api_bearer_token="z" * 40)
+    client = TestClient(create_app(settings, FakeAdapter()))
+    response = client.post(
+        "/v1/knowledge/retrieve",
+        headers={"Authorization": f"Bearer {'z' * 40}"},
+        json={"query": "   "},
+    )
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "INVALID_REQUEST"
+    assert "detail" not in response.json()
