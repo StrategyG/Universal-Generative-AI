@@ -22,15 +22,104 @@ def load_json(path: Path) -> dict[str, Any]:
     return value
 
 
+def assert_valid(validator: Draft202012Validator, instance: dict[str, Any], label: str) -> None:
+    errors = list(validator.iter_errors(instance))
+    if errors:
+        messages = "; ".join(error.message for error in errors)
+        raise AssertionError(f"{label} should be valid: {messages}")
+
+
+def assert_invalid(validator: Draft202012Validator, instance: dict[str, Any], label: str) -> None:
+    if validator.is_valid(instance):
+        raise AssertionError(f"{label} should be rejected by the schema")
+
+
+def validate_semantic_examples(
+    plan_schema: dict[str, Any],
+    evidence_schema: dict[str, Any],
+) -> None:
+    plan_validator = Draft202012Validator(plan_schema)
+    base_plan: dict[str, Any] = {
+        "schema_version": "1.0",
+        "workflow_type": "qa_grounded",
+        "goal": "Answer using eligible evidence",
+        "risk_class": "low",
+        "data_classification": "internal",
+        "steps": [{
+            "step_id": "retrieve",
+            "kind": "retrieve",
+            "depends_on": [],
+            "timeout_ms": 10000,
+            "max_output_bytes": 200000,
+            "max_attempts": 1,
+            "side_effect": "none"
+        }],
+        "budgets": {
+            "max_total_steps": 1,
+            "max_parallel_steps": 1,
+            "max_retrieval_calls": 1,
+            "max_tool_calls": 0,
+            "deadline_ms": 20000
+        },
+        "policy_version": "policy-test-v1"
+    }
+    assert_valid(plan_validator, base_plan, "bounded retrieval-only plan")
+
+    missing_tool_definition = json.loads(json.dumps(base_plan))
+    missing_tool_definition["steps"][0]["kind"] = "tool"
+    assert_invalid(plan_validator, missing_tool_definition, "tool step without registry reference")
+
+    unconfirmed_destructive_step = json.loads(json.dumps(base_plan))
+    unconfirmed_destructive_step["steps"][0]["side_effect"] = "destructive"
+    unconfirmed_destructive_step["steps"][0]["requires_confirmation"] = False
+    assert_invalid(plan_validator, unconfirmed_destructive_step, "unconfirmed destructive action")
+
+    evidence_validator = Draft202012Validator(evidence_schema)
+    staging_record: dict[str, Any] = {
+        "evidence_id": "evidence-test-1",
+        "corpus_id": "private_research",
+        "source_id": "source-test-1",
+        "source_title": "Internal research excerpt",
+        "source_hash": "a" * 64,
+        "locator": {"locator_type": "pdf_page", "page_start": 1, "page_end": 1},
+        "excerpt": "A provisional excerpt for schema validation only.",
+        "retrieval_method": "keyword",
+        "relevance_score": 0.8,
+        "evidence_tier": "private_staging",
+        "review_status": "pending",
+        "publication_state": "unpublished",
+        "trusted": False,
+        "user_citation_eligible": False,
+        "retrieved_at": "2026-11-03T00:00:00Z"
+    }
+    assert_valid(evidence_validator, staging_record, "private staging evidence")
+    unsafe_staging = json.loads(json.dumps(staging_record))
+    unsafe_staging["user_citation_eligible"] = True
+    assert_invalid(evidence_validator, unsafe_staging, "staging evidence marked citation eligible")
+
+    approved_record = json.loads(json.dumps(staging_record))
+    approved_record.update({
+        "evidence_id": "evidence-approved-test",
+        "corpus_id": "institutional_approved",
+        "evidence_tier": "approved",
+        "review_status": "approved",
+        "publication_state": "published",
+        "trusted": True,
+        "user_citation_eligible": True
+    })
+    assert_valid(evidence_validator, approved_record, "approved published evidence")
+
+
 def main() -> int:
     plan_schema = load_json(CONTRACTS / "plan-spec.schema.json")
     evidence_schema = load_json(CONTRACTS / "evidence-record.schema.json")
 
     Draft202012Validator.check_schema(plan_schema)
     Draft202012Validator.check_schema(evidence_schema)
+    validate_semantic_examples(plan_schema, evidence_schema)
 
     openapi_path = CONTRACTS / "openapi-v1.yaml"
-    with openapi_path.open("r", encoding="utf-8") as handle:
+    with open(openapi_path, "r", encoding="utf-8") as handle:
         openapi_spec = yaml.safe_load(handle)
 
     if not isinstance(openapi_spec, dict):
@@ -41,6 +130,7 @@ def main() -> int:
     print("Contract validation passed:")
     print("- plan-spec.schema.json: valid JSON Schema draft 2020-12")
     print("- evidence-record.schema.json: valid JSON Schema draft 2020-12")
+    print("- plan and evidence invariants: positive and negative examples passed")
     print("- openapi-v1.yaml: valid OpenAPI document")
     return 0
 
