@@ -1,5 +1,11 @@
 """Durable, fail-closed workflow runtime primitives for UGAI."""
 
+from .decision_bridge import (
+    DecisionInputResolver,
+    DecisionResultStore,
+    DecisionTaskInput,
+    DecisionWorkflowTaskHandler,
+)
 from .postgres_store import (
     IdempotencyConflict,
     LeaseIdentity,
@@ -29,6 +35,10 @@ from .worker import (
 
 __all__ = [
     "CLAIMABLE_STATES",
+    "DecisionInputResolver",
+    "DecisionResultStore",
+    "DecisionTaskInput",
+    "DecisionWorkflowTaskHandler",
     "TERMINAL_STATES",
     "ExternalOutcomeUnknown",
     "HybridWorker",
