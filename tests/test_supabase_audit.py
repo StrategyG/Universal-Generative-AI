@@ -8,26 +8,39 @@ from ugai_decision.workflow import DecisionAuditEvent
 
 
 class FakeResponse:
-    error = None
+    def __init__(self, error=None):
+        self.error = error
 
 
 class FakeRPC:
-    def __init__(self, calls, name, params):
+    def __init__(self, calls, name, params, error=None):
         self.calls = calls
         self.name = name
         self.params = params
+        self.error = error
 
     async def execute(self):
         self.calls.append((self.name, self.params))
-        return FakeResponse()
+        return FakeResponse(self.error)
 
 
 class FakeSupabase:
-    def __init__(self):
+    def __init__(self, error=None):
         self.calls = []
+        self.error = error
 
     def rpc(self, name, params):
-        return FakeRPC(self.calls, name, params)
+        return FakeRPC(self.calls, name, params, self.error)
+
+
+class SyncRPC:
+    def execute(self):
+        return FakeResponse()
+
+
+class SyncSupabase:
+    def rpc(self, name, params):
+        return SyncRPC()
 
 
 def sample_event():
@@ -58,6 +71,17 @@ async def test_supabase_sink_persists_redacted_event_through_narrow_rpc() -> Non
 
 
 @pytest.mark.asyncio
+async def test_supabase_sink_normalizes_timestamp_to_utc() -> None:
+    client = FakeSupabase()
+    sink = SupabaseDecisionAuditSink(client)
+    event = replace(sample_event(), occurred_at="2026-11-04T12:00:00+07:00")
+
+    await sink.append(event)
+
+    assert client.calls[0][1]["p_occurred_at"] == "2026-11-04T05:00:00+00:00"
+
+
+@pytest.mark.asyncio
 async def test_supabase_sink_rejects_naive_timestamp_before_write() -> None:
     client = FakeSupabase()
     sink = SupabaseDecisionAuditSink(client)
@@ -67,3 +91,43 @@ async def test_supabase_sink_rejects_naive_timestamp_before_write() -> None:
         await sink.append(event)
 
     assert client.calls == []
+
+
+@pytest.mark.asyncio
+async def test_supabase_sink_rejects_duplicate_detail_keys() -> None:
+    client = FakeSupabase()
+    sink = SupabaseDecisionAuditSink(client)
+    event = replace(sample_event(), details=(("stage", "first"), ("stage", "second")))
+
+    with pytest.raises(ValueError, match="duplicate"):
+        await sink.append(event)
+
+    assert client.calls == []
+
+
+@pytest.mark.asyncio
+async def test_supabase_sink_rejects_oversized_details() -> None:
+    client = FakeSupabase()
+    sink = SupabaseDecisionAuditSink(client)
+    event = replace(sample_event(), details=(("payload", "x" * 9_000),))
+
+    with pytest.raises(ValueError, match="maximum encoded size"):
+        await sink.append(event)
+
+    assert client.calls == []
+
+
+@pytest.mark.asyncio
+async def test_supabase_sink_requires_async_client_to_avoid_blocking_workflow() -> None:
+    sink = SupabaseDecisionAuditSink(SyncSupabase())
+
+    with pytest.raises(TypeError, match="asynchronous"):
+        await sink.append(sample_event())
+
+
+@pytest.mark.asyncio
+async def test_supabase_sink_propagates_database_rejection() -> None:
+    sink = SupabaseDecisionAuditSink(FakeSupabase(error=RuntimeError("denied")))
+
+    with pytest.raises(RuntimeError, match="rejected"):
+        await sink.append(sample_event())
