@@ -37,6 +37,8 @@ def assert_invalid(validator: Draft202012Validator, instance: dict[str, Any], la
 def validate_semantic_examples(
     plan_schema: dict[str, Any],
     evidence_schema: dict[str, Any],
+    retrieval_plan_schema: dict[str, Any],
+    claim_schema: dict[str, Any],
 ) -> None:
     plan_validator = Draft202012Validator(plan_schema)
     base_plan: dict[str, Any] = {
@@ -109,14 +111,69 @@ def validate_semantic_examples(
     })
     assert_valid(evidence_validator, approved_record, "approved published evidence")
 
+    retrieval_validator = Draft202012Validator(retrieval_plan_schema)
+    retrieval_plan: dict[str, Any] = {
+        "schema_version": "1.0",
+        "intent": "comparison",
+        "needs_rag": True,
+        "original_query": "Compare Q1 and Q2 sales",
+        "preserve_terms": ["Q1", "Q2", "sales"],
+        "sub_questions": [{
+            "id": "q1_sales",
+            "question": "What were sales in Q1?",
+            "corpora": ["institutional_approved", "legacy_rag"],
+            "methods": ["keyword", "semantic"],
+            "required_evidence_tiers": ["approved", "legacy"],
+            "top_k": 8
+        }],
+        "budgets": {
+            "max_sub_questions": 1,
+            "max_retrieval_calls": 2,
+            "max_refinement_rounds": 1,
+            "deadline_ms": 30000
+        },
+        "required_citations": True
+    }
+    assert_valid(retrieval_validator, retrieval_plan, "bounded retrieval plan")
+    unsafe_retrieval = json.loads(json.dumps(retrieval_plan))
+    unsafe_retrieval["sub_questions"][0]["corpora"] = ["private_staging"]
+    assert_invalid(retrieval_validator, unsafe_retrieval, "planner attempting to request private staging as standard corpus")
+
+    claim_validator = Draft202012Validator(claim_schema)
+    supported_claim: dict[str, Any] = {
+        "claim_id": "claim-1",
+        "claim_text": "Revenue increased in Q2.",
+        "claim_type": "direct_fact",
+        "evidence_ids": ["evidence-approved-test"],
+        "support_verdict": "supported",
+        "confidence_band": "high",
+        "assumptions": [],
+        "contradictions": []
+    }
+    assert_valid(claim_validator, supported_claim, "direct fact with evidence reference")
+    unsupported_claim = json.loads(json.dumps(supported_claim))
+    unsupported_claim["evidence_ids"] = []
+    assert_invalid(claim_validator, unsupported_claim, "direct fact without evidence reference")
+
 
 def main() -> int:
-    plan_schema = load_json(CONTRACTS / "plan-spec.schema.json")
-    evidence_schema = load_json(CONTRACTS / "evidence-record.schema.json")
+    schema_paths = {
+        "plan": CONTRACTS / "plan-spec.schema.json",
+        "evidence": CONTRACTS / "evidence-record.schema.json",
+        "retrieval_plan": CONTRACTS / "retrieval-plan.schema.json",
+        "claim": CONTRACTS / "claim-ledger.schema.json",
+    }
+    schemas = {name: load_json(path) for name, path in schema_paths.items()}
 
-    Draft202012Validator.check_schema(plan_schema)
-    Draft202012Validator.check_schema(evidence_schema)
-    validate_semantic_examples(plan_schema, evidence_schema)
+    for schema in schemas.values():
+        Draft202012Validator.check_schema(schema)
+
+    validate_semantic_examples(
+        schemas["plan"],
+        schemas["evidence"],
+        schemas["retrieval_plan"],
+        schemas["claim"],
+    )
 
     openapi_path = CONTRACTS / "openapi-v1.yaml"
     with open(openapi_path, "r", encoding="utf-8") as handle:
@@ -128,9 +185,9 @@ def main() -> int:
     validate(openapi_spec)
 
     print("Contract validation passed:")
-    print("- plan-spec.schema.json: valid JSON Schema draft 2020-12")
-    print("- evidence-record.schema.json: valid JSON Schema draft 2020-12")
-    print("- plan and evidence invariants: positive and negative examples passed")
+    for name, path in schema_paths.items():
+        print(f"- {path.name}: valid JSON Schema draft 2020-12")
+    print("- positive and negative planner/evidence/claim examples passed")
     print("- openapi-v1.yaml: valid OpenAPI document")
     return 0
 
