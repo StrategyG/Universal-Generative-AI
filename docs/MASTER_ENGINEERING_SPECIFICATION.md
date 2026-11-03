@@ -1,7 +1,7 @@
 # Universal Generative AI — Master Engineering Specification
 
 **Document ID:** UGAI-MES-001  
-**Version:** 1.0.0-draft  
+**Version:** 1.1.0-draft  
 **Status:** Strategic baseline approved for engineering decomposition; implementation acceptance pending  
 **Last reviewed:** 2026-11-03  
 **Primary repository:** `StrategyG/Universal-Generative-AI`  
@@ -840,6 +840,10 @@ References are pinned to the editions available at the review date; verify again
 7. Universal Generative AI production gates: `docs/INSTITUTIONAL_PRODUCTION_GATES.md`
 
 ---
+
+## 21. Engineering decomposition and exact-SHA traceability
+
+The master requirements are decomposed into subsystem acceptance criteria, branch/PR dependencies, current exact-SHA validation evidence, security tests, data contracts, durable job semantics, RAG evaluation, model/provider acceptance, agent/MCP authorization, and phased work packages in [ENGINEERING_ACCEPTANCE_MATRIX.md](ENGINEERING_ACCEPTANCE_MATRIX.md). That matrix is a subordinate execution artifact: it does not override this master specification, change release gates, or assert that a documented requirement has been implemented. Its baseline findings must be refreshed whenever the selected candidate SHA or branch composition changes.
 
 ## Final engineering decision
 
