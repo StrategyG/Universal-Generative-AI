@@ -32,12 +32,14 @@ def _pgpass_escape(value: str) -> str:
     return value.replace("\\", "\\\\").replace(":", "\\:")
 
 
-def _safe_dsn_and_pgpass(dsn: str) -> tuple[str, str | None]:
+def _safe_dsn_and_pgpass(dsn: str, *, require_ssl: bool = False) -> tuple[str, str | None]:
     from psycopg.conninfo import conninfo_to_dict, make_conninfo
 
     if not dsn.startswith(("postgres://", "postgresql://")):
         raise MigrationError("Database URLs must use postgres:// or postgresql://")
     parts = conninfo_to_dict(dsn)
+    if require_ssl and parts.get("sslmode", "prefer") not in {"require", "verify-ca", "verify-full"}:
+        raise MigrationError("The source database URL must enforce TLS with sslmode=require or stronger")
     password = parts.pop("password", None)
     line = None
     if password:
@@ -227,6 +229,35 @@ def _target_preflight(connection) -> None:
         "SELECT 1 FROM pg_namespace WHERE nspname='auth'"
     ).fetchone():
         raise MigrationError("Target already has an auth schema; use a dedicated new database.")
+
+    unexpected_schemas = connection.execute(
+        """
+        SELECT nspname FROM pg_namespace
+        WHERE nspname NOT IN ('pg_catalog','information_schema','public','extensions')
+          AND nspname NOT LIKE 'pg_toast%'
+          AND nspname NOT LIKE 'pg_temp_%'
+        ORDER BY nspname
+        """
+    ).fetchall()
+    if unexpected_schemas:
+        raise MigrationError(
+            "Target is not empty; unexpected schema(s): "
+            + ", ".join(row[0] for row in unexpected_schemas)
+        )
+
+    public_objects = connection.execute(
+        """
+        SELECT c.relname FROM pg_class c
+        JOIN pg_namespace n ON n.oid=c.relnamespace
+        WHERE n.nspname='public'
+        ORDER BY c.relname
+        """
+    ).fetchall()
+    if public_objects:
+        raise MigrationError(
+            "Target is not empty; public schema contains objects: "
+            + ", ".join(row[0] for row in public_objects)
+        )
 
     available = dict(
         connection.execute(
@@ -620,7 +651,7 @@ def run_migration(*, apply: bool) -> dict:
         drive = _drive_service()
         drive_folder = _drive_folder_info(drive, drive_folder_id)
 
-    source_safe, source_pass = _safe_dsn_and_pgpass(source_dsn)
+    source_safe, source_pass = _safe_dsn_and_pgpass(source_dsn, require_ssl=True)
     target_safe, target_pass = _safe_dsn_and_pgpass(target_dsn)
     if source_safe == target_safe:
         raise MigrationError("Source and target database connections must differ")
