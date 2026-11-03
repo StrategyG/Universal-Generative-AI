@@ -95,3 +95,15 @@ def test_mcp_sdk_v2_malformed_schema_is_denied():
     ))
     assert decision.allowed is False
     assert decision.reason == "invalid_schema"
+
+
+
+def test_mcp_sdk_2_streamable_http_transport_contract():
+    import inspect
+
+    from mcp.client.streamable_http import streamable_http_client
+
+    parameters = inspect.signature(streamable_http_client).parameters
+    assert "http_client" in parameters
+    assert "max_sse_event_size" in parameters
+    assert "headers" not in parameters
