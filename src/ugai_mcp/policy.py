@@ -30,6 +30,14 @@ def _get(value, key: str, default=None):
     return value.get(key, default) if isinstance(value, dict) else getattr(value, key, default)
 
 
+def _get_annotation(value, camel_case: str, snake_case: str):
+    """Read MCP annotations from wire dictionaries and Python SDK models."""
+    if isinstance(value, dict):
+        return value.get(camel_case, value.get(snake_case, _MISSING))
+    candidate = getattr(value, camel_case, _MISSING)
+    return candidate if candidate is not _MISSING else getattr(value, snake_case, _MISSING)
+
+
 class ToolPolicy:
     def __init__(self, allowed_tools=()) -> None:
         self.allowed = frozenset(x for x in allowed_tools if x)
@@ -43,15 +51,19 @@ class ToolPolicy:
         if name not in self.allowed:
             return ToolDecision(False, "not_allowlisted")
 
-        annotations = _get(tool, "annotations", {}) or {}
-        read_only = _get(annotations, "readOnlyHint", _MISSING)
-        destructive = _get(annotations, "destructiveHint", _MISSING)
-        if read_only is not _MISSING and read_only is not True:
-            return ToolDecision(False, "server_marks_tool_not_read_only")
-        if destructive is not _MISSING and destructive is not False:
+        annotations = _get(tool, "annotations", None)
+        if annotations is None:
+            return ToolDecision(False, "missing_read_only_annotation")
+
+        read_only = _get_annotation(annotations, "readOnlyHint", "read_only_hint")
+        if read_only is not True:
+            return ToolDecision(False, "explicit_read_only_hint_required")
+
+        destructive = _get_annotation(annotations, "destructiveHint", "destructive_hint")
+        if destructive is True:
             return ToolDecision(False, "server_marks_tool_destructive")
 
         schema = _get(tool, "inputSchema", {}) or {}
         if _get(schema, "type") != "object":
             return ToolDecision(False, "invalid_schema")
-        return ToolDecision(True, "operator_allowlisted")
+        return ToolDecision(True, "operator_allowlisted_read_only")
