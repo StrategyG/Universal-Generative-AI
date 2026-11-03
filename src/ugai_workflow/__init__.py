@@ -35,11 +35,11 @@ from .worker import (
 
 __all__ = [
     "CLAIMABLE_STATES",
+    "TERMINAL_STATES",
     "DecisionInputResolver",
     "DecisionResultStore",
     "DecisionTaskInput",
     "DecisionWorkflowTaskHandler",
-    "TERMINAL_STATES",
     "ExternalOutcomeUnknown",
     "HybridWorker",
     "IdempotencyConflict",
