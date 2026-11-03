@@ -1,3 +1,4 @@
+import json
 from uuid import uuid4
 
 import httpx
@@ -23,14 +24,18 @@ class TokenProvider:
 @pytest.mark.asyncio
 async def test_submit_execution_sends_digest_limits_and_identity_bound_token():
     captured = {}
+
     async def handler(request: httpx.Request) -> httpx.Response:
         captured["request"] = request
-        payload = __import__("json").loads(request.content)
-        return httpx.Response(202, json={
-            "execution_id": str(uuid4()),
-            "task_id": payload["task_id"],
-            "state": "ACCEPTED",
-        })
+        payload = json.loads(request.content)
+        return httpx.Response(
+            202,
+            json={
+                "execution_id": str(uuid4()),
+                "task_id": payload["task_id"],
+                "state": "ACCEPTED",
+            },
+        )
 
     provider = TokenProvider()
     http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
@@ -67,7 +72,9 @@ async def test_submit_execution_sends_digest_limits_and_identity_bound_token():
 def test_execution_rejects_unapproved_profile_and_invalid_digest():
     with pytest.raises(ValueError):
         ExecutionRequest(
-            task_id=uuid4(), notebook_id=uuid4(), source_sha256="bad",
+            task_id=uuid4(),
+            notebook_id=uuid4(),
+            source_sha256="bad",
             runtime_profile="shell",
         ).validate()
 
@@ -75,10 +82,12 @@ def test_execution_rejects_unapproved_profile_and_invalid_digest():
 @pytest.mark.asyncio
 async def test_execution_submission_failure_is_uncertain_and_not_retried():
     calls = 0
+
     async def handler(request: httpx.Request) -> httpx.Response:
         nonlocal calls
         calls += 1
         return httpx.Response(503)
+
     http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     client = StudioExecutionClient(
         base_url="https://studio.example",
@@ -89,10 +98,14 @@ async def test_execution_submission_failure_is_uncertain_and_not_retried():
     with pytest.raises(StudioUnavailable, match="reconcile before retry"):
         await client.submit(
             ExecutionRequest(
-                task_id=uuid4(), notebook_id=uuid4(), source_sha256="b" * 64,
+                task_id=uuid4(),
+                notebook_id=uuid4(),
+                source_sha256="b" * 64,
                 runtime_profile="python-3.11",
             ),
-            actor_id="actor-1", tenant_id=uuid4(), request_id=uuid4(),
+            actor_id="actor-1",
+            tenant_id=uuid4(),
+            request_id=uuid4(),
             idempotency_key=uuid4(),
         )
     assert calls == 1
