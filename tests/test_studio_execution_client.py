@@ -5,6 +5,7 @@ import httpx
 import pytest
 
 from ugai_studio.client import (
+    MAX_RESPONSE_BYTES,
     ExecutionLimits,
     ExecutionRequest,
     StudioExecutionClient,
@@ -109,4 +110,114 @@ async def test_execution_submission_failure_is_uncertain_and_not_retried():
             idempotency_key=uuid4(),
         )
     assert calls == 1
+    await http.aclose()
+
+
+@pytest.mark.asyncio
+async def test_execution_rejects_unknown_state_and_non_json_response():
+    task_id = uuid4()
+    responses = [
+        httpx.Response(
+            202,
+            json={
+                "execution_id": str(uuid4()),
+                "task_id": str(task_id),
+                "state": "MAGICALLY_DONE",
+            },
+        ),
+        httpx.Response(202, text="accepted", headers={"content-type": "text/plain"}),
+    ]
+    for response in responses:
+        http = httpx.AsyncClient(
+            transport=httpx.MockTransport(lambda request, response=response: response)
+        )
+        client = StudioExecutionClient(
+            base_url="https://studio.example",
+            resource="https://studio.example",
+            token_provider=TokenProvider(),
+            http_client=http,
+        )
+        with pytest.raises(StudioUnavailable):
+            await client.submit(
+                ExecutionRequest(
+                    task_id=task_id,
+                    notebook_id=uuid4(),
+                    source_sha256="c" * 64,
+                    runtime_profile="python-3.12",
+                ),
+                actor_id="actor-1",
+                tenant_id=uuid4(),
+                request_id=uuid4(),
+                idempotency_key=uuid4(),
+            )
+        await http.aclose()
+
+
+@pytest.mark.asyncio
+async def test_execution_rejects_oversized_response():
+    task_id = uuid4()
+    payload = {
+        "execution_id": str(uuid4()),
+        "task_id": str(task_id),
+        "state": "ACCEPTED",
+        "padding": "x" * MAX_RESPONSE_BYTES,
+    }
+    http = httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda request: httpx.Response(202, json=payload))
+    )
+    client = StudioExecutionClient(
+        base_url="https://studio.example",
+        resource="https://studio.example",
+        token_provider=TokenProvider(),
+        http_client=http,
+    )
+    with pytest.raises(StudioUnavailable):
+        await client.submit(
+            ExecutionRequest(
+                task_id=task_id,
+                notebook_id=uuid4(),
+                source_sha256="d" * 64,
+                runtime_profile="python-3.11",
+            ),
+            actor_id="actor-1",
+            tenant_id=uuid4(),
+            request_id=uuid4(),
+            idempotency_key=uuid4(),
+        )
+    await http.aclose()
+
+
+@pytest.mark.asyncio
+async def test_execution_rejects_wrong_task_receipt():
+    http = httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(
+                202,
+                json={
+                    "execution_id": str(uuid4()),
+                    "task_id": str(uuid4()),
+                    "state": "ACCEPTED",
+                },
+            )
+        )
+    )
+    client = StudioExecutionClient(
+        base_url="https://studio.example",
+        resource="https://studio.example",
+        token_provider=TokenProvider(),
+        http_client=http,
+    )
+    with pytest.raises(StudioUnavailable):
+        await client.submit(
+            ExecutionRequest(
+                task_id=uuid4(),
+                notebook_id=uuid4(),
+                source_sha256="e" * 64,
+                runtime_profile="python-3.11",
+            ),
+            actor_id="actor-1",
+            tenant_id=uuid4(),
+            request_id=uuid4(),
+            idempotency_key=uuid4(),
+        )
     await http.aclose()
