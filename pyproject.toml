@@ -5,10 +5,10 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "ugai-im19-connector"
 version = "0.1.0"
-description = "Fail-closed remote MCP client adapter for UGAI and IM19"
+description = "Authenticated UGAI adapters for IM19 MCP and AI Notebook Studio"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = ["httpx>=0.28,<1.0"]
 
 [project.optional-dependencies]
 mcp = ["mcp>=2.3.0,<3.0.0"]
