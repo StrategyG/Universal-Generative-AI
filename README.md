@@ -4,15 +4,17 @@ A modular platform for generative AI workflows, designed to support multimodal g
 
 ## Institutional Decision Intelligence
 
-The feature branch adds a deterministic, framework-neutral decision package at `src/ugai_decision/` that composes Analysis, Evaluation and Holistic Thinking (AEPH) with advisory Hedge-Bet allocation.
+The feature branches add a deterministic AEPH and Hedge-Bet decision package at `src/ugai_decision/` and a framework-neutral multi-MCP orchestration runtime.
 
-- Evidence provenance and independence groups reduce duplicate-source inflation.
+- Evidence provenance and primary-source independence groups prevent derivative sources from inflating corroboration.
 - Conflicting claims are surfaced for review rather than resolved by majority vote.
 - Alternatives are evaluated using expected value, strategic fit, cost, downside and reversibility.
 - System dependencies, stakeholder impacts, assumptions and time horizons are explicitly surfaced.
-- Hedge allocation, capped bet allocation, a gross downside risk budget and reserve are calculated deterministically.
-- Insufficient evidence fails closed to 100% reserve; all outputs require human approval.
-- The engine is advisory only: it does not call MCP tools, execute actions, transfer funds or allocate real-world resources.
+- Hedge allocation, capped bet allocation, gross downside risk budget and reserve are calculated deterministically.
+- The multi-source workflow collects evidence concurrently with timeouts and rejects partial results by default.
+- An evidence manifest and digest accompany the decision snapshot to the human approval gateway.
+- Execution is a separate step and requires a matching, unexpired, actor-scoped approval receipt tied to the exact execution-plan digest.
+- No production audit, approval or execution service is configured. The engine is not yet wired to a deployed agent registry or live MCP services.
 
 See [Institutional Decision Intelligence design](docs/INSTITUTIONAL_DECISION_INTELLIGENCE.md).
 
@@ -39,8 +41,8 @@ The integration branch contains a reusable UGAI remote MCP adapter under `src/ug
 
 ### Not yet complete
 
-This is a tested adapter, not proof of a live connection. The concrete OAuth token provider, IM19 HTTPS deployment, issuer/client/resource registration, durable audit-sink implementation, connection to a deployed UGAI workflow registry, network egress protections and end-to-end staging tests remain required. This repository branch does not yet contain an existing production agent/workflow registry to wire automatically.
+This is a tested adapter and orchestration contract, not proof of a live connection. The concrete OAuth token provider, IM19 HTTPS deployment, issuer/client/resource registration, durable audit-sink implementation, deployed approval gateway and verifier, production execution adapter, workflow-registry wiring, network egress protections and end-to-end staging tests remain required.
 
-See [integration design](docs/IM19_MCP_INTEGRATION.md), [validation gates](docs/IM19_MCP_VALIDATION.md), and the [IM19 server repository](https://github.com/StrategyG/im19-universal-mcp).
+See [IM19 integration design](docs/IM19_MCP_INTEGRATION.md), [decision intelligence design](docs/INSTITUTIONAL_DECISION_INTELLIGENCE.md), [validation gates](docs/IM19_MCP_VALIDATION.md), and the [IM19 server repository](https://github.com/StrategyG/im19-universal-mcp).
 
 UGAI and this connector must not be described as production-ready until runtime, security, operational and live integration acceptance gates pass.
