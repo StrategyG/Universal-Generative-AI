@@ -69,6 +69,9 @@ class FakeApprovalGateway:
         decision_id: str,
         actor_id: str,
         decision_snapshot: Mapping[str, Any],
+        evidence_manifest: Sequence[Any],
+        evidence_digest: str,
+        source_ids: Sequence[str],
         execution_plan: Mapping[str, Any] | None,
         plan_digest: str | None,
         idempotency_key: str,
@@ -77,6 +80,9 @@ class FakeApprovalGateway:
             "decision_id": decision_id,
             "actor_id": actor_id,
             "decision": decision_snapshot,
+            "evidence_manifest": evidence_manifest,
+            "evidence_digest": evidence_digest,
+            "source_ids": source_ids,
             "plan": execution_plan,
             "plan_digest": plan_digest,
             "idempotency_key": idempotency_key,
@@ -196,6 +202,10 @@ async def test_three_independent_mcp_sources_flow_to_approval_request() -> None:
     assert result.execution_plan is not None
     assert result.plan_digest is not None
     assert approval.requests[0]["plan_digest"] == result.plan_digest
+    assert len(result.evidence_manifest) == 3
+    assert result.evidence_digest == approval.requests[0]["evidence_digest"]
+    assert result.source_ids == ("mcp-a", "mcp-b", "mcp-c")
+    assert approval.requests[0]["evidence_manifest"][0].evidence_id == "e1"
     assert approval.requests[0]["idempotency_key"] == result.decision_id
     assert next(event.stage for event in audit.events) == "workflow_started"
     assert "decision_evaluated" in [event.stage for event in audit.events]
