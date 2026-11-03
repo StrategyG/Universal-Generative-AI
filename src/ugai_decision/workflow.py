@@ -247,14 +247,28 @@ class DecisionWorkflow:
         hedge_target: float = 0.20,
         max_bet_allocation: float = 0.25,
         risk_budget: float = 0.25,
+        idempotency_key: str | None = None,
     ) -> DecisionWorkflowResult:
         if not isinstance(actor_id, str) or not actor_id.strip():
             raise PermissionError("A trusted authenticated actor_id is required")
         if not isinstance(question, str) or not question.strip():
             raise ValueError("question must be a non-empty string")
 
-        workflow_id = uuid4().hex
-        decision_id = uuid4().hex
+        if idempotency_key is not None:
+            if (
+                not isinstance(idempotency_key, str)
+                or not 8 <= len(idempotency_key) <= 255
+                or any(ord(char) < 33 or ord(char) == 127 for char in idempotency_key)
+            ):
+                raise ValueError("decision_idempotency_key_invalid")
+            stable_key = hashlib.sha256(idempotency_key.encode("utf-8")).hexdigest()
+            workflow_id = stable_key[:32]
+            decision_id = hashlib.sha256(
+                f"decision:{idempotency_key}".encode("utf-8")
+            ).hexdigest()[:32]
+        else:
+            workflow_id = uuid4().hex
+            decision_id = uuid4().hex
         await self._write_audit(
             workflow_id, decision_id, actor_id, "workflow_started", "started",
             (("source_count", str(len(self._sources))),),
@@ -372,7 +386,7 @@ class DecisionWorkflow:
                 source_ids=source_ids,
                 execution_plan=execution_plan,
                 plan_digest=plan_digest,
-                idempotency_key=decision_id,
+                idempotency_key=idempotency_key or decision_id,
             )
         except Exception as exc:
             await self._write_audit(
