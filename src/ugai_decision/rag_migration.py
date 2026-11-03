@@ -505,6 +505,33 @@ def _drive_service():
     return build("drive", "v3", credentials=credentials, cache_discovery=False)
 
 
+def _drive_folder_info(service, folder_id: str) -> dict[str, str]:
+    """Verify that the destination is writable and belongs to a Shared Drive."""
+    folder = service.files().get(
+        fileId=folder_id,
+        fields="id,name,mimeType,driveId,capabilities(canAddChildren)",
+        supportsAllDrives=True,
+    ).execute()
+    if folder.get("mimeType") != "application/vnd.google-apps.folder":
+        raise MigrationError("GOOGLE_DRIVE_FOLDER_ID must identify a Drive folder")
+    drive_id = folder.get("driveId")
+    if not drive_id:
+        raise MigrationError(
+            "The Google Drive destination must be inside a Shared Drive. "
+            "Service accounts have no personal Drive storage quota."
+        )
+    if not folder.get("capabilities", {}).get("canAddChildren", False):
+        raise MigrationError(
+            "The service account cannot add files to the destination folder; "
+            "grant it at least Contributor access in the Shared Drive."
+        )
+    return {
+        "id": str(folder["id"]),
+        "name": str(folder.get("name", "")),
+        "drive_id": str(drive_id),
+    }
+
+
 def _drive_upload(service, path: Path, folder_id: str, mime_type: str) -> str:
     from googleapiclient.http import MediaFileUpload
 
@@ -536,6 +563,11 @@ def run_migration(*, apply: bool) -> dict:
     if apply and not drive_folder_id:
         raise MigrationError("GOOGLE_DRIVE_FOLDER_ID is required for --apply")
     key = _validate_key(os.environ.get("UGAI_EXPORT_ENCRYPTION_KEY_B64", "")) if apply else None
+    drive = None
+    drive_folder = None
+    if apply:
+        drive = _drive_service()
+        drive_folder = _drive_folder_info(drive, drive_folder_id)
 
     source_safe, source_pass = _safe_dsn_and_pgpass(source_dsn)
     target_safe, target_pass = _safe_dsn_and_pgpass(target_dsn)
@@ -638,7 +670,7 @@ def run_migration(*, apply: bool) -> dict:
                 json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8"
             )
 
-            drive = _drive_service()
+            assert drive is not None and drive_folder is not None
             archive_dump_id = _drive_upload(
                 drive, encrypted_file, drive_folder_id, "application/octet-stream"
             )
@@ -715,6 +747,11 @@ def main() -> int:
         help="Archive an encrypted snapshot and restore it to a new empty PostgreSQL database",
     )
     mode.add_argument(
+        "--check-drive",
+        action="store_true",
+        help="Verify Google service-account access to a writable Shared Drive folder",
+    )
+    mode.add_argument(
         "--decrypt-backup",
         type=Path,
         help="Authenticate and decrypt an encrypted backup file from Google Drive",
@@ -749,6 +786,20 @@ def main() -> int:
 
     if args.output is not None:
         parser.error("--output can only be used with --decrypt-backup")
+
+    if args.check_drive:
+        try:
+            from googleapiclient.errors import HttpError
+
+            folder_id = os.environ.get("GOOGLE_DRIVE_FOLDER_ID", "")
+            if not folder_id:
+                raise MigrationError("GOOGLE_DRIVE_FOLDER_ID is required for --check-drive")
+            folder = _drive_folder_info(_drive_service(), folder_id)
+            print(json.dumps({"state": "drive_destination_ready", **folder}, indent=2))
+            return 0
+        except (MigrationError, HttpError, OSError, ValueError) as exc:
+            print(f"Google Drive preflight failed: {exc}", file=sys.stderr)
+            return 2
 
     try:
         import psycopg
