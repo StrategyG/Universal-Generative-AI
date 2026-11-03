@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any
+from types import TracebackType
+from typing import Any, Self
 
-from .auth import AccessTokenProvider
 from .audit import AuditSink
+from .auth import AccessTokenProvider
 from .client import IM19MCPClient
 from .config import IM19Config
 from .policy import ToolPolicy
@@ -32,16 +33,21 @@ class IM19ToolProvider:
         self._client = IM19MCPClient(
             config=config,
             token_provider=token_provider,
-            policy=ToolPolicy(config.allowed_tools),
             audit_sink=audit_sink,
             actor_id=actor_id,
+            policy=ToolPolicy(config.allowed_tools),
         )
 
-    async def __aenter__(self) -> "IM19ToolProvider":
+    async def __aenter__(self) -> Self:
         await self._client.__aenter__()
         return self
 
-    async def __aexit__(self, exc_type, exc, tb) -> None:
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
         await self._client.__aexit__(exc_type, exc, tb)
 
     async def discover(self) -> list[dict[str, Any]]:
