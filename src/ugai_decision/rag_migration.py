@@ -656,7 +656,8 @@ def run_migration(*, apply: bool) -> dict:
 
 def main() -> int:
     try:
-        import psycopg  # noqa: F401
+        import psycopg
+        from googleapiclient.errors import HttpError
     except ImportError:
         print(
             "Install the optional dependencies with: pip install -e '.[rag-migration]'",
@@ -674,7 +675,14 @@ def main() -> int:
     try:
         print(json.dumps(run_migration(apply=args.apply), indent=2, sort_keys=True))
         return 0
-    except Exception as exc:
+    except (
+        MigrationError,
+        psycopg.Error,
+        HttpError,
+        OSError,
+        ValueError,
+        subprocess.SubprocessError,
+    ) as exc:
         print(f"RAG migration failed: {exc}", file=sys.stderr)
         return 2
 
