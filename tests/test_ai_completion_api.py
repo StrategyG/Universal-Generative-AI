@@ -28,7 +28,13 @@ def test_ai_completion_endpoint_uses_domain_provider(monkeypatch):
 
     monkeypatch.setattr(settings, "environment", "development")
     monkeypatch.setattr(settings, "model_registry_enforcement", False)
-    monkeypatch.setattr("app.main.OpenAICompatibleTextProvider.from_settings", lambda: FakeProvider())
+    class FakeRouter:
+        providers = []
+
+        async def generate(self, request):
+            return await FakeProvider().generate(request)
+
+    monkeypatch.setattr("app.main.TextModelRouter.from_settings", lambda: FakeRouter())
     response = client.post("/api/v1/ai/complete", json={
         "project_id": "local-project",
         "domain": "film",
@@ -52,10 +58,30 @@ def test_ai_completion_endpoint_fails_closed_when_provider_unconfigured(monkeypa
     def disabled():
         raise TextGenerationProviderError("Text generation is disabled")
 
-    monkeypatch.setattr("app.main.OpenAICompatibleTextProvider.from_settings", disabled)
+    monkeypatch.setattr("app.main.TextModelRouter.from_settings", disabled)
     response = client.post("/api/v1/ai/complete", json={
         "project_id": "local-project",
         "domain": "coding",
         "objective": "Design a REST API",
     })
     assert response.status_code == 503
+
+
+
+def test_model_discovery_endpoint_returns_provider_catalog(monkeypatch):
+    class FakeRouter:
+        async def discover_models(self):
+            return {
+                "routes": [{
+                    "provider": "test-provider",
+                    "configured_model": "test-model",
+                    "status": "available",
+                    "configured_model_available": True,
+                    "models": ["test-model"],
+                }]
+            }
+
+    monkeypatch.setattr("app.main.TextModelRouter.from_settings", lambda: FakeRouter())
+    response = client.get("/api/v1/ai/models")
+    assert response.status_code == 200
+    assert response.json()["routes"][0]["configured_model_available"] is True

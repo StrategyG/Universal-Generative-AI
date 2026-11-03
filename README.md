@@ -5,7 +5,8 @@ A modular API and orchestration foundation for multimodal generative workflows.
 ## Implemented
 
 - FastAPI generation API and job lookup.
-- Provider registry with an explicit mock adapter and optional Diffusers/SDXL text-to-image adapter.
+- Provider registry with mock and Diffusers/SDXL image adapters.
+- OpenAI-compatible, native Anthropic Messages API, and native Gemini text adapters with bounded retry, configured provider order, model-catalog discovery, and Server-Sent Events streaming.
 - Declarative pipeline planner for image-to-3D, image-to-video, and GLB-to-video workflows.
 - Dependency-aware step plans with input-format validation, resource profiles, provider readiness, and acceptance checks.
 - Docker packaging and GitHub Actions lint/test workflow.
@@ -97,6 +98,32 @@ pip install -e ".[image]"
 ```
 
 Set `GENERATION_BACKEND=diffusers-sdxl`, `GPU_REQUIRED=true`, `IMAGE_MODEL_ID`, and `IMAGE_MODEL_REVISION`. Pin the model revision to an immutable commit and verify the model license and hardware requirements before downloading weights. The first inference may download model weights and require substantial GPU VRAM.
+
+## Universal text model routing
+
+The text generation API exposes two authenticated endpoints:
+
+- POST /api/v1/ai/complete — single-shot or rigorous draft/critique/revision generation.
+- POST /api/v1/ai/complete/stream — Server-Sent Events streaming; requires quality_mode=single.
+
+OpenAI-compatible routes use TEXT_GENERATION_BASE_URL / TEXT_GENERATION_MODEL
+and optional TEXT_GENERATION_FALLBACK_BASE_URL / TEXT_GENERATION_FALLBACK_MODEL.
+Native Anthropic uses ANTHROPIC_API_KEY and ANTHROPIC_MODEL. Native Gemini uses
+GEMINI_API_KEY and GEMINI_MODEL. TEXT_GENERATION_PROVIDER_ORDER determines route
+preference. Production requires each configured route to have its own approved
+immutable model ID and revision in the model registry.
+
+The router retries only transient provider failures, applies bounded backoff,
+and does not retry permanent errors such as invalid credentials or missing
+models. Streaming can fall back only before the first token; after output begins,
+the router never mixes partial generations from different models.
+
+The authenticated GET /api/v1/ai/models endpoint probes each configured route's /models catalog and reports whether the configured model ID is listed. A provider may not implement model discovery; that route is reported as unavailable rather than being treated as proof of model absence.
+
+These native adapters currently expose text generation and text streaming only.
+Unified tool execution, strict structured outputs across providers, vision/audio/video,
+cost-optimal model selection and cross-model independent evaluation remain incomplete. See
+[Universal Model Router](docs/UNIVERSAL_MODEL_ROUTER.md).
 
 ## External GPU workers: Kaggle and Google Colab
 

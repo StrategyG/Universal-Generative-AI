@@ -1,9 +1,13 @@
 # Implementation Status
 
-**Snapshot:** 2026-11-01  
+**Historical baseline:** 2026-11-01  
 **Repository:** `StrategyG/Universal-Generative-AI`  
 **Branch:** `feature/multimodal-platform-v1`  
-**Code snapshot:** Stage 2 OIDC implementation on `feature/multimodal-platform-v1`; latest test result pending
+**Code snapshot:** Stage 2 OIDC implementation on `feature/multimodal-platform-v1`; historical test result pending
+
+## Superseding update — 2026-11-03
+
+The follow-up branch `upgrade/universal-model-platform-v1` adds OpenAI-compatible, native Anthropic Messages API, and native Gemini generateContent text-provider routes; configurable provider order and fallback; transient-error retry classification; streaming; model-catalog discovery; normalized token usage; and request IDs with allow-listed JSON request logs. Current head `bbddb6bdab6bc973f882cbe2df4e290c35cd9180` passed Ruff and 97 tests with one Starlette/httpx deprecation warning. Native Anthropic/Gemini contract tests use mocked HTTP transports; live account/provider smoke tests remain outstanding. pip-audit reported no known vulnerabilities in audited dependencies but did not audit the local project package because it was not found on PyPI. Tool execution, cost-optimized model selection, multi-agent runtime, RAG, distributed caching, usage quotas, cost attribution, and durable workflow execution remain incomplete. Migration 0009 is moved into the ordered `migrations/` directory. Production readiness remains **NO-GO** pending live provider integration and the remaining gates in `PRODUCTION_READINESS.md`.
 
 ## Implemented in repository
 
@@ -32,7 +36,7 @@
 | Blender / FFmpeg rendering | BLOCKED | No executable renderer |
 | Model registry / approval gate | PASS (CI #76 scope) | Immutable revision, evidence-gated approval, production external-GPU/non-mock generation enforcement, worker claim filter and disable cancellation. Evidence is operator-supplied, not independently verified |
 | User AuthN/AuthZ, RBAC, tenancy | PARTIAL | OIDC RS256/JWKS principal integration; production fail-closed startup; role/project checks on generation; tenant/owner/project-scoped general generation history. No live IdP, human admin RBAC, external-GPU tenancy, artifact ACLs, quotas or rate limits |
-| Audit / observability | BLOCKED | No durable actor event log, distributed tracing, metrics, alerts or cost attribution |
+| Audit / observability | PARTIAL | Request IDs and allow-listed JSON request logs exist; durable actor audit, distributed tracing, metrics, alerts and cost attribution remain incomplete |
 | OIDC and scoped generation access tests | NOT VERIFIED | Added in `tests/test_auth.py` and updated PostgreSQL integration coverage; latest CI result pending |
 | Generation ownership migration | NOT VERIFIED | Migration `0007_generation_job_tenant_scope.sql` added; no production database migration executed |
 | Supply-chain security | BLOCKED | SBOM, dependency/container scanning and signed build provenance absent |

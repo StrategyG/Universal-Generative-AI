@@ -103,3 +103,73 @@ def test_provider_rejects_tool_calls_in_text_only_mode():
             objective="Classify an intake request",
             quality_mode="single",
         )))
+
+
+
+def test_provider_classifies_model_not_found_as_permanent():
+    def handler(request):
+        return httpx.Response(404, json={"error": {"message": "private upstream detail"}})
+
+    provider = make_provider(handler)
+    with pytest.raises(TextGenerationProviderError) as caught:
+        asyncio.run(provider.generate(AICompletionRequest(
+            project_id="project-1",
+            domain="coding",
+            objective="Inspect a repository",
+            quality_mode="single",
+        )))
+    assert caught.value.code == "model_or_endpoint_not_found"
+    assert caught.value.retryable is False
+    assert "private upstream detail" not in str(caught.value)
+
+
+def test_provider_classifies_rate_limit_as_retryable_and_honors_retry_after():
+    def handler(request):
+        return httpx.Response(429, headers={"Retry-After": "2"}, json={"error": "limited"})
+
+    provider = make_provider(handler)
+    with pytest.raises(TextGenerationProviderError) as caught:
+        asyncio.run(provider.generate(AICompletionRequest(
+            project_id="project-1",
+            domain="coding",
+            objective="Inspect a repository",
+            quality_mode="single",
+        )))
+    assert caught.value.code == "rate_limited"
+    assert caught.value.retryable is True
+    assert caught.value.retry_after_seconds == 2.0
+
+
+def test_provider_streams_server_sent_event_deltas():
+    body = (
+        'data: {"choices":[{"delta":{"content":"hello "}}]}\n\n'
+        'data: {"choices":[{"delta":{"content":"world"}}]}\n\n'
+        'data: [DONE]\n\n'
+    )
+
+    def handler(request):
+        return httpx.Response(200, content=body, headers={"content-type": "text/event-stream"})
+
+    provider = make_provider(handler)
+
+    async def collect():
+        return [chunk async for chunk in provider.stream(AICompletionRequest(
+            project_id="project-1",
+            domain="coding",
+            objective="Stream a response",
+            quality_mode="single",
+        ))]
+
+    assert asyncio.run(collect()) == ["hello ", "world"]
+
+
+
+def test_provider_lists_available_model_ids():
+    def handler(request):
+        assert request.url.path.endswith("/models")
+        return httpx.Response(200, json={
+            "data": [{"id": "model-b"}, {"id": "model-a"}, {"name": "missing-id"}]
+        })
+
+    provider = make_provider(handler)
+    assert asyncio.run(provider.list_models()) == ["model-a", "model-b"]
