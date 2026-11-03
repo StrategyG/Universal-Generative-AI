@@ -106,12 +106,26 @@ async def test_supabase_sink_rejects_duplicate_detail_keys() -> None:
 
 
 @pytest.mark.asyncio
-async def test_supabase_sink_rejects_oversized_details() -> None:
+async def test_supabase_sink_rejects_oversized_aggregate_details() -> None:
     client = FakeSupabase()
     sink = SupabaseDecisionAuditSink(client)
-    event = replace(sample_event(), details=(("payload", "x" * 9_000),))
+    details = tuple((f"field_{index}", "x" * 950) for index in range(9))
+    event = replace(sample_event(), details=details)
 
     with pytest.raises(ValueError, match="maximum encoded size"):
+        await sink.append(event)
+
+    assert client.calls == []
+
+
+@pytest.mark.asyncio
+async def test_supabase_sink_rejects_too_many_detail_items() -> None:
+    client = FakeSupabase()
+    sink = SupabaseDecisionAuditSink(client)
+    details = tuple((f"field_{index}", "ok") for index in range(33))
+    event = replace(sample_event(), details=details)
+
+    with pytest.raises(ValueError, match="too many entries"):
         await sink.append(event)
 
     assert client.calls == []
