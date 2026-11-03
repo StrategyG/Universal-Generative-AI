@@ -104,19 +104,40 @@ alter table ugai_workflow.artifacts enable row level security;
 drop policy if exists ugai_workflow_tasks_runtime on ugai_workflow.tasks;
 create policy ugai_workflow_tasks_runtime on ugai_workflow.tasks
     for all to ugai_workflow_runtime
-    using (true) with check (true);
+    using (tenant_id = nullif(current_setting('app.ugai_tenant_id', true), ''))
+    with check (tenant_id = nullif(current_setting('app.ugai_tenant_id', true), ''));
 
 drop policy if exists ugai_workflow_events_runtime on ugai_workflow.events;
 create policy ugai_workflow_events_runtime on ugai_workflow.events
-    for select to ugai_workflow_runtime using (true);
+    for select to ugai_workflow_runtime
+    using (exists (
+        select 1 from ugai_workflow.tasks task
+        where task.task_id = events.task_id
+          and task.tenant_id = nullif(current_setting('app.ugai_tenant_id', true), '')
+    ));
 create policy ugai_workflow_events_insert on ugai_workflow.events
-    for insert to ugai_workflow_runtime with check (true);
+    for insert to ugai_workflow_runtime
+    with check (exists (
+        select 1 from ugai_workflow.tasks task
+        where task.task_id = events.task_id
+          and task.tenant_id = nullif(current_setting('app.ugai_tenant_id', true), '')
+    ));
 
 drop policy if exists ugai_workflow_artifacts_runtime on ugai_workflow.artifacts;
 create policy ugai_workflow_artifacts_runtime on ugai_workflow.artifacts
-    for select to ugai_workflow_runtime using (true);
+    for select to ugai_workflow_runtime
+    using (exists (
+        select 1 from ugai_workflow.tasks task
+        where task.task_id = artifacts.task_id
+          and task.tenant_id = nullif(current_setting('app.ugai_tenant_id', true), '')
+    ));
 create policy ugai_workflow_artifacts_insert on ugai_workflow.artifacts
-    for insert to ugai_workflow_runtime with check (true);
+    for insert to ugai_workflow_runtime
+    with check (exists (
+        select 1 from ugai_workflow.tasks task
+        where task.task_id = artifacts.task_id
+          and task.tenant_id = nullif(current_setting('app.ugai_tenant_id', true), '')
+    ));
 
 revoke all on all tables in schema ugai_workflow from public, anon, authenticated, service_role;
 grant select, insert on ugai_workflow.tasks to ugai_workflow_runtime;

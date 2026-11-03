@@ -216,6 +216,9 @@ class PostgresWorkflowStore:
 
         async with self._pool.acquire() as connection:
             async with connection.transaction():
+                await connection.fetchval(
+                    "SELECT set_config('app.ugai_tenant_id', $1, true)", tenant_id
+                )
                 row = await connection.fetchrow(
                     """
                     INSERT INTO ugai_workflow.tasks (
@@ -265,12 +268,17 @@ class PostgresWorkflowStore:
                 )
                 return task
 
-    async def get_task(self, task_id: UUID) -> WorkflowTask:
+    async def get_task(self, *, task_id: UUID, tenant_id: str) -> WorkflowTask:
+        _validate_text("tenant_id", tenant_id, 128)
         async with self._pool.acquire() as connection:
-            row = await connection.fetchrow(
-                "SELECT * FROM ugai_workflow.tasks WHERE task_id = $1",
-                task_id,
-            )
+            async with connection.transaction():
+                await connection.fetchval(
+                    "SELECT set_config('app.ugai_tenant_id', $1, true)", tenant_id
+                )
+                row = await connection.fetchrow(
+                    "SELECT * FROM ugai_workflow.tasks WHERE task_id = $1 AND tenant_id = $2",
+                    task_id, tenant_id,
+                )
         if row is None:
             raise TaskNotFound(str(task_id))
         return WorkflowTask.from_record(row)
@@ -278,10 +286,12 @@ class PostgresWorkflowStore:
     async def claim_next(
         self,
         *,
+        tenant_id: str,
         worker_id: str,
         supported_task_types: Sequence[str],
         lease_seconds: int = 45,
     ) -> WorkflowTask | None:
+        _validate_text("tenant_id", tenant_id, 128)
         _validate_text("worker_id", worker_id, 128)
         if not supported_task_types or any(
             not isinstance(item, str) or not item.strip() for item in supported_task_types
@@ -294,6 +304,9 @@ class PostgresWorkflowStore:
         states = [state.value for state in CLAIMABLE_STATES]
         async with self._pool.acquire() as connection:
             async with connection.transaction():
+                await connection.fetchval(
+                    "SELECT set_config('app.ugai_tenant_id', $1, true)", tenant_id
+                )
                 row = await connection.fetchrow(
                     """
                     WITH candidate AS (
@@ -301,6 +314,7 @@ class PostgresWorkflowStore:
                         FROM ugai_workflow.tasks
                         WHERE state = ANY($1::text[])
                           AND task_type = ANY($2::text[])
+                          AND tenant_id = $3
                           AND available_at <= clock_timestamp()
                           AND (
                               lease_token IS NULL
@@ -311,16 +325,16 @@ class PostgresWorkflowStore:
                         LIMIT 1
                     )
                     UPDATE ugai_workflow.tasks AS task
-                    SET lease_owner = $3,
+                    SET lease_owner = $4,
                         lease_token = gen_random_uuid(),
                         lease_expires_at = clock_timestamp()
-                            + make_interval(secs => $4),
+                            + make_interval(secs => $5),
                         updated_at = clock_timestamp()
                     FROM candidate
                     WHERE task.task_id = candidate.task_id
                     RETURNING task.*
                     """,
-                    states, list(task_types), worker_id, lease_seconds,
+                    states, list(task_types), tenant_id, worker_id, lease_seconds,
                 )
                 if row is None:
                     return None
@@ -342,25 +356,32 @@ class PostgresWorkflowStore:
         self,
         *,
         task_id: UUID,
+        tenant_id: str,
         lease: LeaseIdentity,
         lease_seconds: int = 45,
     ) -> WorkflowTask:
+        _validate_text("tenant_id", tenant_id, 128)
         if not isinstance(lease_seconds, int) or not 5 <= lease_seconds <= 900:
             raise ValueError("lease_seconds_out_of_bounds")
         async with self._pool.acquire() as connection:
-            row = await connection.fetchrow(
-                """
-                UPDATE ugai_workflow.tasks
-                SET lease_expires_at = clock_timestamp() + make_interval(secs => $4),
-                    updated_at = clock_timestamp()
-                WHERE task_id = $1
-                  AND lease_owner = $2
-                  AND lease_token = $3
-                  AND lease_expires_at > clock_timestamp()
-                RETURNING *
-                """,
-                task_id, lease.worker_id, lease.lease_token, lease_seconds,
-            )
+            async with connection.transaction():
+                await connection.fetchval(
+                    "SELECT set_config('app.ugai_tenant_id', $1, true)", tenant_id
+                )
+                row = await connection.fetchrow(
+                    """
+                    UPDATE ugai_workflow.tasks
+                    SET lease_expires_at = clock_timestamp() + make_interval(secs => $5),
+                        updated_at = clock_timestamp()
+                    WHERE task_id = $1
+                      AND tenant_id = $2
+                      AND lease_owner = $3
+                      AND lease_token = $4
+                      AND lease_expires_at > clock_timestamp()
+                    RETURNING *
+                    """,
+                    task_id, tenant_id, lease.worker_id, lease.lease_token, lease_seconds,
+                )
         if row is None:
             raise LeaseLost("lease_expired_or_fencing_token_mismatch")
         return WorkflowTask.from_record(row)
@@ -369,6 +390,7 @@ class PostgresWorkflowStore:
         self,
         *,
         task_id: UUID,
+        tenant_id: str,
         expected_version: int,
         target: TaskState,
         actor_id: str,
@@ -383,6 +405,7 @@ class PostgresWorkflowStore:
         error_code: str | None = None,
         metadata: Mapping[str, Any] | None = None,
     ) -> WorkflowTask:
+        _validate_text("tenant_id", tenant_id, 128)
         _validate_text("actor_id", actor_id, 255)
         if not _SAFE_CODE.fullmatch(reason_code or ""):
             raise ValueError("reason_code_invalid")
@@ -403,9 +426,16 @@ class PostgresWorkflowStore:
 
         async with self._pool.acquire() as connection:
             async with connection.transaction():
+                await connection.fetchval(
+                    "SELECT set_config('app.ugai_tenant_id', $1, true)", tenant_id
+                )
                 row = await connection.fetchrow(
-                    "SELECT * FROM ugai_workflow.tasks WHERE task_id = $1 FOR UPDATE",
-                    task_id,
+                    """
+                    SELECT * FROM ugai_workflow.tasks
+                    WHERE task_id = $1 AND tenant_id = $2
+                    FOR UPDATE
+                    """,
+                    task_id, tenant_id,
                 )
                 if row is None:
                     raise TaskNotFound(str(task_id))
@@ -452,24 +482,24 @@ class PostgresWorkflowStore:
                 updated = await connection.fetchrow(
                     """
                     UPDATE ugai_workflow.tasks
-                    SET state = $2,
+                    SET state = $3,
                         version = version + 1,
-                        retry_count = $3,
-                        retryable = $4,
-                        error_code = CASE WHEN $2 = 'failed' THEN $5 ELSE NULL END,
+                        retry_count = $4,
+                        retryable = $5,
+                        error_code = CASE WHEN $3 = 'failed' THEN $6 ELSE NULL END,
                         available_at = CASE
-                            WHEN $2 = 'received' AND $6 > 0
-                                THEN clock_timestamp() + make_interval(secs => $6)
+                            WHEN $3 = 'received' AND $7 > 0
+                                THEN clock_timestamp() + make_interval(secs => $7)
                             ELSE available_at
                         END,
                         lease_owner = NULL,
                         lease_token = NULL,
                         lease_expires_at = NULL,
                         updated_at = clock_timestamp()
-                    WHERE task_id = $1 AND version = $7
+                    WHERE task_id = $1 AND tenant_id = $2 AND version = $8
                     RETURNING *
                     """,
-                    task_id, target.value, retry_count, stored_retryable,
+                    task_id, tenant_id, target.value, retry_count, stored_retryable,
                     error_code, retry_delay_seconds, expected_version,
                 )
                 if updated is None:

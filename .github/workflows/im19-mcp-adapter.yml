@@ -5,6 +5,10 @@ on:
     paths:
       - "src/ugai_mcp/**"
       - "src/ugai_decision/**"
+      - "src/ugai_workflow/**"
+      - "tests/test_workflow_*.py"
+      - "tests/test_postgres_store_contract.py"
+      - "tests/test_hybrid_worker.py"
       - "tests/test_im19_mcp_*.py"
       - "tests/test_decision_*.py"
       - "tests/test_supabase_audit.py"
@@ -27,6 +31,6 @@ jobs:
       - name: Install package and test dependencies
         run: python -m pip install -e ".[mcp,dev]"
       - name: Lint
-        run: ruff check src/ugai_mcp src/ugai_decision tests/test_im19_mcp_*.py tests/test_decision_*.py tests/test_supabase_audit.py
+        run: ruff check src/ugai_mcp src/ugai_decision src/ugai_workflow tests
       - name: Unit tests
         run: pytest -q tests

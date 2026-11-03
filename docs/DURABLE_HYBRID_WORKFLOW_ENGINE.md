@@ -27,7 +27,8 @@ The transition policy is deterministic and separate from model output. Every tra
 
 - Claim uses PostgreSQL row locking with SKIP LOCKED inside a short transaction.
 - Every claim issues a fresh random fencing token.
-- Heartbeat and transition require the worker ID, token, and unexpired lease to match.
+- Each store call sets a transaction-local tenant context; RLS predicates scope task, event and artifact rows to that tenant.
+- Heartbeat and transition require the tenant, worker ID, token, and unexpired lease to match.
 - State update and event append commit in one transaction.
 - A crashed worker leaves the last durable state. A new worker can reclaim the task after lease expiry.
 - Lease expiry does not prove that an external action failed. Reconcile with the same idempotency key before retrying uncertain side effects.
@@ -45,7 +46,7 @@ The transition policy is deterministic and separate from model output. Every tra
 
 1. Generate the actual migration with `supabase migration new create_ugai_workflow_runtime`; copy the reviewed schema blueprint into that generated file.
 2. Apply only to an isolated Supabase development branch first.
-3. Create a dedicated database login and grant membership in `ugai_workflow_runtime`. Do not connect workers as the database owner or broad service role.
+3. Create a dedicated database login and grant membership in `ugai_workflow_runtime`. The worker must set tenant context only from authenticated task metadata, never from model output. Do not connect workers as the database owner or broad service role.
 4. Keep the workflow schema outside the exposed Data API schemas. Do not grant `anon` or `authenticated` access.
 5. Keep provider tokens in IM19 or an approved secret manager, never in RAG or task metadata.
 6. Run unit, PostgreSQL concurrency, staging integration, backup/restore and crash-recovery tests before production.
@@ -54,6 +55,7 @@ The transition policy is deterministic and separate from model output. Every tra
 
 - Concurrent workers cannot hold the same live lease.
 - A stale worker cannot heartbeat or transition after lease replacement.
+- Cross-tenant task reads, claims, heartbeats and transitions are denied by RLS even if a caller knows another tenant's task UUID.
 - A stale task version is rejected without appending an event.
 - An idempotency key cannot be reused with a different actor, task type, or payload digest.
 - Unapproved execution, missing clarification, blind retry, terminal-state edits and unapproved blocked recovery are rejected.

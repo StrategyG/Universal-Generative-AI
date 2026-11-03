@@ -28,6 +28,7 @@ class WorkerTier(StrEnum):
 class WorkerRegistration:
     worker_id: str
     tier: WorkerTier
+    tenant_id: str
     task_types: tuple[str, ...]
     lease_seconds: int = 45
     heartbeat_seconds: int = 12
@@ -35,6 +36,8 @@ class WorkerRegistration:
     def validate(self) -> None:
         if not isinstance(self.worker_id, str) or not self.worker_id.strip() or len(self.worker_id) > 128:
             raise ValueError("worker_id_invalid")
+        if not isinstance(self.tenant_id, str) or not self.tenant_id.strip() or len(self.tenant_id) > 128:
+            raise ValueError("worker_tenant_id_invalid")
         if not self.task_types or any(
             not isinstance(item, str) or not item.strip() or len(item) > 128
             for item in self.task_types
@@ -99,6 +102,7 @@ class HybridWorker:
 
     async def run_once(self) -> bool:
         task = await self.store.claim_next(
+            tenant_id=self.registration.tenant_id,
             worker_id=self.registration.worker_id,
             supported_task_types=self.registration.task_types,
             lease_seconds=self.registration.lease_seconds,
@@ -150,6 +154,7 @@ class HybridWorker:
             task_id=task.task_id,
             expected_version=task.version,
             target=outcome.next_state,
+            tenant_id=task.tenant_id,
             actor_id=task.actor_id,
             reason_code=outcome.reason_code,
             lease=lease,
@@ -173,6 +178,7 @@ class HybridWorker:
                 try:
                     await self.store.heartbeat(
                         task_id=task.task_id,
+                        tenant_id=task.tenant_id,
                         lease=lease,
                         lease_seconds=self.registration.lease_seconds,
                     )

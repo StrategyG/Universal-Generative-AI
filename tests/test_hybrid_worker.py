@@ -47,6 +47,7 @@ def sample_task():
         version=4,
         lease_token=uuid4(),
         actor_id="trusted-actor",
+        tenant_id="tenant-001",
         task_type="rag_observe",
     )
 
@@ -55,6 +56,7 @@ def registration():
     return WorkerRegistration(
         worker_id="local-worker-1",
         tier=WorkerTier.INLINE,
+        tenant_id="tenant-001",
         task_types=("rag_observe",),
         lease_seconds=6,
         heartbeat_seconds=1,
@@ -63,7 +65,7 @@ def registration():
 
 def test_worker_registration_rejects_duplicate_capabilities() -> None:
     config = WorkerRegistration(
-        "worker-1", WorkerTier.DEDICATED, ("render", "render"), 45, 10
+        "worker-1", WorkerTier.DEDICATED, "tenant-001", ("render", "render"), 45, 10
     )
     with pytest.raises(ValueError, match="must_be_unique"):
         config.validate()
@@ -71,7 +73,7 @@ def test_worker_registration_rejects_duplicate_capabilities() -> None:
 
 def test_worker_registration_requires_heartbeat_below_half_lease() -> None:
     config = WorkerRegistration(
-        "worker-1", WorkerTier.INLINE, ("rag_observe",), 10, 5
+        "worker-1", WorkerTier.INLINE, "tenant-001", ("rag_observe",), 10, 5
     )
     with pytest.raises(ValueError, match="less_than_half"):
         config.validate()
