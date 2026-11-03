@@ -22,7 +22,7 @@ Generate a unique password locally. Example on Linux/macOS:
 openssl rand -hex 32
 ```
 
-Put the generated value in `POSTGRES_PASSWORD` and use the same value in `TARGET_DATABASE_URL`. Keep the password URL-safe; the hex output above is URL-safe. Do not commit `.env`.
+Put the generated value in `POSTGRES_PASSWORD` and use the same value in `TARGET_DATABASE_URL`. Keep the password URL-safe; the hex output above is URL-safe. Do not commit `.env`. Leave the source and Google Drive migration settings empty until their credentials and folder are prepared. Generate the independent archive key with `openssl rand -base64 32` and store it in `UGAI_EXPORT_ENCRYPTION_KEY_B64` only in the local ignored `.env` file or a secret manager.
 
 Start PostgreSQL:
 
@@ -54,7 +54,14 @@ pg_dump --version
 pg_restore --version
 ```
 
-Export the local target DSN from the protected `.env` file into the process environment. Also provide `SOURCE_DATABASE_URL` from the Supabase database connection settings, `GOOGLE_DRIVE_FOLDER_ID`, `UGAI_EXPORT_ENCRYPTION_KEY_B64` (a securely generated 32-byte key encoded as Base64), and the Google service-account credential path as documented in the migration guide. Do not paste or commit any secret.
+Load the protected local variables into the shell running the migration:
+```bash
+set -a
+. ./.env
+set +a
+```
+
+Also provide `SOURCE_DATABASE_URL` from the Supabase database connection settings, `GOOGLE_DRIVE_FOLDER_ID`, `UGAI_EXPORT_ENCRYPTION_KEY_B64` (a securely generated 32-byte key encoded as Base64), and the Google service-account credential path in `GOOGLE_APPLICATION_CREDENTIALS`. The Google service account must have access to the restricted destination folder. Do not paste or commit any secret.
 
 Run the non-destructive preflight first:
 
