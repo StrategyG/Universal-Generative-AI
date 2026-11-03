@@ -2,6 +2,12 @@
 
 Status: Roadmap. Phases are not complete until evidence is attached.
 
+## Current release status (verified 2026-11-03)
+
+The Supabase `production_release_decision_v1` currently reports `NO_GO`: 2/9 technical gates passed and 0/4 operational gates passed. The readiness view reports zero attested embedding artifacts, zero completed staging embeddings meeting the verified-model gate, zero qualified independent human reviewers, zero formally approved/published cited excerpts, zero independently authored 50-question evaluation sets, and zero complete 50-case evaluation runs. AI triage is advisory only (528 observed), and the hold/index alignment gate passes (293/293). The source catalog currently has 432 discovered and 2 chunked source documents; do not describe the corpus as fully indexed.
+
+This release decision is authoritative for the current project state. Do not enable production Agentic Hybrid RAG or label the system production-ready until all P0/P1 gates and operational attestations pass.
+
 ## Phase 0 — Baseline and safeguards
 
 - Preserve current `main`; work in a feature branch and use pull requests.
