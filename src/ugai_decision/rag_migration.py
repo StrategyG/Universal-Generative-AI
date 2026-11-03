@@ -28,7 +28,7 @@ ACTOR_FK_MIGRATIONS = (
     ("institutional_rag.embedding_model_approvals", "embedding_model_approvals_attested_by_fkey", "attested_by"),
     ("institutional_rag.production_release_evidence", "production_release_evidence_attested_by_fkey", "attested_by"),
 )
-ENCRYPTED_MAGIC = b"UGAI-DB-DUMP-AES256GCM-v1\\x00"
+ENCRYPTED_MAGIC = b"UGAI-DB-DUMP-AES256GCM-v1"
 
 
 class MigrationError(RuntimeError):
@@ -187,6 +187,18 @@ def _target_preflight(connection) -> None:
             "Destination PostgreSQL does not provide required extension(s): "
             + ", ".join(row[0] for row in required)
         )
+    wrong_schema_extensions = connection.execute(
+        """
+        SELECT e.extname,n.nspname
+        FROM pg_extension e JOIN pg_namespace n ON n.oid=e.extnamespace
+        WHERE e.extname IN ('vector','pgcrypto') AND n.nspname <> 'extensions'
+        """
+    ).fetchall()
+    if wrong_schema_extensions:
+        raise MigrationError(
+            "Existing vector/pgcrypto extension must be installed in schema extensions: "
+            + ", ".join(f"{name}@{schema}" for name, schema in wrong_schema_extensions)
+        )
     dangerous_roles = connection.execute(
         """
         SELECT rolname FROM pg_roles
@@ -285,9 +297,10 @@ def _secure_runtime_access(connection) -> None:
               AND c.relkind IN ('r','p','v','m')
           LOOP
             IF item.relkind IN ('v','m') THEN
-              EXECUTE format('ALTER VIEW %I.%I SET (security_invoker=true)',
-                             item.schema_name,item.table_name)
-                WHERE item.relkind='v';
+              IF item.relkind='v' THEN
+                EXECUTE format('ALTER VIEW %I.%I SET (security_invoker=true)',
+                               item.schema_name,item.table_name);
+              END IF;
               EXECUTE format('GRANT SELECT ON %I.%I TO ugai_runtime',
                              item.schema_name,item.table_name);
             ELSE
@@ -320,6 +333,9 @@ def _secure_runtime_access(connection) -> None:
     )
     connection.execute(
         "GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA rag,institutional_rag TO ugai_runtime"
+    )
+    connection.execute(
+        "REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA rag,institutional_rag FROM PUBLIC,anon,authenticated"
     )
     connection.execute(
         "GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA rag,institutional_rag TO ugai_runtime"
@@ -471,6 +487,8 @@ def run_migration(*, apply: bool) -> dict[str, Any]:
                 ],
                 env=env,
             )
+            # Release the long-lived exported source snapshot as soon as the dump is complete.
+            source.commit()
             assert key is not None
             encrypted_sha256 = _encrypt_dump(dump_path, encrypted_path, key)
             manifest["encrypted_dump_sha256"] = encrypted_sha256
@@ -558,6 +576,11 @@ def _drive_archive_manifest_only(manifest_path: Path, folder_id: str, _env: dict
 
 
 def main() -> int:
+    try:
+        import psycopg
+    except ImportError:
+        print("Install the optional dependency group: pip install -e '.[rag-migration]'", file=__import__("sys").stderr)
+        return 2
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--apply", action="store_true",
