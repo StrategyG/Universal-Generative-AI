@@ -2,6 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://strategyg.example/contracts/plan-spec.schema.json",
   "title": "UGAI Workflow Plan",
+  "$comment": "Planner output is a proposal only. Server policy must re-evaluate risk, data classification, tool authorization, confirmation requirements, and aggregate budgets.",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "workflow_type", "goal", "risk_class", "data_classification", "steps", "budgets", "policy_version"],
