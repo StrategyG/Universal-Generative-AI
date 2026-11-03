@@ -70,7 +70,7 @@ Template request example:
 
 The server derives risk and side-effect classifications from its own action registry. Client-provided risk/side-effect hints cannot downgrade an action. Unknown actions fail closed as risk 5 and require human approval. Plans receive a stable `plan_id` and creation timestamp. With PostgreSQL configured they persist across API restarts in `workflow_plans`; development memory mode is volatile. Retrieval is tenant/owner/project scoped. Plans still return `execution_enabled=false` and `not_configured` stage statuses until durable step execution, sandboxing, artifact trust, and audit controls are implemented.
 
-See [Institutional Workflow Control](docs/INSTITUTIONAL_WORKFLOW_CONTROL.md) and [Institutional Production Gates](docs/INSTITUTIONAL_PRODUCTION_GATES.md).
+See [Institutional Workflow Control](docs/INSTITUTIONAL_WORKFLOW_CONTROL.md), [Institutional Production Gates](docs/INSTITUTIONAL_PRODUCTION_GATES.md), [Master Engineering Specification](docs/MASTER_ENGINEERING_SPECIFICATION.md), and [Engineering Acceptance Matrix](docs/ENGINEERING_ACCEPTANCE_MATRIX.md) for the implementation traceability, branch topology, exact-SHA validation evidence, and release acceptance criteria.
 
 ## Plan a multimodal workflow
 
@@ -164,3 +164,14 @@ When PostgreSQL is configured, `/api/v1/generate` writes its running and termina
 ## Status
 
 **Advanced prototype scaffold; not production-ready.** The repository does not contain newly trained foundation-model weights. The Diffusers adapter loads a configured pretrained checkpoint; the mock adapter is for tests only. Pipeline plans are contracts and resource estimates, not proof that a pipeline can execute.
+
+
+## Engineering specification and release policy
+
+The engineering roadmap, architecture boundaries, API/event contracts, security model, RAG/model/agent acceptance criteria, SLO proposals and certification workflow are defined in:
+
+- [Master Engineering Specification](docs/MASTER_ENGINEERING_SPECIFICATION.md)
+- [Institutional Production Gates](docs/INSTITUTIONAL_PRODUCTION_GATES.md)
+- [Institutional Workflow Control](docs/INSTITUTIONAL_WORKFLOW_CONTROL.md)
+
+The master specification is a requirements baseline, not proof of implementation. The current inspected hardening baseline remains NO-GO until every mandatory gate passes with evidence tied to an exact release candidate.
