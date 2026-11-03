@@ -4,13 +4,14 @@ A modular platform for generative AI workflows, multimodal generation, and exten
 
 ## Repository status
 
-**Architecture and contracts are under design review. Runtime capabilities are not yet implemented or production-ready.** This branch establishes the system architecture, security boundaries, integration contracts, and validation rules. It does not claim a deployed application.
+**Architecture, contracts, and an initial retrieval runtime are implemented on this feature branch, but the application is not deployed or production-ready.** The branch now includes a FastAPI retrieval endpoint, a typed Institutional RAG adapter, a fail-closed Supabase gateway, least-privilege release-gate SQL setup, and automated tests. Full chat orchestration, provider routing, ingestion workers, and production deployment remain incomplete.
 
 ## Architecture documentation
 
 - [Reference architecture](docs/REFERENCE_ARCHITECTURE.md)
 - [Hybrid architecture overview](docs/ARCHITECTURE.md)
 - [Institutional RAG integration contract](docs/INTEGRATION_CONTRACT.md)
+- [Runtime integration and deployment runbook](docs/RUNTIME_INTEGRATION.md)
 - [Modular Agentic RAG execution specification](docs/AGENTIC_RAG_EXECUTION_SPEC.md)
 - [Private notebook RAG and tenant isolation](docs/PRIVATE_NOTEBOOK_RAG_AND_TENANCY.md)
 - [Secure ingestion and indexing](docs/INGESTION_AND_INDEXING_SPEC.md)
