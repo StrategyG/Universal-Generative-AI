@@ -17,7 +17,9 @@ The orchestrator may initially be a module inside UGAI. Keep its interfaces depl
 - UGAI default branch `main` contains only `README.md`; the README says initialization only and explicitly says planned features are not implemented.
 - Supabase project has PostgreSQL 17 and pgvector 0.8.2.
 - Legacy `rag`: 383 documents and 26,186 chunks. Semantic retrieval checks 384-dimensional normalized vectors and the `intfloat/multilingual-e5-small` model.
-- `institutional_rag`: 434 source documents and 1,109 chunks; contains evidence review, embedding attestation, evaluation, web evidence staging, knowledge relation staging, and synthesis staging.
+- `institutional_rag`: 434 source documents and 1,109 chunks; current source status query shows 432 `discovered` and 2 `chunked`, so this count is not equivalent to 434 indexed/approved sources. It contains evidence review, embedding attestation, evaluation, web evidence staging, knowledge relation staging, and synthesis staging.
+- Live `production_readiness_v1` reports `NO_GO`: 2 of 9 technical gates pass and 0 of 4 operational gates pass. Critical unmet gates include attested embedding model, 30 verified staging embeddings, two independent real reviewers, at least one approved/published cited excerpt, and 50 independently authored/scored evaluation cases.
+- The current evaluation inventory has 34 active cases and 38 result rows; this is not the required independent 50-case release evaluation.
 - `institutional_rag.search_staged_hybrid_v1` is explicitly marked `UNAPPROVED_INTERNAL_RESEARCH_ONLY`. It is not a production answer retrieval path.
 - Active Edge Function `institutional-rag-search` is version 4, uses custom `x-rag-api-key` authentication, has `verify_jwt=false`, and currently calls `public.im19_match_trusted_v1` (approved keyword retrieval).
 - 21 institutional tables have RLS enabled with no policies; service-role grants exist for operational access. Do not add broad policies merely to clear advisor findings.
