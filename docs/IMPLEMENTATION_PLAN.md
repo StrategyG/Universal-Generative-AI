@@ -36,6 +36,12 @@ Exit: clean install, deterministic test suite, CI green, no hardcoded secrets.
 
 ## Phase 3 — Retrieval integration
 
+- Keep Supabase PostgreSQL + pgvector as the active primary vector backend; keep the legacy and Institutional corpora separate.
+- Use the Institutional RAG service adapter for governed evidence; do not query staging tables directly from the chat path.
+- Keep a provider-neutral VectorStore interface. Astra DB remains an optional future adapter and must not become a second evidence authority.
+- If an external vector index is introduced later, populate it through a durable outbox/projector and revalidate every candidate against Supabase before citation.
+- Use query-planning schemas, per-subquestion retrieval budgets, hybrid lexical/vector retrieval, RRF within corpus/tier, and evidence/claim ledgers.
+
 - Implement RAG client adapter and typed evidence model.
 - Keep legacy `rag` and `institutional_rag` as separate corpora.
 - Keep approved and staging retrieval isolated.
