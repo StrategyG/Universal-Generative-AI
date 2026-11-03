@@ -39,13 +39,20 @@ def _field(value, snake_name: str, camel_name: str, default=None):
 
 class ToolPolicy:
     def __init__(self, allowed_tools=()) -> None:
-        self.allowed = frozenset(x for x in allowed_tools if x)
+        if isinstance(allowed_tools, (str, bytes)) or not isinstance(
+            allowed_tools, (set, frozenset, list, tuple)
+        ):
+            raise ValueError("Tool allowlist must be a collection of names")
+        if any(not isinstance(name, str) or not name for name in allowed_tools):
+            raise ValueError("Tool allowlist contains an invalid name")
+        self.allowed = frozenset(allowed_tools)
 
     def evaluate(self, tool) -> ToolDecision:
         name = _get(tool, "name", "")
         if not isinstance(name, str) or not name:
             return ToolDecision(False, "invalid_name")
-        if name in _DENIED_TOOL_NAMES:
+        unqualified_name = name.rsplit("__", 1)[-1]
+        if name in _DENIED_TOOL_NAMES or unqualified_name in _DENIED_TOOL_NAMES:
             return ToolDecision(False, "hard_denied_tool")
         if name not in self.allowed:
             return ToolDecision(False, "not_allowlisted")
