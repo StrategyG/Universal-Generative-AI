@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://strategyg.example/contracts/evidence-record.schema.json",
+  "title": "UGAI Evidence Record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "evidence_id", "corpus_id", "source_id", "source_title", "source_hash",
+    "locator", "excerpt", "retrieval_method", "relevance_score",
+    "evidence_tier", "review_status", "publication_state",
+    "trusted", "user_citation_eligible", "retrieved_at"
+  ],
+  "properties": {
+    "evidence_id": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "corpus_id": { "enum": ["institutional_approved", "legacy_rag", "private_research"] },
+    "source_id": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "chunk_id": { "type": ["string", "null"], "maxLength": 256 },
+    "source_title": { "type": "string", "minLength": 1, "maxLength": 1000 },
+    "source_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "source_url": { "type": ["string", "null"], "format": "uri", "maxLength": 4096 },
+    "locator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["locator_type"],
+      "properties": {
+        "locator_type": { "enum": ["pdf_page", "section", "web_anchor", "timestamp", "record"] },
+        "page_start": { "type": ["integer", "null"], "minimum": 1 },
+        "page_end": { "type": ["integer", "null"], "minimum": 1 },
+        "section": { "type": ["string", "null"], "maxLength": 1000 },
+        "anchor": { "type": ["string", "null"], "maxLength": 2048 },
+        "timestamp_start_ms": { "type": ["integer", "null"], "minimum": 0 },
+        "timestamp_end_ms": { "type": ["integer", "null"], "minimum": 0 }
+      }
+    },
+    "excerpt": { "type": "string", "minLength": 1, "maxLength": 12000 },
+    "retrieval_method": { "enum": ["keyword", "semantic", "hybrid_rrf", "reranked"] },
+    "relevance_score": { "type": "number" },
+    "rank": { "type": "integer", "minimum": 1 },
+    "evidence_tier": { "enum": ["approved", "legacy", "private_staging"] },
+    "review_status": { "enum": ["approved", "pending", "rejected", "unknown"] },
+    "publication_state": { "enum": ["published", "unpublished", "revoked", "unknown"] },
+    "trusted": { "type": "boolean" },
+    "user_citation_eligible": { "type": "boolean" },
+    "retrieved_at": { "type": "string", "format": "date-time" },
+    "embedding_profile": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "model_id": { "type": "string" },
+        "artifact_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "dimension": { "type": "integer", "minimum": 1 },
+        "verified": { "type": "boolean" }
+      }
+    },
+    "warnings": { "type": "array", "items": { "type": "string", "maxLength": 500 }, "maxItems": 20 }
+  }
+}
