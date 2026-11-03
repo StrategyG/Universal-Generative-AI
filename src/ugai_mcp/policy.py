@@ -4,8 +4,10 @@ IM19 0.3 currently registers tools without MCP read-only annotations. Therefore,
 the explicit UGAI allowlist is the authoritative operator approval. If the server
 does supply safety annotations, contradictory or destructive annotations deny access.
 """
+
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any, Iterable
+from typing import Any
 
 
 _MISSING = object()
