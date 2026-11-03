@@ -11,14 +11,11 @@ import hashlib
 import json
 import os
 import re
-import shutil
 import subprocess
 import tempfile
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
-from urllib.parse import quote, unquote, urlsplit, urlunsplit, parse_qsl, urlencode
 
 
 SCHEMAS = ("rag", "institutional_rag")
@@ -36,7 +33,7 @@ class MigrationError(RuntimeError):
 
 
 def _pgpass_escape(value: str) -> str:
-    return value.replace("\\\\", "\\\\\\\\").replace(":", "\\\\:")
+    return value.replace("\\", "\\\\").replace(":", "\\:")
 
 
 def _dsn_parts(dsn: str) -> dict[str, str]:
@@ -107,7 +104,7 @@ def _run(command: list[str], *, env: dict[str, str]) -> None:
 
 
 def _major_version(version_text: str) -> int:
-    match = re.search(r"\\b(\\d+)(?:\\.\\d+)?", version_text)
+    match = re.search(r"\b(\d+)(?:\.\d+)?", version_text)
     if not match:
         raise MigrationError(f"Could not parse PostgreSQL utility version: {version_text}")
     return int(match.group(1))
@@ -174,24 +171,33 @@ def _target_preflight(connection) -> None:
             f"Destination already contains RAG schema(s): {names}. "
             "Use a new empty PostgreSQL database; automatic overwrite is disabled."
         )
-    required = connection.execute(
-        """
-        SELECT name FROM (VALUES ('vector'),('pgcrypto')) AS wanted(name)
-        WHERE NOT EXISTS (
-          SELECT 1 FROM pg_available_extensions a WHERE a.name=wanted.name
-        )
-        """
-    ).fetchall()
-    if required:
+    if connection.execute(
+        "SELECT 1 FROM pg_namespace WHERE nspname='auth'"
+    ).fetchone():
         raise MigrationError(
-            "Destination PostgreSQL does not provide required extension(s): "
-            + ", ".join(row[0] for row in required)
+            "Destination already has an auth schema. Use a dedicated empty PostgreSQL database."
         )
+    available = {
+        name: version
+        for name, version in connection.execute(
+            "SELECT name,default_version FROM pg_available_extensions WHERE name = ANY(%s)",
+            (list(REQUIRED_EXTENSIONS),),
+        ).fetchall()
+    }
+    for extension, minimum in REQUIRED_EXTENSIONS.items():
+        if extension not in available:
+            raise MigrationError(f"Destination does not provide required extension: {extension}")
+        if tuple(int(part) for part in available[extension].split(".")[:2]) < tuple(
+            int(part) for part in minimum.split(".")[:2]
+        ):
+            raise MigrationError(
+                f"Destination {extension} version {available[extension]} is older than {minimum}"
+            )
     wrong_schema_extensions = connection.execute(
         """
         SELECT e.extname,n.nspname
         FROM pg_extension e JOIN pg_namespace n ON n.oid=e.extnamespace
-        WHERE e.extname IN ('vector','pgcrypto') AND n.nspname <> 'extensions'
+        WHERE e.extname IN ('vector','pgcrypto','uuid-ossp') AND n.nspname <> 'extensions'
         """
     ).fetchall()
     if wrong_schema_extensions:
@@ -202,7 +208,7 @@ def _target_preflight(connection) -> None:
     dangerous_roles = connection.execute(
         """
         SELECT rolname FROM pg_roles
-        WHERE rolname = ANY(%s) AND rolcanlogin
+        WHERE rolname = ANY(%s) AND (rolcanlogin OR rolsuper OR rolbypassrls)
         """,
         (["anon", "authenticated", "service_role", "ugai_runtime"],),
     ).fetchall()
@@ -343,6 +349,14 @@ def _secure_runtime_access(connection) -> None:
     connection.execute(
         "REVOKE ALL ON SCHEMA rag,institutional_rag FROM PUBLIC,anon,authenticated"
     )
+    connection.execute(
+        "ALTER DEFAULT PRIVILEGES IN SCHEMA rag,institutional_rag "
+        "GRANT SELECT,INSERT,UPDATE ON TABLES TO ugai_runtime"
+    )
+    connection.execute(
+        "ALTER DEFAULT PRIVILEGES IN SCHEMA rag,institutional_rag "
+        "GRANT EXECUTE ON FUNCTIONS TO ugai_runtime"
+    )
     connection.commit()
 
 
@@ -394,9 +408,6 @@ def run_migration(*, apply: bool) -> dict[str, Any]:
         raise MigrationError("GOOGLE_DRIVE_FOLDER_ID is required for --apply")
     key = _validate_encryption_key(os.environ.get("UGAI_EXPORT_ENCRYPTION_KEY_B64", "")) if apply else None
 
-    import psycopg
-    from psycopg.conninfo import make_conninfo
-
     source_safe, source_pgpass = _safe_dsn_and_pgpass(source_dsn)
     target_safe, target_pgpass = _safe_dsn_and_pgpass(target_dsn)
     if source_safe == target_safe:
@@ -411,7 +422,7 @@ def run_migration(*, apply: bool) -> dict[str, Any]:
         pgpass_lines = [line for line in (source_pgpass, target_pgpass) if line]
         env = os.environ.copy()
         if pgpass_lines:
-            pgpass_path.write_text("\\n".join(pgpass_lines) + "\\n", encoding="utf-8")
+            pgpass_path.write_text("\n".join(pgpass_lines) + "\n", encoding="utf-8")
             os.chmod(pgpass_path, 0o600)
             env["PGPASSFILE"] = str(pgpass_path)
 
@@ -527,8 +538,16 @@ def run_migration(*, apply: bool) -> dict[str, Any]:
                 )
             target_extensions = _extension_inventory(target)
             target_extension_map = {item["name"]: item for item in target_extensions}
-            if "vector" not in target_extension_map:
-                raise MigrationError("Destination vector extension is missing after restore")
+            for extension, minimum in REQUIRED_EXTENSIONS.items():
+                installed = target_extension_map.get(extension)
+                if installed is None:
+                    raise MigrationError(f"Destination extension is missing after restore: {extension}")
+                if tuple(int(part) for part in installed["version"].split(".")[:2]) < tuple(
+                    int(part) for part in minimum.split(".")[:2]
+                ):
+                    raise MigrationError(
+                        f"Destination {extension} version {installed['version']} is older than {minimum}"
+                    )
 
             manifest["migration_state"] = "restored_and_row_count_verified"
             manifest["target_postgresql_major"] = target_version // 10000
