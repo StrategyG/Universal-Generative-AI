@@ -1,4 +1,4 @@
-# UGAI Durable Hybrid Workflow Engine — V1.0
+# UGAI Durable Hybrid Workflow Engine — V1.1
 
 **Status:** implementation is staged on this feature branch. The SQL file in this PR is a schema blueprint only. No live Supabase migration, database update, production credential, or worker deployment is claimed.
 
@@ -42,6 +42,16 @@ The transition policy is deterministic and separate from model output. Every tra
 - Model self-critique cannot mark a task verified.
 - A task reaches succeeded only after external completion gates pass and evidence is recorded.
 - Append-only events protect against ordinary application mutation; stronger evidence retention needs external signed checkpoints or WORM storage.
+
+
+## Existing DecisionWorkflow integration
+
+- `DecisionWorkflowTaskHandler` is the durable task adapter for the existing `ugai_decision.DecisionWorkflow`; it does not introduce a second decision engine.
+- `decision_evaluation` tasks advance through `received -> observing -> planning -> awaiting_approval`. Evidence collection, decision scoring, plan construction, approval request and decision audit remain inside `DecisionWorkflow`.
+- Task metadata carries only a protected `context_ref`. `DecisionInputResolver` must resolve it using both tenant and actor authorization; raw questions, evidence text and model reasoning are not copied to the task row.
+- `DecisionResultStore` must atomically persist an encrypted, immutable result by tenant/task/idempotency key. A save error after approval creation is treated as an uncertain external outcome and blocks automatic retry.
+- Approval reference, decision digest and plan digest are stored on the task row. Re-entering `received` clears previous bindings. Stable task-scoped idempotency produces stable workflow/decision identifiers and the same approval gateway key across retries.
+- This adapter is injectable worker code, not a deployed HTTP API. The central task create/status/cancel API, real resolver/result-store implementations, approval callback and execution route are still release blockers.
 
 ## Deployment prerequisites
 
