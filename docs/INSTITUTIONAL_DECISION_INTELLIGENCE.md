@@ -143,14 +143,14 @@ interpreted as a system instruction.
 
 ## Validation evidence
 
-The first orchestration-runtime CI head
-`48ff017bbca34393a6cdfa31f472c5e7f76a4ad1` passed GitHub Actions run
-[41689523866](https://github.com/StrategyG/Universal-Generative-AI/actions/runs/41689523866):
-Ruff clean and 59 tests passed. Later changes add the immutable evidence
-manifest contract to the approval request and require a correctly typed
-expiration timestamp in the approval receipt; those changes require a fresh
-current-head CI run. CI verifies package installation, lint and mocked unit
-tests only, not live connector, approval or execution services.
+The orchestration runtime, approval evidence manifest and tests were
+validated on exact code/test commit
+`ea8f594c0bf7e434622fa2baac593cc4d6df99d1` in GitHub Actions run
+[41689797041](https://github.com/StrategyG/Universal-Generative-AI/actions/runs/41689797041):
+Ruff reported `All checks passed!` and the full suite reported
+`59 passed in 0.18s`. Later commits only update documentation. CI verifies
+package installation, lint and mocked unit tests, not live connector,
+production approval or execution services.
 
 ## Limitations and production gates
 
