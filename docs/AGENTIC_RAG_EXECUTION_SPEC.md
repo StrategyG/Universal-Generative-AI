@@ -13,6 +13,7 @@ Therefore:
 - PostgreSQL full-text search is the primary lexical backend.
 - RRF fuses eligible candidates only within an explicitly authorized corpus and evidence tier.
 - Legacy rag remains a separately labelled corpus.
+- Private notebook documents are a third user-scoped corpus with tenant/notebook ACLs; they are not Institutional RAG evidence.
 - Astra DB is not assumed to exist. It may later implement a VectorStore adapter or a replica index, but it cannot become an independent evidence authority.
 
 Do not dual-write an unreviewed copy of the current corpus to Astra DB. If a future performance or product requirement justifies it, use an outbox/projection pattern and revalidate every candidate against Supabase before it becomes citation-eligible.
@@ -89,7 +90,7 @@ For each subquestion:
 6. Run conversation memory search only in the current user's authorized scope.
 7. Preserve backend, corpus and method labels for all candidates.
 
-The same authorization and evidence eligibility predicates must be used by lexical and vector branches. If this cannot be proven, do not fuse the branches.
+The same authorization and evidence eligibility predicates must be used by lexical and vector branches. Private notebook scope is derived from verified identity and ACL checks; client-provided notebook/document IDs are intersected with the server-authorized set. If this cannot be proven, do not fuse the branches.
 
 ### Stage 5 — Fusion
 - Deduplicate on stable evidence/chunk ID and source/page.
@@ -120,7 +121,7 @@ Before context assembly, validate:
 - source content SHA-256 and indexed source SHA consistency;
 - exact page or section locator;
 - excerpt identity and size;
-- review and publication status from a server-trusted source;
+- review and publication status from a server-trusted source; for private notebook results, verify request-time ACL rather than requiring institutional publication;
 - embedding profile/model attestation when semantic retrieval was used;
 - current release decision and evidence expiry/revocation;
 - caller access scope.
