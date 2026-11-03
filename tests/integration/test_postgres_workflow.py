@@ -23,26 +23,43 @@ ADMIN_DSN = os.getenv("UGAI_WORKFLOW_TEST_ADMIN_URL")
 RUNTIME_DSN = os.getenv("UGAI_WORKFLOW_TEST_RUNTIME_URL")
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="function")
 async def workflow_database():
     if not ADMIN_DSN or not RUNTIME_DSN:
         pytest.skip("isolated PostgreSQL workflow service is not configured")
 
+    # asyncpg resources must be created and closed on the same event loop as the
+    # test using them. Function scope also prevents pool objects crossing loops.
     admin = await asyncpg.connect(ADMIN_DSN)
     runtime_pool = None
     try:
-        # The CI database is disposable. Supabase roles are created only here so
-        # the same private-schema blueprint can be exercised on vanilla Postgres.
-        await admin.execute("CREATE ROLE anon NOLOGIN")
-        await admin.execute("CREATE ROLE authenticated NOLOGIN")
-        await admin.execute("CREATE ROLE service_role NOLOGIN BYPASSRLS")
-        root = Path(__file__).resolve().parents[2]
-        blueprint = (
-            root / "docs" / "architecture" / "ugai-workflow-schema-blueprint.sql"
-        ).read_text(encoding="utf-8")
-        await admin.execute(blueprint)
-        await admin.execute(
-            "CREATE ROLE ugai_workflow_test LOGIN PASSWORD 'workflow-test-only'"
+        async def ensure_role(name: str, ddl: str) -> None:
+            exists = await admin.fetchval(
+                "SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = $1)", name
+            )
+            if not exists:
+                await admin.execute(ddl)
+
+        # These Supabase roles exist only in this disposable CI database.
+        await ensure_role("anon", "CREATE ROLE anon NOLOGIN")
+        await ensure_role("authenticated", "CREATE ROLE authenticated NOLOGIN")
+        await ensure_role(
+            "service_role", "CREATE ROLE service_role NOLOGIN BYPASSRLS"
+        )
+
+        schema_exists = await admin.fetchval(
+            "SELECT EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = 'ugai_workflow')"
+        )
+        if not schema_exists:
+            root = Path(__file__).resolve().parents[2]
+            blueprint = (
+                root / "docs" / "architecture" / "ugai-workflow-schema-blueprint.sql"
+            ).read_text(encoding="utf-8")
+            await admin.execute(blueprint)
+
+        await ensure_role(
+            "ugai_workflow_test",
+            "CREATE ROLE ugai_workflow_test LOGIN PASSWORD 'workflow-test-only'",
         )
         await admin.execute(
             "GRANT ugai_workflow_runtime TO ugai_workflow_test"
