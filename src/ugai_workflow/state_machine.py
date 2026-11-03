@@ -108,13 +108,19 @@ def validate_transition(
     if not isinstance(max_retries, int) or not 0 <= max_retries <= 2:
         raise TransitionDenied("max_retries_out_of_bounds")
 
-    if destination is TaskState.EXECUTING and source is TaskState.AWAITING_APPROVAL:
-        if not approval_verified:
-            raise TransitionDenied("verified_human_approval_required")
+    if (
+        destination is TaskState.EXECUTING
+        and source is TaskState.AWAITING_APPROVAL
+        and not approval_verified
+    ):
+        raise TransitionDenied("verified_human_approval_required")
 
-    if source is TaskState.AWAITING_CLARIFICATION and destination is TaskState.OBSERVING:
-        if not clarification_received:
-            raise TransitionDenied("clarification_required")
+    if (
+        source is TaskState.AWAITING_CLARIFICATION
+        and destination is TaskState.OBSERVING
+        and not clarification_received
+    ):
+        raise TransitionDenied("clarification_required")
 
     if source is TaskState.FAILED and destination is TaskState.RECEIVED:
         if not retryable:
@@ -122,8 +128,11 @@ def validate_transition(
         if retry_count >= max_retries:
             raise TransitionDenied("retry_limit_reached")
 
-    if source is TaskState.BLOCKED and destination is TaskState.OBSERVING:
-        if not operator_override:
-            raise TransitionDenied("operator_override_required")
+    if (
+        source is TaskState.BLOCKED
+        and destination is TaskState.OBSERVING
+        and not operator_override
+    ):
+        raise TransitionDenied("operator_override_required")
 
     return source, destination

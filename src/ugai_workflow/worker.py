@@ -95,7 +95,7 @@ class HybridWorker:
         if store is None:
             raise ValueError("workflow_store_required")
         if not isinstance(handlers, Mapping):
-            raise ValueError("handlers_must_be_mapping")
+            raise TypeError("handlers_must_be_mapping")
         self.store = store
         self.registration = registration
         self.handlers = dict(handlers)
@@ -141,7 +141,7 @@ class HybridWorker:
                 )
             except asyncio.CancelledError:
                 raise
-            except Exception:
+            except (OSError, TimeoutError, RuntimeError, TypeError, ValueError):
                 outcome = WorkerOutcome(
                     next_state=TaskState.FAILED,
                     reason_code="unhandled_worker_error",
@@ -182,7 +182,7 @@ class HybridWorker:
                         lease=lease,
                         lease_seconds=self.registration.lease_seconds,
                     )
-                except Exception:
+                except (OSError, TimeoutError, RuntimeError):
                     lost_lease.set()
                     return
 

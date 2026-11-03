@@ -88,7 +88,7 @@ class WorkflowTask:
     metadata: Mapping[str, Any]
 
     @classmethod
-    def from_record(cls, row: Mapping[str, Any]) -> "WorkflowTask":
+    def from_record(cls, row: Mapping[str, Any]) -> WorkflowTask:
         raw_metadata = row["metadata"]
         if isinstance(raw_metadata, str):
             raw_metadata = json.loads(raw_metadata)
@@ -120,7 +120,7 @@ class WorkflowTask:
 def canonical_json_digest(value: Mapping[str, Any]) -> str:
     """Return a stable digest for bounded JSON metadata, never hidden reasoning."""
     if not isinstance(value, Mapping):
-        raise ValueError("json_value_must_be_object")
+        raise TypeError("json_value_must_be_object")
     try:
         encoded = json.dumps(
             value,
@@ -145,7 +145,7 @@ def _safe_metadata(value: Mapping[str, Any] | None) -> dict[str, str]:
     if value is None:
         return {}
     if not isinstance(value, Mapping):
-        raise ValueError("metadata_must_be_object")
+        raise TypeError("metadata_must_be_object")
     result: dict[str, str] = {}
     for key, item in value.items():
         if key not in _SAFE_METADATA_KEYS:
@@ -160,16 +160,16 @@ def _safe_event_details(value: Mapping[str, Any] | None) -> dict[str, str | int 
     if value is None:
         return {}
     if not isinstance(value, Mapping):
-        raise ValueError("event_metadata_must_be_object")
+        raise TypeError("event_metadata_must_be_object")
     result: dict[str, str | int | bool] = {}
     for key, item in value.items():
         if key not in _SAFE_EVENT_KEYS:
             raise ValueError("event_metadata_key_not_allowlisted")
-        if isinstance(item, bool):
-            result[key] = item
-        elif isinstance(item, int) and 0 <= item <= 2**31 - 1:
-            result[key] = item
-        elif isinstance(item, str) and item.strip() and len(item) <= 255:
+        if (
+            isinstance(item, bool)
+            or (isinstance(item, int) and 0 <= item <= 2**31 - 1)
+            or (isinstance(item, str) and item.strip() and len(item) <= 255)
+        ):
             result[key] = item
         else:
             raise ValueError("event_metadata_value_invalid")
@@ -214,7 +214,7 @@ class PostgresWorkflowStore:
             safe_metadata, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
         )
 
-        async with self._pool.acquire() as connection:
+        async with self._pool.acquire() as connection:  # noqa: SIM117
             async with connection.transaction():
                 await connection.fetchval(
                     "SELECT set_config('app.ugai_tenant_id', $1, true)", tenant_id
@@ -270,7 +270,7 @@ class PostgresWorkflowStore:
 
     async def get_task(self, *, task_id: UUID, tenant_id: str) -> WorkflowTask:
         _validate_text("tenant_id", tenant_id, 128)
-        async with self._pool.acquire() as connection:
+        async with self._pool.acquire() as connection:  # noqa: SIM117
             async with connection.transaction():
                 await connection.fetchval(
                     "SELECT set_config('app.ugai_tenant_id', $1, true)", tenant_id
@@ -302,7 +302,7 @@ class PostgresWorkflowStore:
             raise ValueError("lease_seconds_out_of_bounds")
 
         states = [state.value for state in CLAIMABLE_STATES]
-        async with self._pool.acquire() as connection:
+        async with self._pool.acquire() as connection:  # noqa: SIM117
             async with connection.transaction():
                 await connection.fetchval(
                     "SELECT set_config('app.ugai_tenant_id', $1, true)", tenant_id
@@ -363,7 +363,7 @@ class PostgresWorkflowStore:
         _validate_text("tenant_id", tenant_id, 128)
         if not isinstance(lease_seconds, int) or not 5 <= lease_seconds <= 900:
             raise ValueError("lease_seconds_out_of_bounds")
-        async with self._pool.acquire() as connection:
+        async with self._pool.acquire() as connection:  # noqa: SIM117
             async with connection.transaction():
                 await connection.fetchval(
                     "SELECT set_config('app.ugai_tenant_id', $1, true)", tenant_id
@@ -424,7 +424,7 @@ class PostgresWorkflowStore:
             event_details, sort_keys=True, separators=(",", ":"), allow_nan=False
         )
 
-        async with self._pool.acquire() as connection:
+        async with self._pool.acquire() as connection:  # noqa: SIM117
             async with connection.transaction():
                 await connection.fetchval(
                     "SELECT set_config('app.ugai_tenant_id', $1, true)", tenant_id
