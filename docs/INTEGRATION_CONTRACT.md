@@ -23,7 +23,9 @@ Request:
   "query": "string",
   "request_id": "uuid",
   "scope": {
-    "corpus": ["institutional_approved", "legacy_rag"],
+    "corpus": ["institutional_approved", "legacy_rag", "private_notebook"],
+    "notebook_ids": ["authorized-notebook-id"],
+    "document_ids": [],
     "knowledge_domains": [],
     "source_ids": [],
     "as_of": null
@@ -39,8 +41,10 @@ Rules:
 - `limit`: integer 1-10.
 - `strategy`: enum; initial allowed value remains `approved_keyword` until an approved hybrid RPC and evaluation gate exist.
 - Caller identity and tenant scope come from verified authentication, never from client-supplied owner IDs.
+- Private notebook IDs are resource selectors only. The server intersects them with the caller's current membership/ACL before retrieval; tenant_id is never accepted as authority from the body.
 - Unknown corpus, domain, or strategy is rejected.
-- Staging retrieval requires a separate privileged route and explicit research mode.
+- Private notebook retrieval is request-scoped and requires current notebook ACL checks.
+- Private staging retrieval requires a separate privileged route and explicit research mode.
 
 Response:
 
