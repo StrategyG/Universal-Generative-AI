@@ -3,12 +3,19 @@ from types import SimpleNamespace
 import pytest
 
 from ugai_mcp.audit import MCPAuditEvent
+from ugai_mcp.auth import IM19_REQUIRED_SCOPES
 from ugai_mcp.client import AuditUnavailable, IM19MCPClient
 from ugai_mcp.config import IM19Config
 
 
 class TokenProvider:
-    async def get_access_token(self, *, resource: str) -> str:
+    def __init__(self):
+        self.requested_resource = None
+        self.requested_scopes = None
+
+    async def get_access_token(self, *, resource: str, scopes: tuple[str, ...]) -> str:
+        self.requested_resource = resource
+        self.requested_scopes = scopes
         return "short-lived-test-token"
 
 
@@ -42,21 +49,22 @@ def make_client(audit):
         allowed_hosts=frozenset({"im19.example"}),
         allowed_tools=frozenset({"youtube_get_channel"}),
     )
+    tokens = TokenProvider()
     client = IM19MCPClient(
         config=config,
-        token_provider=TokenProvider(),
+        token_provider=tokens,
         audit_sink=audit,
         actor_id="authenticated-user-123",
     )
     client._session = FakeSession()
     client._tools = {"youtube_get_channel": object()}
-    return client
+    return client, tokens
 
 
 @pytest.mark.asyncio
 async def test_tool_call_is_audited_without_arguments_or_result_body():
     audit = RecordingAudit()
-    client = make_client(audit)
+    client, _ = make_client(audit)
     result = await client.call_tool("youtube_get_channel", {"private": "sensitive-value"})
 
     assert result["status"] == "success"
@@ -70,7 +78,7 @@ async def test_tool_call_is_audited_without_arguments_or_result_body():
 @pytest.mark.asyncio
 async def test_audit_start_failure_prevents_remote_execution():
     audit = RecordingAudit(fail_on_call=1)
-    client = make_client(audit)
+    client, _ = make_client(audit)
 
     with pytest.raises(AuditUnavailable) as error:
         await client.call_tool("youtube_get_channel", {"x": "y"})
@@ -82,13 +90,26 @@ async def test_audit_start_failure_prevents_remote_execution():
 @pytest.mark.asyncio
 async def test_audit_completion_failure_reports_uncertain_execution():
     audit = RecordingAudit(fail_on_call=2)
-    client = make_client(audit)
+    client, _ = make_client(audit)
 
     with pytest.raises(AuditUnavailable) as error:
         await client.call_tool("youtube_get_channel", {})
 
     assert error.value.execution_may_have_completed is True
     assert client._session.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_token_provider_receives_exact_resource_and_required_read_scope():
+    audit = RecordingAudit()
+    client, tokens = make_client(audit)
+    await client._tokens.get_access_token(
+        resource=client._config.resource,
+        scopes=IM19_REQUIRED_SCOPES,
+    )
+
+    assert tokens.requested_resource == "https://im19.example"
+    assert tokens.requested_scopes == ("im19:read",)
 
 
 def test_runtime_requires_trusted_actor_identity():
