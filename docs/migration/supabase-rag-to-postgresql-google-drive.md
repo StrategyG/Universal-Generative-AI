@@ -65,7 +65,7 @@ Do not mark pending or unreviewed evidence as trusted or published during migrat
 
 - PostgreSQL 17+ destination with `pgvector` 0.8.2+ and `pgcrypto` available.
 - PostgreSQL client utilities `pg_dump` and `pg_restore` version 17+.
-- A Google Cloud service-account JSON file with write access to a restricted Google Drive folder or Shared Drive. The uploader sends `supportsAllDrives=true` for Shared Drive compatibility.
+- A Google Cloud service-account JSON file with write access to a restricted folder inside a Google Shared Drive. Standalone service accounts cannot upload into their own My Drive storage; the uploader sends `supportsAllDrives=true` and verifies the target folder is writable.
 - A 32-byte encryption key encoded as Base64.
 - For original file transfer, the Dropbox connection and permission to read the original source files.
 
@@ -73,8 +73,8 @@ Do not mark pending or unreviewed evidence as trusted or published during migrat
 
 Set these in a protected shell or secret store. Never put them in Git, notebooks, chat messages, or logs.
 
-- `SOURCE_DATABASE_URL`: source Supabase PostgreSQL connection string, with SSL required.
-- `TARGET_DATABASE_URL`: new PostgreSQL connection string, with SSL required.
+- `SOURCE_DATABASE_URL`: source Supabase PostgreSQL connection string, with `sslmode=require`.
+- `TARGET_DATABASE_URL`: new PostgreSQL connection string; use `sslmode=require` for a remote target. The loopback-only local Docker target may use its local non-TLS connection.
 - `GOOGLE_APPLICATION_CREDENTIALS`: path to the Google service-account JSON file.
 - `GOOGLE_DRIVE_FOLDER_ID`: restricted destination folder ID.
 - `UGAI_EXPORT_ENCRYPTION_KEY_B64`: Base64 of exactly 32 random bytes.
