@@ -7,7 +7,8 @@ CREATE SCHEMA IF NOT EXISTS ugai_identity;
 CREATE TABLE IF NOT EXISTS ugai_identity.actors (
     id uuid PRIMARY KEY,
     actor_kind text NOT NULL DEFAULT 'human_or_service_actor',
-    active boolean NOT NULL DEFAULT true,
+    active boolean NOT NULL DEFAULT false,
+    email_confirmed_at timestamptz,
     created_at timestamptz NOT NULL DEFAULT now()
 );
 
