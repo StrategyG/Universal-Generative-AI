@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import time
 import uuid
 from collections.abc import Mapping
@@ -15,6 +16,8 @@ from .audit import AuditSink, make_audit_event
 from .auth import IM19_REQUIRED_SCOPES, AccessTokenProvider
 from .config import IM19Config
 from .policy import ToolPolicy
+
+logger = logging.getLogger(__name__)
 
 
 class MCPIntegrationError(RuntimeError):
@@ -261,8 +264,8 @@ class IM19MCPClient:
                     error_code="CALL_CANCELLED",
                     execution_may_have_completed=True,
                 ))
-            except Exception:
-                pass
+            except AuditUnavailable:
+                logger.warning("ugai_mcp_cancel_audit_failed")
             raise
         except Exception as exc:
             await self._write_audit(
