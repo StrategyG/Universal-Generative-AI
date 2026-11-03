@@ -8,7 +8,6 @@ No raw decision input or model reasoning is copied into the workflow task row.
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Protocol
 from uuid import UUID
