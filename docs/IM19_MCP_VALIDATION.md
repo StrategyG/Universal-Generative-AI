@@ -12,11 +12,17 @@ The adapter package includes tests for:
 - Trusted actor identity is required by the workflow provider facade.
 - Exact OAuth resource audience and `im19:read` scope are passed to the token-provider interface.
 
+## MCP SDK compatibility
+
+- Targets the repository's locked MCP Python SDK `2.3.x` using `streamable_http_client` and `httpx2.AsyncClient`.
+- Uses SDK 2.x snake_case model fields (`input_schema`, `is_error`, `read_only_hint`, `destructive_hint`) while serializing protocol objects with Pydantic aliases.
+- Explicitly bounds connection pool, timeout and SSE event size; cross-origin redirects are disabled at the HTTP client.
+
 ## CI evidence
 
-- Exact UGAI PR #6 head: `2f4eecb5e27796dc70025e060111434b7d6a4dc5`.
-- GitHub Actions run [41683758167](https://github.com/StrategyG/Universal-Generative-AI/actions/runs/41683758167): package installation PASS, Ruff PASS, 38 unit tests PASS.
-- This workflow validates adapter code and unit contracts only. It does not exercise a live IM19 endpoint or OAuth issuer.
+- Current UGAI PR #6 head: `76c65e54dced8b179bd9efc8c2f035dbd172b29f`.
+- GitHub Actions run [41703308083](https://github.com/StrategyG/Universal-Generative-AI/actions/runs/41703308083): dependency install PASS, Ruff PASS, 42 tests PASS.
+- The CI workflow validates the adapter package, policy, audit behavior and SDK 2.x transport contract. It does not exercise a live IM19 endpoint or OAuth issuer.
 
 ## Runtime components
 
