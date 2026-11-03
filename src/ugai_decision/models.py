@@ -1,7 +1,9 @@
 """Typed, validated input and output contracts for decision intelligence."""
+
 from __future__ import annotations
-from dataclasses import dataclass, field
+
 import math
+from dataclasses import dataclass, field
 
 
 def _required_text(name: str, value: str) -> None:
@@ -11,7 +13,7 @@ def _required_text(name: str, value: str) -> None:
 
 def _unit_interval(name: str, value: float) -> None:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise ValueError(f"{name} must be a finite number between 0 and 1")
+        raise TypeError(f"{name} must be a finite number between 0 and 1")
     if not math.isfinite(value) or not 0 <= value <= 1:
         raise ValueError(f"{name} must be a finite number between 0 and 1")
 
@@ -23,6 +25,7 @@ class EvidenceItem:
     Records with the same independence_group are treated as correlated. The
     engine counts only the strongest record in each group for sufficiency.
     """
+
     evidence_id: str
     topic: str
     position: str
@@ -41,14 +44,15 @@ class EvidenceItem:
         for name in ("source_reliability", "evidence_quality", "relevance", "freshness"):
             _unit_interval(name, getattr(self, name))
         if not isinstance(self.verified, bool):
-            raise ValueError("verified must be a boolean")
+            raise TypeError("verified must be a boolean")
         if self.provenance_uri is not None and not isinstance(self.provenance_uri, str):
-            raise ValueError("provenance_uri must be a string or None")
+            raise TypeError("provenance_uri must be a string or None")
 
 
 @dataclass(frozen=True, slots=True)
 class StrategicOption:
     """A proposed strategic action; estimates must come from upstream analysis."""
+
     option_id: str
     name: str
     role: str
@@ -68,18 +72,22 @@ class StrategicOption:
         if self.role not in {"hedge", "bet"}:
             raise ValueError("role must be 'hedge' or 'bet'")
         if not isinstance(self.evidence_ids, tuple):
-            raise ValueError("evidence_ids must be a tuple")
+            raise TypeError("evidence_ids must be a tuple")
         if any(not isinstance(item, str) or not item.strip() for item in self.evidence_ids):
             raise ValueError("evidence_ids must contain non-empty strings")
         if len(set(self.evidence_ids)) != len(self.evidence_ids):
             raise ValueError("evidence_ids must not contain duplicates")
-        for name in ("expected_upside", "probability_success", "downside_loss", "strategic_fit", "cost", "reversibility", "risk_mitigation", "max_allocation"):
+        for name in (
+            "expected_upside", "probability_success", "downside_loss", "strategic_fit",
+            "cost", "reversibility", "risk_mitigation", "max_allocation",
+        ):
             _unit_interval(name, getattr(self, name))
 
 
 @dataclass(frozen=True, slots=True)
 class DecisionRequest:
     """A bounded decision problem, including explicit holistic context."""
+
     question: str
     evidence: tuple[EvidenceItem, ...]
     options: tuple[StrategicOption, ...]
@@ -97,11 +105,11 @@ class DecisionRequest:
     def __post_init__(self) -> None:
         _required_text("question", self.question)
         if not isinstance(self.evidence, tuple) or not isinstance(self.options, tuple):
-            raise ValueError("evidence and options must be tuples")
+            raise TypeError("evidence and options must be tuples")
         if not all(isinstance(item, EvidenceItem) for item in self.evidence):
-            raise ValueError("evidence must contain EvidenceItem values")
+            raise TypeError("evidence must contain EvidenceItem values")
         if not all(isinstance(item, StrategicOption) for item in self.options):
-            raise ValueError("options must contain StrategicOption values")
+            raise TypeError("options must contain StrategicOption values")
         evidence_ids = [item.evidence_id for item in self.evidence]
         option_ids = [item.option_id for item in self.options]
         if len(set(evidence_ids)) != len(evidence_ids):
@@ -114,11 +122,16 @@ class DecisionRequest:
                 raise ValueError(f"option {option.option_id!r} references unknown evidence IDs")
         for field_name in ("system_factors", "stakeholder_impacts", "time_horizons", "assumptions"):
             values = getattr(self, field_name)
-            if not isinstance(values, tuple) or any(not isinstance(value, str) or not value.strip() for value in values):
+            if not isinstance(values, tuple) or any(
+                not isinstance(value, str) or not value.strip() for value in values
+            ):
                 raise ValueError(f"{field_name} must be a tuple of non-empty strings")
         if self.risk_tolerance not in {"defensive", "balanced", "opportunity_seeking"}:
             raise ValueError("risk_tolerance must be defensive, balanced, or opportunity_seeking")
-        for name in ("evidence_threshold", "reserve_floor", "hedge_target", "max_bet_allocation", "risk_budget"):
+        for name in (
+            "evidence_threshold", "reserve_floor", "hedge_target",
+            "max_bet_allocation", "risk_budget",
+        ):
             _unit_interval(name, getattr(self, name))
         if self.reserve_floor + self.hedge_target > 1:
             raise ValueError("reserve_floor + hedge_target must not exceed 1")
@@ -163,7 +176,10 @@ class DecisionResult:
 
     def allocation_for(self, option_id: str) -> float:
         """Return selected allocation, or zero when the option was not selected."""
-        return next((item.allocation for item in self.allocations if item.option_id == option_id), 0.0)
+        return next(
+            (item.allocation for item in self.allocations if item.option_id == option_id),
+            0.0,
+        )
 
     def to_dict(self) -> dict[str, object]:
         """Return a JSON-serializable structure for workflow/API boundaries."""
@@ -174,14 +190,18 @@ class DecisionResult:
             "independent_source_count": self.independent_source_count,
             "conflict_topics": list(self.conflict_topics),
             "assessments": [
-                {"option_id": x.option_id, "role": x.role, "score": x.score,
-                 "evidence_coverage": x.evidence_coverage, "expected_value": x.expected_value,
-                 "conflict_topics": list(x.conflict_topics), "rationale": list(x.rationale)}
+                {
+                    "option_id": x.option_id, "role": x.role, "score": x.score,
+                    "evidence_coverage": x.evidence_coverage, "expected_value": x.expected_value,
+                    "conflict_topics": list(x.conflict_topics), "rationale": list(x.rationale),
+                }
                 for x in self.assessments
             ],
             "allocations": [
-                {"option_id": x.option_id, "role": x.role, "allocation": x.allocation,
-                 "downside_contribution": x.downside_contribution}
+                {
+                    "option_id": x.option_id, "role": x.role, "allocation": x.allocation,
+                    "downside_contribution": x.downside_contribution,
+                }
                 for x in self.allocations
             ],
             "reserve_allocation": self.reserve_allocation,
