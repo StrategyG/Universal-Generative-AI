@@ -51,7 +51,7 @@ def test_event_metadata_rejects_secrets_and_free_text() -> None:
 
 @pytest.mark.parametrize(
     ("attempt", "expected"),
-    [(0, 30), (1, 60), (2, 120), (3, 240), (7, 3840), (16, 3600), (32, 3600)],
+    [(0, 30), (1, 60), (2, 120), (3, 240), (7, 3600), (16, 3600), (32, 3600)],
 )
 def test_retry_backoff_is_exponential_and_capped(attempt, expected) -> None:
     assert retry_backoff_seconds(attempt) == expected
