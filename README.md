@@ -2,33 +2,30 @@
 
 A modular platform for generative AI workflows, designed to support multimodal generation pipelines and extensible model providers.
 
+## MCP integration
+
+The UGAI branch now contains a reusable, fail-closed IM19 remote MCP client package under `src/ugai_mcp/`.
+
+- IM19 owns MCP transport, OAuth resource authentication, provider OAuth, encrypted provider credentials, provider-side quotas and audit.
+- UGAI owns orchestration, OAuth token-provider integration, dynamic tool discovery, workflow-specific allowlists and execution policy.
+- Remote connection uses the deployed IM19 HTTPS Streamable HTTP resource ending in `/mcp`. A GitHub repository URL is not a runtime endpoint.
+- Supabase may store non-secret integration metadata and redacted audit events; credentials, access tokens, refresh tokens, OAuth codes and encryption keys must remain outside RAG.
+
+### Implemented in this branch
+
+- HTTPS-only endpoint validation and exact `/mcp` path requirement.
+- OAuth token-provider interface bound to the configured IM19 resource audience.
+- MCP initialize and dynamic `tools/list` discovery using the official Python MCP SDK.
+- Default-deny tool policy: explicit allowlist plus server read-only annotation and non-destructive annotation required.
+- Bounded calls, timeout, serialized response-size limit and fail-closed error mapping.
+- Unit tests for the tool policy.
+
+### Not yet complete
+
+This is an adapter implementation, not proof of a live connection. A deployment-specific OAuth token provider, IM19 HTTPS deployment, live issuer/client/resource registration, workflow runtime wiring, redacted audit sink, and staging end-to-end tests are still required. No live provider credentials or secrets are stored in this repository.
+
+See [docs/IM19_MCP_INTEGRATION.md](docs/IM19_MCP_INTEGRATION.md) and the [IM19 server repository](https://github.com/StrategyG/im19-universal-mcp).
+
 ## Repository status
 
-This repository is being initialized. No production capability is claimed until implementation, automated tests, security checks, and deployment validation are completed.
-
-## Engineering principles
-
-- Modular architecture with explicit interfaces for model providers.
-- Configuration through environment variables; never commit secrets.
-- Reproducible development and test workflows.
-- Input validation, resource limits, and safe failure handling.
-- Automated tests and CI before production release.
-
-## Planned capability areas
-
-- Image generation and image asset processing.
-- 3D asset generation and conversion (for example, PNG to GLB) through validated model/tool integrations.
-- 3D rendering and video generation (for example, GLB to video) through explicit rendering backends.
-- Job orchestration, artifact storage, and observability.
-
-These are roadmap areas, not implemented features yet.
-
-## MCP integration status
-
-The MCP server is maintained in [StrategyG/im19-universal-mcp](https://github.com/StrategyG/im19-universal-mcp). UGAI is intended to consume it as an authenticated remote MCP client over HTTPS Streamable HTTP. The integration contract is documented in [docs/IM19_MCP_INTEGRATION.md](docs/IM19_MCP_INTEGRATION.md); no client adapter or live connection is implemented yet.
-
-## Status
-
-**Initialization only — not production-ready.** The MCP integration is currently a documented contract, not a functioning integration.
-
-Next steps: implement the provider-neutral MCP client, OAuth token provider, dynamic tool registry, deny-by-default policy layer, bounded execution and redacted audit interface; then add end-to-end staging tests.
+UGAI remains an evolving platform. Do not describe the whole platform or this connector as production-ready until the runtime, security, operational and live integration acceptance gates pass.
