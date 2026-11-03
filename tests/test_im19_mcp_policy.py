@@ -46,13 +46,14 @@ def test_allowlisted_im19_tool_without_annotations_is_supported():
     assert decision.reason == "operator_allowlisted"
 
 
-def test_high_risk_tools_are_hard_denied_even_if_allowlisted():
+def test_privileged_tools_are_hard_denied_even_if_allowlisted():
     dangerous = {
         "request_service_authorization",
         "confirm_service_authorization",
         "disconnect_service",
         "drive_read_file",
         "drive_create_folder",
+        "drive_get_write_approval_status",
         "cloudbrowser_get_task",
         "cloudbrowser_list_tasks",
     }
