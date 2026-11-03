@@ -214,7 +214,7 @@ async def test_retry_scheduler_requeues_only_due_retryable_failures(workflow_dat
     events = await admin.fetch(
         """
         SELECT event_type FROM ugai_workflow.events
-        WHERE task_id = $1 ORDER BY task_version, created_at
+        WHERE task_id = $1 ORDER BY task_version, occurred_at
         """,
         task.task_id,
     )
