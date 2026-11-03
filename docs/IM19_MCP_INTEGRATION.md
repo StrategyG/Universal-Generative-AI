@@ -4,7 +4,7 @@ Status: reusable UGAI remote MCP adapter and framework-neutral tool-provider fac
 
 The MCP server is maintained in https://github.com/StrategyG/im19-universal-mcp. UGAI consumes it as a remote MCP client over authenticated Streamable HTTP after a real HTTPS deployment exists. A repository URL is not a server endpoint.
 
-Implementation: [UGAI PR #6](https://github.com/StrategyG/Universal-Generative-AI/pull/6). Package `src/ugai_mcp/` includes strict endpoint/resource validation, an injected OAuth token-provider interface, MCP session initialization, dynamic tool discovery, a framework-neutral workflow provider, default-deny policy, mandatory redacted audit and bounded execution.
+Implementation: [UGAI PR #6](https://github.com/StrategyG/Universal-Generative-AI/pull/6). Package `src/ugai_mcp/` includes strict endpoint/resource/host validation, an injected OAuth token-provider interface, MCP session initialization, dynamic tool discovery, a framework-neutral workflow provider, default-deny policy, mandatory redacted audit and bounded execution.
 
 ## Ownership and trust boundaries
 
@@ -47,17 +47,30 @@ A durable audit sink is mandatory for tool execution. The adapter writes a redac
 
 ## Configuration and secrets
 
-The adapter validates `IM19_MCP_URL` (HTTPS, exact `/mcp` path), `IM19_MCP_RESOURCE` (absolute HTTPS URI), timeout, response-size limit and explicit tool allowlist. OAuth token acquisition is an injected `AccessTokenProvider`; implement it against the registered OAuth issuer and secret manager. No static bearer token is supported or committed.
+Required deployment variables:
+```dotenv
+IM19_MCP_URL=https://mcp.example.org/mcp
+IM19_MCP_RESOURCE=https://mcp.example.org
+IM19_MCP_ALLOWED_HOSTS=mcp.example.org
+IM19_ALLOWED_READ_TOOLS=list_available_services,get_service_capabilities,get_connection_status,youtube_get_channel,youtube_list_videos,youtube_get_analytics,drive_search_files,drive_list_folder,drive_get_metadata
+IM19_MCP_TIMEOUT_SECONDS=20
+IM19_MCP_MAX_RESULT_BYTES=1000000
+```
+
+Replace the example hostname with the exact deployed IM19 DNS hostname. The endpoint and OAuth resource must use the same host. Wildcards, IP-literal hosts, non-default ports, URL credentials, query strings and fragments are rejected. The allowlist is an application-level guardrail, **not a complete SSRF defense**: production network egress policy must independently block loopback, private, link-local and cloud metadata destinations and must address DNS rebinding.
+
+OAuth token acquisition is an injected `AccessTokenProvider`; implement it against the registered OAuth issuer and secret manager. No static bearer token is supported or committed.
 
 Supabase may store non-secret integration metadata, approved tool manifests, workflow references and redacted audit records. It must not store MCP bearer tokens, Google refresh tokens, encryption keys, OAuth codes or browser cookies. RAG retrieval is not an authorization decision or source of executable tool permissions.
 
 ## Remaining live-connection gates
 
 1. Deploy IM19 behind public HTTPS and verify the exact MCP resource URL.
-2. Register UGAI as an OAuth client with the exact IM19 resource audience and required read scope.
-3. Implement and test the deployment-specific token provider using managed secrets.
-4. Implement a durable, access-controlled audit sink and test its fail-closed behavior.
-5. Attach `IM19ToolProvider.discover/execute` to the deployed UGAI workflow registry.
-6. Run staging tests for initialize, tools/list, approved read-only calls, invalid/expired/wrong-audience tokens, insufficient scope, 401/403, 429/503, timeout, oversized result and cross-tenant isolation.
+2. Apply egress firewall/resolver policy and test private, loopback, link-local, metadata and DNS-rebinding destinations.
+3. Register UGAI as an OAuth client with the exact IM19 resource audience and required read scope.
+4. Implement and test the deployment-specific token provider using managed secrets.
+5. Implement a durable, access-controlled audit sink and test its fail-closed behavior.
+6. Attach `IM19ToolProvider.discover/execute` to the deployed UGAI workflow registry.
+7. Run staging tests for initialize, tools/list, approved read-only calls, invalid/expired/wrong-audience tokens, insufficient scope, 401/403, 429/503, timeout, oversized result and cross-tenant isolation.
 
 No live integration or production readiness is claimed until these tests pass against deployed services.
