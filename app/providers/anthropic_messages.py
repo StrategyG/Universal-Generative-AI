@@ -68,6 +68,10 @@ class AnthropicMessagesProvider(NativeTextProvider):
             "anthropic-version": self.api_version,
         }
 
+    def _extra_payload(self) -> dict[str, object]:
+        """Additional Messages request fields; subclasses may override this hook."""
+        return {}
+
     async def _complete_once(
         self,
         system: str,
@@ -83,6 +87,7 @@ class AnthropicMessagesProvider(NativeTextProvider):
             "messages": [{"role": "user", "content": user}],
             "stream": False,
         }
+        payload.update(self._extra_payload())
         try:
             async with httpx.AsyncClient(
                 timeout=httpx.Timeout(self.timeout_seconds),
