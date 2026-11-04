@@ -67,6 +67,74 @@ def _validate_workflow_database_url(config: Settings) -> None:
             )
 
 
+
+async def _assert_restricted_runtime_role(pool: object) -> None:
+    """Prove the connected login is a non-owner member of the restricted runtime role."""
+    async with pool.acquire() as connection:
+        row = await connection.fetchrow(
+            """
+            SELECT
+                current_user AS role_name,
+                role.rolsuper AS is_superuser,
+                role.rolbypassrls AS bypasses_rls,
+                pg_has_role(current_user, 'ugai_workflow_runtime', 'member')
+                    AS runtime_role_member,
+                NOT pg_has_role(current_user, namespace.nspowner, 'member')
+                    AS not_schema_owner,
+                NOT EXISTS (
+                    SELECT 1
+                    FROM pg_class AS relation
+                    JOIN pg_namespace AS relation_namespace
+                      ON relation_namespace.oid = relation.relnamespace
+                    WHERE relation_namespace.nspname = 'ugai_workflow'
+                      AND relation.relname IN ('tasks', 'events', 'artifacts', 'inputs')
+                      AND pg_has_role(current_user, relation.relowner, 'member')
+                ) AS not_table_owner,
+                has_schema_privilege(current_user, 'ugai_workflow', 'USAGE')
+                    AS schema_usage,
+                has_table_privilege(
+                    current_user, 'ugai_workflow.tasks', 'SELECT'
+                ) AS task_select,
+                has_table_privilege(
+                    current_user, 'ugai_workflow.tasks', 'INSERT'
+                ) AS task_insert,
+                has_table_privilege(
+                    current_user, 'ugai_workflow.events', 'INSERT'
+                ) AS event_insert,
+                has_table_privilege(
+                    current_user, 'ugai_workflow.inputs', 'SELECT'
+                ) AS input_select,
+                has_table_privilege(
+                    current_user, 'ugai_workflow.inputs', 'INSERT'
+                ) AS input_insert
+            FROM pg_roles AS role
+            CROSS JOIN pg_namespace AS namespace
+            WHERE role.rolname = current_user
+              AND namespace.nspname = 'ugai_workflow'
+            """
+        )
+    required = (
+        "runtime_role_member",
+        "not_schema_owner",
+        "not_table_owner",
+        "schema_usage",
+        "task_select",
+        "task_insert",
+        "event_insert",
+        "input_select",
+        "input_insert",
+    )
+    if (
+        row is None
+        or row["is_superuser"]
+        or row["bypasses_rls"]
+        or any(not row[name] for name in required)
+    ):
+        raise RuntimeError(
+            "UGAI workflow database connection is not a restricted non-owner RLS runtime role"
+        )
+
+
 def _enabled_task_types(config: Settings) -> frozenset[str]:
     values = [item.strip() for item in config.workflow_enabled_task_types.split(",") if item.strip()]
     if any(len(item) > 128 for item in values) or len(set(values)) != len(values):
@@ -102,6 +170,7 @@ async def open_workflow_runtime(config: Settings = settings) -> WorkflowRuntime 
         max_inactive_connection_lifetime=300,
     )
     try:
+        await _assert_restricted_runtime_role(pool)
         store = PostgresWorkflowStore(pool)
         inputs = WorkflowInputVault(
             pool=pool,
