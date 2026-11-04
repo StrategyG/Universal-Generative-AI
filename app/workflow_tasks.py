@@ -32,7 +32,7 @@ from ugai_workflow.postgres_store import (
     StaleWorkflowVersion,
     TaskNotFound,
 )
-from ugai_workflow.state_machine import TaskState
+from ugai_workflow.state_machine import TaskState, TransitionDenied
 
 
 router = APIRouter(prefix=settings.api_prefix, tags=["workflow-tasks"])
@@ -314,6 +314,6 @@ async def cancel_task(
         ) from exc
     except TaskNotFound as exc:
         raise HTTPException(status_code=404, detail={"code": "task_not_found"}) from exc
-    except ValueError as exc:
+    except (TransitionDenied, ValueError) as exc:
         raise HTTPException(status_code=409, detail={"code": "task_state_not_cancellable"}) from exc
     return _status(cancelled)
