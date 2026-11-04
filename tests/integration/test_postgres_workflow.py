@@ -326,3 +326,60 @@ async def test_decision_approval_reference_and_digests_are_durable(workflow_data
     assert persisted.approval_reference == approval_reference
     assert persisted.decision_digest == decision_digest
     assert persisted.plan_digest == plan_digest
+
+
+
+@pytest.mark.asyncio
+async def test_uncertain_external_outcome_requires_unleased_evidence_reconciliation(
+    workflow_database,
+) -> None:
+    pool, _admin = workflow_database
+    store = PostgresWorkflowStore(pool)
+    tenant = f"tenant-{uuid4()}"
+    task = await store.create_task(
+        **new_task_args(tenant_id=tenant, suffix=str(uuid4()))
+    )
+    claimed = await store.claim_next(
+        tenant_id=tenant,
+        worker_id="worker-uncertain",
+        supported_task_types=("integration_work",),
+        lease_seconds=30,
+    )
+    assert claimed is not None
+
+    uncertain = await store.transition(
+        task_id=task.task_id,
+        tenant_id=tenant,
+        expected_version=claimed.version,
+        target=TaskState.OUTCOME_UNKNOWN,
+        actor_id=claimed.actor_id,
+        reason_code="external_outcome_unknown",
+        lease=LeaseIdentity("worker-uncertain", claimed.lease_token),
+        error_code="provider_outcome_unknown",
+    )
+    assert uncertain.state is TaskState.OUTCOME_UNKNOWN
+    assert uncertain.lease_token is None
+
+    with pytest.raises(PermissionError, match="reconciliation_evidence_required"):
+        await store.transition(
+            task_id=task.task_id,
+            tenant_id=tenant,
+            expected_version=uncertain.version,
+            target=TaskState.VERIFYING,
+            actor_id="trusted-reconciler",
+            reason_code="external_outcome_reconciled",
+            require_lease=False,
+        )
+
+    reconciled = await store.transition(
+        task_id=task.task_id,
+        tenant_id=tenant,
+        expected_version=uncertain.version,
+        target=TaskState.VERIFYING,
+        actor_id="trusted-reconciler",
+        reason_code="external_outcome_reconciled",
+        require_lease=False,
+        reconciliation_verified=True,
+        metadata={"evidence_digest": "e" * 64},
+    )
+    assert reconciled.state is TaskState.VERIFYING
