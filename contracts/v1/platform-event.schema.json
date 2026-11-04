@@ -100,7 +100,7 @@
           "type": "string",
           "format": "uri",
           "minLength": 1,
-          "pattern": "^https://[^\\s?#]+$"
+          "pattern": "^https://[^?#]+$"
         },
         "subject": {
           "type": "string",
@@ -202,4 +202,3 @@
     }
   }
 }
-
