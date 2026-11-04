@@ -42,9 +42,14 @@ def requirements(risk="moderate"):
 def test_selects_highest_quality_approved_primary_and_explicit_fallback():
     primary = route("primary", "reasoning_primary", "provider-a", "family-a", 95)
     lower = route("lower", "reasoning_primary", "provider-b", "family-b", 80)
+    same_provider_fallback = route(
+        "same-provider-fallback", "reasoning_fallback", "provider-a", "family-x", 99
+    )
     fallback = route("fallback", "reasoning_fallback", "provider-c", "family-c", 85)
 
-    decision = select_model_routes([lower, fallback, primary], requirements())
+    decision = select_model_routes(
+        [lower, same_provider_fallback, fallback, primary], requirements()
+    )
 
     assert decision.primary.route_id == "primary"
     assert decision.fallback.route_id == "fallback"
