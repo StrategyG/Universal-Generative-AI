@@ -38,6 +38,10 @@
     {
       "schema": "schemas/task.schema.json",
       "document": "invalid/task-invalid-terminal-state.json"
+    },
+    {
+      "schema": "schemas/task.schema.json",
+      "document": "invalid/task-missing-user-identity.json"
     }
   ]
 }
