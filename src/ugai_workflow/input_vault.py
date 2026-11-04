@@ -170,7 +170,7 @@ class WorkflowInputVault:
                     )
                     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
                     ON CONFLICT (tenant_id, actor_id, idempotency_key) DO NOTHING
-                    RETURNING input_ref, input_digest, project_id, workspace_id, expires_at
+                    RETURNING input_ref, payload_digest AS input_digest, project_id, workspace_id, expires_at
                     """,
                     input_ref, tenant_id, actor_id, project_id, workspace_id,
                     notebook_id, key_id, nonce, ciphertext, digest, idempotency_key,
