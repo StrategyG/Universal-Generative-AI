@@ -1,0 +1,259 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/StrategyG/Universal-Generative-AI/blob/ops/cataran-hourly-agent-automation/docs/operations/cataran-agent-dispatch.v1.schema.json",
+  "title": "Cataran Agent Dispatch v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "trigger",
+    "organization_idempotency_key",
+    "repository_idempotency_key",
+    "policy_version",
+    "repository",
+    "default_branch",
+    "observed_commit_sha",
+    "run",
+    "agents",
+    "repository_scope",
+    "task_checkpoint",
+    "requested_mode",
+    "stop_condition",
+    "continuation_policy",
+    "write_policy",
+    "audit_snapshot"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "cataran.agent-dispatch.v1"
+    },
+    "policy_version": {
+      "const": "cataran-agent-operating-model.v1"
+    },
+    "trigger": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "scheduled_cadence",
+        "utc_hour_key"
+      ],
+      "properties": {
+        "type": {
+          "enum": [
+            "schedule",
+            "workflow_dispatch"
+          ]
+        },
+        "scheduled_cadence": {
+          "const": "hourly"
+        },
+        "utc_hour_key": {
+          "type": "string",
+          "pattern": "^[0-9]{8}T[0-9]{2}$"
+        }
+      }
+    },
+    "organization_idempotency_key": {
+      "type": "string",
+      "minLength": 1
+    },
+    "repository_idempotency_key": {
+      "type": "string",
+      "minLength": 1
+    },
+    "repository": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+    },
+    "default_branch": {
+      "type": "string",
+      "minLength": 1
+    },
+    "observed_commit_sha": {
+      "type": "string",
+      "pattern": "^[a-fA-F0-9]{40,64}$"
+    },
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "attempt",
+        "url"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "attempt": {
+          "type": "string",
+          "minLength": 1
+        },
+        "url": {
+          "type": "string",
+          "format": "uri"
+        }
+      }
+    },
+    "agents": {
+      "type": "array",
+      "minItems": 9,
+      "maxItems": 9,
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "id",
+          "role",
+          "authority",
+          "read_access",
+          "write_access",
+          "eligible_for_task",
+          "task_owner_required",
+          "single_writer_enforced",
+          "task_path_allowlist_required"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^0[1-9]$"
+          },
+          "role": {
+            "type": "string",
+            "minLength": 1
+          },
+          "authority": {
+            "type": "string",
+            "minLength": 1
+          },
+          "read_access": {
+            "type": "string",
+            "minLength": 1
+          },
+          "write_access": {
+            "type": "boolean"
+          },
+          "primary_repositories": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "writable_path_classes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "acceptance": {
+            "type": "string"
+          },
+          "eligible_for_task": {
+            "type": "boolean"
+          },
+          "task_owner_required": {
+            "type": "boolean"
+          },
+          "single_writer_enforced": {
+            "const": true
+          },
+          "task_path_allowlist_required": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "repository_scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "current_repository",
+        "only_agents_with_write_access_may_receive_implementation_tasks",
+        "read_access_does_not_imply_write_ownership",
+        "task_must_name_one_owner_and_exact_paths"
+      ],
+      "properties": {
+        "current_repository": {
+          "type": "string"
+        },
+        "only_agents_with_write_access_may_receive_implementation_tasks": {
+          "const": true
+        },
+        "read_access_does_not_imply_write_ownership": {
+          "const": true
+        },
+        "task_must_name_one_owner_and_exact_paths": {
+          "const": true
+        }
+      }
+    },
+    "task_checkpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "checkpoint_cadence",
+        "checkpoint_is_not_a_task_deadline",
+        "resume_unfinished_from_durable_task_record",
+        "assign_next_unblocked_task_only_after_acceptance"
+      ],
+      "properties": {
+        "checkpoint_cadence": {
+          "const": "hourly"
+        },
+        "checkpoint_is_not_a_task_deadline": {
+          "const": true
+        },
+        "resume_unfinished_from_durable_task_record": {
+          "const": true
+        },
+        "assign_next_unblocked_task_only_after_acceptance": {
+          "const": true
+        }
+      }
+    },
+    "requested_mode": {
+      "const": "audit_prioritize_remediate_reverify"
+    },
+    "stop_condition": {
+      "type": "string",
+      "minLength": 1
+    },
+    "continuation_policy": {
+      "type": "string",
+      "minLength": 1
+    },
+    "write_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "allowed",
+        "forbidden",
+        "branch_prefix",
+        "require_review",
+        "one_writer_per_task"
+      ],
+      "properties": {
+        "allowed": {
+          "type": "string"
+        },
+        "forbidden": {
+          "type": "string"
+        },
+        "branch_prefix": {
+          "type": "string"
+        },
+        "require_review": {
+          "const": true
+        },
+        "one_writer_per_task": {
+          "const": true
+        }
+      }
+    },
+    "audit_snapshot": {
+      "type": "object"
+    }
+  }
+}
