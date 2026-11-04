@@ -19,6 +19,7 @@ from app.config import settings
 from app.tasks.schemas import TaskReceipt, TaskStatus, TaskSubmission
 from app.tasks.service import TaskCancellationConflict, UGAITaskService
 from ugai_workflow.postgres_store import IdempotencyConflict, TaskNotFound
+from ugai_workflow.state_machine import TaskState
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix=settings.api_prefix, tags=["tasks"])
@@ -156,3 +157,43 @@ async def cancel_task(
             detail={"code": "TASK_CANCELLATION_UNAVAILABLE", "retryable": True},
         ) from exc
     return _task_status(task, request_id)
+
+@router.get("/tasks/{task_id}/result")
+async def get_task_result(
+    task_id: UUID,
+    request_id: UUID = Header(alias="X-Request-ID"),
+    principal: Principal = Depends(get_current_principal),
+    service: UGAITaskService = Depends(get_task_service),
+) -> dict:
+    require_job_read_role(principal)
+    require_scope(principal, "ugai:tasks:read")
+    try:
+        task = await service.status(task_id=task_id, tenant_id=principal.tenant_id)
+        _assert_task_owner(task, principal)
+        _assert_workspace_access(task, principal)
+        if task.state is not TaskState.SUCCEEDED:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={"code": "TASK_RESULT_NOT_READY", "retryable": True},
+            )
+        result = await service.load_result(
+            task_id=task_id,
+            tenant_id=principal.tenant_id,
+            actor_id=principal.subject,
+        )
+    except TaskNotFound as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task result not found") from exc
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("UGAI task result lookup failed")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"code": "TASK_RESULT_UNAVAILABLE", "retryable": True},
+        ) from exc
+    return {
+        "task_id": str(task_id),
+        "request_id": str(request_id),
+        "result": result,
+    }
+
