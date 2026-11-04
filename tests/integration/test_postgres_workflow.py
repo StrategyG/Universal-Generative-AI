@@ -448,3 +448,86 @@ async def test_unleased_cancellation_cannot_revoke_worker_lease(workflow_databas
             require_no_lease=True,
         )
 
+@pytest.mark.asyncio
+async def test_task_results_are_encrypted_immutable_idempotent_and_tenant_scoped(workflow_database) -> None:
+    pool, admin = workflow_database
+    store = PostgresWorkflowStore(pool)
+    tenant = f"tenant-{uuid4()}"
+    actor = "notebook-result-owner"
+    task = await store.create_task(
+        **new_task_args(tenant_id=tenant, actor_id=actor, suffix=str(uuid4()))
+    )
+    result = {
+        "task_id": str(task.task_id),
+        "candidate_answer": "private reasoning output",
+        "verification_status": "needs_human_review",
+    }
+    cipher = TaskPayloadCipher(b"r" * 32, key_version="result-v1")
+    envelope = cipher.encrypt_json(result, tenant_id=tenant, task_id=task.task_id)
+    digest = hashlib.sha256(
+        __import__("json").dumps(
+            result, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
+        ).encode("utf-8")
+    ).hexdigest()
+
+    first = await store.save_task_result(
+        task_id=task.task_id,
+        tenant_id=tenant,
+        actor_id=actor,
+        encrypted_payload=envelope.ciphertext,
+        payload_nonce=envelope.nonce,
+        payload_key_version=envelope.key_version,
+        result_digest=digest,
+    )
+    repeated = await store.save_task_result(
+        task_id=task.task_id,
+        tenant_id=tenant,
+        actor_id=actor,
+        encrypted_payload=envelope.ciphertext,
+        payload_nonce=envelope.nonce,
+        payload_key_version=envelope.key_version,
+        result_digest=digest,
+    )
+    assert repeated.result_digest == first.result_digest
+    assert b"private reasoning output" not in first.ciphertext
+
+    loaded = await store.get_task_result(
+        task_id=task.task_id, tenant_id=tenant, actor_id=actor
+    )
+    recovered = cipher.decrypt_json(
+        EncryptedTaskPayload(
+            ciphertext=loaded.ciphertext,
+            nonce=loaded.nonce,
+            key_version=loaded.key_version,
+        ),
+        tenant_id=tenant,
+        task_id=task.task_id,
+    )
+    assert recovered == result
+
+    with pytest.raises(TaskNotFound):
+        await store.get_task_result(
+            task_id=task.task_id, tenant_id=f"other-{uuid4()}"
+        )
+    with pytest.raises(TaskNotFound):
+        await store.get_task_result(
+            task_id=task.task_id, tenant_id=tenant, actor_id="other-actor"
+        )
+    with pytest.raises(IdempotencyConflict):
+        await store.save_task_result(
+            task_id=task.task_id,
+            tenant_id=tenant,
+            actor_id=actor,
+            encrypted_payload=envelope.ciphertext,
+            payload_nonce=envelope.nonce,
+            payload_key_version=envelope.key_version,
+            result_digest="f" * 64,
+        )
+
+    role_result = await admin.fetchval(
+        """
+        SELECT rolbypassrls FROM pg_roles WHERE rolname = current_user
+        """
+    )
+    assert role_result is True  # administrative test connection only
+
