@@ -135,6 +135,8 @@ async def cancel_task(
             status_code=status.HTTP_409_CONFLICT,
             detail={"code": "TASK_CANCELLATION_CONFLICT", "retryable": False},
         ) from exc
+    except HTTPException:
+        raise
     except Exception as exc:
         logger.exception("UGAI task cancellation failed")
         raise HTTPException(
