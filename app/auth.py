@@ -128,6 +128,24 @@ def _scope_set(value: Any, claim_name: str) -> frozenset[str]:
     return frozenset(scopes)
 
 
+def _scope_set(value: Any, claim_name: str) -> frozenset[str]:
+    """Parse standard OIDC scope strings or explicit string arrays."""
+    if value is None:
+        return frozenset()
+    if isinstance(value, str):
+        values = value.split()
+    elif isinstance(value, list) and all(isinstance(item, str) for item in value):
+        values = value
+    else:
+        raise ValueError(
+            f"OIDC claim '{claim_name}' must be a scope string or array of strings"
+        )
+    scopes = [item.strip() for item in values if item.strip()]
+    if any(any(ch.isspace() for ch in item) for item in scopes):
+        raise ValueError("OIDC scope entries must be individual tokens")
+    return frozenset(scopes)
+
+
 def principal_from_claims(claims: dict[str, Any]) -> Principal:
     """Map verified OIDC claims into the platform's authorization context."""
     subject = claims.get("sub")
