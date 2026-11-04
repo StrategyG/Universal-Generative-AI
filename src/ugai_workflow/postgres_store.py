@@ -31,6 +31,7 @@ _SAFE_EVENT_KEYS = frozenset(
         "plan_digest",
         "test_reference",
         "verification_status",
+        "evidence_digest",
         "attempt",
         "retry_delay_seconds",
     }
@@ -437,6 +438,7 @@ class PostgresWorkflowStore:
         approval_verified: bool = False,
         clarification_received: bool = False,
         operator_override: bool = False,
+        reconciliation_verified: bool = False,
         retry_delay_seconds: int = 0,
         error_code: str | None = None,
         approval_reference: str | None = None,
@@ -511,6 +513,22 @@ class PostgresWorkflowStore:
                 elif lease is not None:
                     raise ValueError("lease_not_allowed_for_unleased_transition")
 
+                if reconciliation_verified and not (
+                    current.state is TaskState.OUTCOME_UNKNOWN
+                    and target is TaskState.VERIFYING
+                ):
+                    raise ValueError("reconciliation_flag_not_applicable")
+                if current.state is TaskState.OUTCOME_UNKNOWN and target is TaskState.VERIFYING:
+                    evidence_digest = event_details.get("evidence_digest")
+                    if (
+                        reconciliation_verified is not True
+                        or require_lease
+                        or lease is not None
+                        or not isinstance(evidence_digest, str)
+                        or not _SHA256.fullmatch(evidence_digest)
+                    ):
+                        raise ValueError("reconciliation_requires_unleased_verified_evidence")
+
                 validate_transition(
                     current.state,
                     target,
@@ -520,6 +538,7 @@ class PostgresWorkflowStore:
                     approval_verified=approval_verified,
                     clarification_received=clarification_received,
                     operator_override=operator_override,
+                    reconciliation_verified=reconciliation_verified,
                 )
 
                 retry_count = current.retry_count
