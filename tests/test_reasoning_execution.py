@@ -11,6 +11,7 @@ from app.providers.text_errors import TextGenerationProviderError
 from app.reasoning.execution import (
     PolicyRoutedTextExecutor,
     ReasoningEvaluatorUnavailable,
+    ReasoningRouteConfigurationError,
 )
 from app.reasoning.routing import ModelRouteDescriptor, RoutingRequirements
 
