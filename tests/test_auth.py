@@ -51,6 +51,7 @@ def test_oidc_token_signature_issuer_and_audience_are_verified(monkeypatch):
     principal = principal_from_claims(claims)
 
     assert principal.subject == "user-1"
+    assert principal.issuer == settings.oidc_issuer
     assert principal.tenant_id == "tenant-1"
     assert principal.roles == frozenset({"developer"})
     assert principal.project_ids == frozenset({"project-1"})
