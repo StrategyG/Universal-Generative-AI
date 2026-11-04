@@ -80,3 +80,30 @@ def test_cost_budget_failure_fails_closed():
 
     with pytest.raises(NoEligibleModelRoute):
         select_model_routes([expensive], req)
+
+
+def test_uses_lower_ranked_evaluator_when_best_route_exceeds_budget():
+    primary = route("primary", "reasoning_primary", "provider-a", "family-a", 95)
+    too_expensive = route(
+        "evaluator-expensive",
+        "independent_evaluator",
+        "provider-b",
+        "family-b",
+        99,
+        input_cost=200000,
+        output_cost=200000,
+    )
+    affordable = route(
+        "evaluator-affordable",
+        "independent_evaluator",
+        "provider-c",
+        "family-c",
+        80,
+    )
+
+    decision = select_model_routes(
+        [primary, too_expensive, affordable],
+        requirements("critical"),
+    )
+
+    assert decision.independent_evaluator.route_id == "evaluator-affordable"
