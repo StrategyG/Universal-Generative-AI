@@ -139,7 +139,7 @@ async def cancel_task(
         task = await service.cancel(
             task_id=task_id,
             tenant_id=principal.tenant_id,
-            actor_id=principal.subject,
+            actor_id=principal.actor_id,
         )
     except TaskNotFound as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found") from exc
@@ -179,7 +179,7 @@ async def get_task_result(
         result = await service.load_result(
             task_id=task_id,
             tenant_id=principal.tenant_id,
-            actor_id=principal.subject,
+            actor_id=principal.actor_id,
         )
     except TaskNotFound as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task result not found") from exc
