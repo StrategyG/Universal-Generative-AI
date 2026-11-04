@@ -2,6 +2,7 @@
 -- Apply to the PostgreSQL VM target only. This file does not modify Supabase.
 BEGIN;
 
+CREATE EXTENSION IF NOT EXISTS vector;
 CREATE SCHEMA IF NOT EXISTS ugai_sync;
 
 CREATE TABLE IF NOT EXISTS ugai_sync.stream_checkpoints (
@@ -27,9 +28,7 @@ CREATE TABLE IF NOT EXISTS ugai_sync.event_receipts (
     applied_at timestamptz NOT NULL DEFAULT now(),
     UNIQUE (stream_name, aggregate_key, event_id)
 );
-
-CREATE INDEX IF NOT EXISTS event_receipts_stream_applied_idx
-    ON ugai_sync.event_receipts (stream_name, applied_at DESC);
+CREATE INDEX IF NOT EXISTS event_receipts_stream_applied_idx ON ugai_sync.event_receipts (stream_name, applied_at DESC);
 
 CREATE TABLE IF NOT EXISTS ugai_sync.sync_runs (
     run_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -48,9 +47,7 @@ CREATE TABLE IF NOT EXISTS ugai_sync.sync_runs (
     metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
     CHECK ((status = 'running' AND finished_at IS NULL) OR status <> 'running')
 );
-
-CREATE INDEX IF NOT EXISTS sync_runs_stream_started_idx
-    ON ugai_sync.sync_runs (stream_name, started_at DESC);
+CREATE INDEX IF NOT EXISTS sync_runs_stream_started_idx ON ugai_sync.sync_runs (stream_name, started_at DESC);
 
 CREATE TABLE IF NOT EXISTS ugai_sync.quarantine (
     quarantine_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -63,10 +60,7 @@ CREATE TABLE IF NOT EXISTS ugai_sync.quarantine (
     resolved_at timestamptz,
     resolution text
 );
-
-CREATE INDEX IF NOT EXISTS quarantine_unresolved_idx
-    ON ugai_sync.quarantine (quarantined_at)
-    WHERE resolved_at IS NULL;
+CREATE INDEX IF NOT EXISTS quarantine_unresolved_idx ON ugai_sync.quarantine (quarantined_at) WHERE resolved_at IS NULL;
 
 CREATE TABLE IF NOT EXISTS ugai_sync.backup_manifests (
     backup_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -96,9 +90,7 @@ CREATE TABLE IF NOT EXISTS ugai_sync.audit_log (
     correlation_id uuid,
     details jsonb NOT NULL DEFAULT '{}'::jsonb
 );
-
-CREATE INDEX IF NOT EXISTS audit_log_occurred_idx
-    ON ugai_sync.audit_log (occurred_at DESC);
+CREATE INDEX IF NOT EXISTS audit_log_occurred_idx ON ugai_sync.audit_log (occurred_at DESC);
 
 COMMENT ON SCHEMA ugai_sync IS
     'UGAI hybrid synchronization control plane; contains metadata, receipts and checkpoints, not RAG source content.';
