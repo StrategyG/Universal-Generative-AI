@@ -98,6 +98,10 @@ Do not place secrets in environment files committed to source control. Runtime v
 7. Move payload encryption to KMS-backed envelope encryption with key rotation and recovery.
 8. Run unit, PostgreSQL RLS/concurrency, contract, cross-repository E2E, penetration, load, backup/restore and crash-recovery tests before production.
 
+## Worker process configuration
+
+The separate worker process requires `WORKFLOW_TASKS_ENABLED=true`, `WORKFLOW_WORKER_TENANT_ID`, a stable `WORKFLOW_WORKER_ID`, `WORKFLOW_DATABASE_URL`, production `WORKFLOW_DATABASE_SSL_MODE=verify-full`, and the task payload encryption key. Lease and heartbeat values must satisfy `heartbeat_seconds < lease_seconds / 2`. The configured tenant ID is an operator/deployment binding and must never come from a Notebook request or model output.
+
 ## Acceptance tests
 
 - Concurrent workers cannot hold the same live lease.
