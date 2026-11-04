@@ -1,3 +1,5 @@
+from urllib.parse import parse_qs, urlsplit
+
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -58,3 +60,29 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+
+def validate_database_configuration(config: Settings = settings) -> None:
+    """Fail closed when production PostgreSQL transport is not fully authenticated."""
+    environment = config.environment.strip().lower()
+    if environment not in {"production", "prod"}:
+        return
+    database_url = config.database_url.strip()
+    if not database_url:
+        raise RuntimeError("DATABASE_URL is required in production")
+    try:
+        parsed = urlsplit(database_url)
+        query = parse_qs(parsed.query, keep_blank_values=True)
+    except ValueError as exc:
+        raise RuntimeError("DATABASE_URL is invalid") from exc
+    modes = query.get("sslmode", [])
+    if (
+        parsed.scheme not in {"postgres", "postgresql"}
+        or not parsed.hostname
+        or len(modes) != 1
+        or modes[0].strip().lower() != "verify-full"
+    ):
+        raise RuntimeError(
+            "Production DATABASE_URL must use PostgreSQL with exactly one sslmode=verify-full"
+        )
