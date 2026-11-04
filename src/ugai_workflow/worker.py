@@ -68,6 +68,9 @@ class WorkerOutcome:
     retryable: bool = False
     error_code: str | None = None
     metadata: Mapping[str, Any] | None = None
+    approval_reference: str | None = None
+    decision_digest: str | None = None
+    plan_digest: str | None = None
 
     def validate(self) -> None:
         if not isinstance(self.next_state, TaskState):
@@ -82,6 +85,21 @@ class WorkerOutcome:
             raise ValueError("worker_error_code_invalid")
         if self.retryable and self.next_state is not TaskState.FAILED:
             raise ValueError("only_failed_outcomes_may_be_retryable")
+        if self.approval_reference is not None and (
+            not isinstance(self.approval_reference, str)
+            or not self.approval_reference.strip()
+            or len(self.approval_reference) > 512
+        ):
+            raise ValueError("worker_approval_reference_invalid")
+        for name, digest in (
+            ("decision_digest", self.decision_digest),
+            ("plan_digest", self.plan_digest),
+        ):
+            if digest is not None and (
+                not isinstance(digest, str)
+                or re.fullmatch(r"[0-9a-f]{64}", digest) is None
+            ):
+                raise ValueError(f"worker_{name}_invalid")
 
 
 class TaskHandler(Protocol):
@@ -235,6 +253,9 @@ class HybridWorker:
             lease=lease,
             retryable=outcome.retryable,
             error_code=outcome.error_code,
+            approval_reference=outcome.approval_reference,
+            decision_digest=outcome.decision_digest,
+            plan_digest=outcome.plan_digest,
             metadata=outcome.metadata,
         )
         return True
@@ -258,8 +279,8 @@ class HybridWorker:
                         lease_seconds=self.registration.lease_seconds,
                     )
                 except Exception:
-                    # Any unverified heartbeat means lease ownership is uncertain.
-                    # Stop the handler rather than risk duplicate external side effects.
+                    # Any failed heartbeat makes lease ownership uncertain.
+                    # Stop the handler instead of risking duplicate external side effects.
                     lost_lease.set()
                     return
 
