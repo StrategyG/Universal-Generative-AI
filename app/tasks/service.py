@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import datetime
 from uuid import UUID, uuid4
 
 from app.tasks.payloads import TaskPayloadCipher
@@ -55,8 +54,8 @@ class UGAITaskService:
             input_digest=digest,
             max_retries=2,
             metadata={
-                "request_ref": str(request_id),
-                "correlation_id": str(request_id),
+                "request_ref": f"notebook-task:{idempotency_key}",
+                "correlation_id": str(idempotency_key),
                 "schema_version": "1",
             },
             encrypted_payload=envelope.ciphertext,
