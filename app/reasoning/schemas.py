@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from enum import Enum
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, FiniteFloat
 
 
 class StrictContract(BaseModel):
@@ -97,8 +97,8 @@ class EvaluationFinding(StrictContract):
 class DecisionOption(StrictContract):
     option_id: str = Field(min_length=1, max_length=160)
     description: str = Field(min_length=1, max_length=2000)
-    criteria_scores: dict[str, float] = Field(default_factory=dict)
-    expected_value: float | None = None
+    criteria_scores: dict[str, FiniteFloat] = Field(default_factory=dict)
+    expected_value: FiniteFloat | None = None
     downside: str | None = Field(default=None, max_length=2000)
     reversibility: str = Field(min_length=1, max_length=500)
 
@@ -155,7 +155,7 @@ class ReasoningArtifact(StrictContract):
     rationale_summary: str = Field(min_length=1, max_length=6000)
     conclusion: str = Field(min_length=1, max_length=6000)
     limitations: list[str] = Field(default_factory=list, max_length=100)
-    calibrated_confidence: float | None = Field(default=None, ge=0.0, le=1.0)
+    calibrated_confidence: FiniteFloat | None = Field(default=None, ge=0.0, le=1.0)
     verification: VerificationRecord = Field(default_factory=VerificationRecord)
     approval_required: bool = False
     correlation_id: str = Field(min_length=1, max_length=160)
