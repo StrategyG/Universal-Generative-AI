@@ -102,7 +102,7 @@ async def test_worker_claims_and_transitions_task_with_fenced_lease() -> None:
 
 
 @pytest.mark.asyncio
-async def test_unknown_external_outcome_is_blocked_not_retried() -> None:
+async def test_unknown_external_outcome_is_non_claimable_and_not_retried() -> None:
     task = sample_task()
     store = FakeStore(task)
     worker = HybridWorker(
@@ -113,7 +113,7 @@ async def test_unknown_external_outcome_is_blocked_not_retried() -> None:
 
     await worker.run_once()
     call = store.transition_calls[0]
-    assert call["target"] is TaskState.BLOCKED
+    assert call["target"] is TaskState.OUTCOME_UNKNOWN
     assert call["retryable"] is False
     assert call["error_code"] == "outcome_unknown"
 
