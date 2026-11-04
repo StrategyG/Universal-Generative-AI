@@ -31,7 +31,6 @@ _SAFE_EVENT_KEYS = frozenset(
         "plan_digest",
         "test_reference",
         "verification_status",
-        "evidence_digest",
         "attempt",
         "retry_delay_seconds",
     }
