@@ -282,23 +282,35 @@ def test_task_scope_is_required_and_never_inferred_from_role(monkeypatch):
 
 
 
+
+
+
 def test_actor_identity_is_issuer_scoped(monkeypatch):
-    _oidc_settings(monkeypatch)
-    same_subject_a = principal_from_claims({
-        "iss": "https://identity-a.example.test/",
-        "sub": "same-user",
-        "tenant_id": "tenant-1",
-    })
-    same_subject_b = principal_from_claims({
-        "iss": "https://identity-b.example.test/",
-        "sub": "same-user",
-        "tenant_id": "tenant-1",
-    })
-    same_identity = principal_from_claims({
-        "iss": "https://identity-a.example.test/",
-        "sub": "same-user",
-        "tenant_id": "tenant-1",
-    })
+    def principal(issuer: str) -> Principal:
+        return Principal(
+            subject="same-user",
+            tenant_id="tenant-1",
+            roles=frozenset({"developer"}),
+            project_ids=frozenset(),
+            auth_mode="oidc",
+            issuer=issuer,
+        )
+
+    same_subject_a = principal("https://identity-a.example.test/")
+    same_subject_b = principal("https://identity-b.example.test/")
+    same_identity = principal("https://identity-a.example.test/")
 
     assert same_subject_a.actor_id != same_subject_b.actor_id
     assert same_subject_a.actor_id == same_identity.actor_id
+
+
+def test_oidc_actor_identity_fails_closed_without_verified_issuer():
+    principal = Principal(
+        subject="same-user",
+        tenant_id="tenant-1",
+        roles=frozenset({"developer"}),
+        project_ids=frozenset(),
+        auth_mode="oidc",
+    )
+    with pytest.raises(ValueError, match="verified_oidc_issuer_required"):
+        _ = principal.actor_id
