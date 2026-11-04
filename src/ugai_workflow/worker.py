@@ -36,18 +36,28 @@ class WorkerRegistration:
     def validate(self) -> None:
         if not isinstance(self.worker_id, str) or not self.worker_id.strip() or len(self.worker_id) > 128:
             raise ValueError("worker_id_invalid")
+        if not isinstance(self.tier, WorkerTier):
+            raise ValueError("worker_tier_invalid")
         if not isinstance(self.tenant_id, str) or not self.tenant_id.strip() or len(self.tenant_id) > 128:
             raise ValueError("worker_tenant_id_invalid")
-        if not self.task_types or any(
+        if not isinstance(self.task_types, tuple) or not self.task_types or any(
             not isinstance(item, str) or not item.strip() or len(item) > 128
             for item in self.task_types
         ):
             raise ValueError("worker_task_types_required")
         if len(set(self.task_types)) != len(self.task_types):
             raise ValueError("worker_task_types_must_be_unique")
-        if not 5 <= self.lease_seconds <= 900:
+        if (
+            not isinstance(self.lease_seconds, int)
+            or isinstance(self.lease_seconds, bool)
+            or not 5 <= self.lease_seconds <= 900
+        ):
             raise ValueError("lease_seconds_out_of_bounds")
-        if not 1 <= self.heartbeat_seconds < self.lease_seconds // 2:
+        if (
+            not isinstance(self.heartbeat_seconds, int)
+            or isinstance(self.heartbeat_seconds, bool)
+            or not 1 <= self.heartbeat_seconds < self.lease_seconds // 2
+        ):
             raise ValueError("heartbeat_interval_must_be_less_than_half_the_lease")
 
 
@@ -63,10 +73,18 @@ class WorkerOutcome:
     plan_digest: str | None = None
 
     def validate(self) -> None:
-        if not _CODE.fullmatch(self.reason_code or ""):
+        if not isinstance(self.next_state, TaskState):
+            raise ValueError("worker_next_state_invalid")
+        if not isinstance(self.reason_code, str) or not _CODE.fullmatch(self.reason_code):
             raise ValueError("worker_reason_code_invalid")
-        if self.error_code is not None and not _CODE.fullmatch(self.error_code):
+        if not isinstance(self.retryable, bool):
+            raise ValueError("worker_retryable_must_be_boolean")
+        if self.error_code is not None and (
+            not isinstance(self.error_code, str) or not _CODE.fullmatch(self.error_code)
+        ):
             raise ValueError("worker_error_code_invalid")
+        if self.metadata is not None and not isinstance(self.metadata, Mapping):
+            raise ValueError("worker_metadata_must_be_mapping")
         if self.retryable and self.next_state is not TaskState.FAILED:
             raise ValueError("only_failed_outcomes_may_be_retryable")
         if self.approval_reference is not None and (
@@ -262,7 +280,9 @@ class HybridWorker:
                         lease=lease,
                         lease_seconds=self.registration.lease_seconds,
                     )
-                except (OSError, TimeoutError, RuntimeError):
+                except Exception:
+                    # Any database/driver failure makes lease ownership uncertain.
+                    # Cancel the handler instead of risking a duplicate side effect.
                     lost_lease.set()
                     return
 
