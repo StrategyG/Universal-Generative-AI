@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from enum import Enum
 
-from pydantic import BaseModel, ConfigDict, Field, FiniteFloat
+from pydantic import BaseModel, ConfigDict, Field, FiniteFloat, model_validator
 
 
 class StrictContract(BaseModel):
@@ -159,3 +159,40 @@ class ReasoningArtifact(StrictContract):
     verification: VerificationRecord = Field(default_factory=VerificationRecord)
     approval_required: bool = False
     correlation_id: str = Field(min_length=1, max_length=160)
+
+    @model_validator(mode="after")
+    def validate_artifact_references(self) -> "ReasoningArtifact":
+        evidence_ids = [item.evidence_id for item in self.evidence]
+        if len(evidence_ids) != len(set(evidence_ids)):
+            raise ValueError("reasoning_artifact_duplicate_evidence_ids")
+
+        claim_ids = [item.claim_id for item in self.claims]
+        if len(claim_ids) != len(set(claim_ids)):
+            raise ValueError("reasoning_artifact_duplicate_claim_ids")
+
+        assumption_ids = [item.assumption_id for item in self.assumptions]
+        if len(assumption_ids) != len(set(assumption_ids)):
+            raise ValueError("reasoning_artifact_duplicate_assumption_ids")
+
+        option_ids = [item.option_id for item in self.options]
+        if len(option_ids) != len(set(option_ids)):
+            raise ValueError("reasoning_artifact_duplicate_option_ids")
+
+        if len(self.stages_completed) != len(set(self.stages_completed)):
+            raise ValueError("reasoning_artifact_duplicate_completed_stages")
+
+        known_evidence = set(evidence_ids)
+        for claim in self.claims:
+            if not set(claim.evidence_ids).issubset(known_evidence):
+                raise ValueError(f"claim_references_unknown_evidence:{claim.claim_id}")
+
+        for counterargument in self.counterarguments:
+            if not set(counterargument.evidence_ids).issubset(known_evidence):
+                raise ValueError("counterargument_references_unknown_evidence")
+
+        known_claims = set(claim_ids)
+        for finding in self.findings:
+            if not set(finding.related_claim_ids).issubset(known_claims):
+                raise ValueError("finding_references_unknown_claim")
+
+        return self
