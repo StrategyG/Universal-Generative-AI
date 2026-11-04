@@ -1,6 +1,6 @@
 # UGAI Durable Hybrid Workflow Engine — V1.0
 
-**Status:** implementation is staged on this feature branch. The SQL file in this PR is a schema blueprint only. No live Supabase migration, database update, production credential, or worker deployment is claimed.
+**Status:** workflow persistence code and a versioned PostgreSQL migration are staged on this feature branch. The migration is exercised by the isolated PostgreSQL integration workflow. No live Supabase migration, database update, production credential, or worker deployment is claimed.
 
 ## Responsibility boundaries
 
@@ -45,8 +45,8 @@ The transition policy is deterministic and separate from model output. Every tra
 
 ## Deployment prerequisites
 
-1. Generate the actual migration with `supabase migration new create_ugai_workflow_runtime`; copy the reviewed schema blueprint into that generated file.
-2. Apply only to an isolated Supabase development branch first.
+1. Review and apply `postgres/migrations/0003_ugai_workflow_runtime.sql` through the deployment's migration process; use the same SQL and role model for the Supabase development branch and the self-managed PostgreSQL target.
+2. Apply only to an isolated development database first and record the migration checksum.
 3. Create a dedicated database login and grant membership in `ugai_workflow_runtime`. The worker must set tenant context only from authenticated task metadata, never from model output. Do not connect workers as the database owner or broad service role.
 4. Keep the workflow schema outside the exposed Data API schemas. Do not grant `anon` or `authenticated` access.
 5. Keep provider tokens in IM19 or an approved secret manager, never in RAG or task metadata.
