@@ -376,7 +376,7 @@ class FakeMCPProvider:
 
     async def execute(self, tool_name: str, arguments: Mapping[str, Any]) -> dict[str, Any]:
         self.executed.append((tool_name, dict(arguments)))
-        return {"items": [{"id": "record-1"}]}
+        return {"trust_classification": "UNTRUSTED_EXTERNAL_DATA", "items": [{"id": "record-1"}]}
 
 
 @pytest.mark.asyncio
