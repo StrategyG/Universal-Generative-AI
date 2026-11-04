@@ -175,3 +175,44 @@ def test_executor_rejects_provider_identity_drift_before_inference():
             router=TextModelRouter([provider]),
             routes=[route_config],
         )
+
+
+def test_executor_rejects_unapproved_or_disabled_routes_before_provider_calls():
+    provider = FakeProvider("primary")
+    unapproved = route("primary-route", "reasoning_primary", provider, "family-a")
+    unapproved = unapproved.model_copy(update={"approved": False})
+
+    with pytest.raises(ReasoningRouteConfigurationError, match="unapproved or disabled"):
+        PolicyRoutedTextExecutor(
+            router=TextModelRouter([provider]),
+            routes=[unapproved],
+        )
+
+    assert provider.calls == 0
+
+
+def test_executor_rejects_provider_response_identity_mismatch():
+    class MisreportingProvider(FakeProvider):
+        async def generate(self, request):
+            self.calls += 1
+            return {
+                "provider": "another-provider",
+                "model": "another-model",
+                "domain": request.domain,
+                "quality_mode": request.quality_mode,
+                "final_content": "fabricated response metadata",
+                "review_type": "none",
+                "verified": False,
+                "usage": {},
+            }
+
+    provider = MisreportingProvider("primary")
+    executor = PolicyRoutedTextExecutor(
+        router=TextModelRouter([provider]),
+        routes=[route("primary-route", "reasoning_primary", provider, "family-a")],
+    )
+
+    with pytest.raises(TextGenerationProviderError) as caught:
+        asyncio.run(executor.execute(request=request(), requirements=requirements()))
+
+    assert caught.value.code == "provider_identity_mismatch"
