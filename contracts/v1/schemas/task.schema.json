@@ -43,7 +43,9 @@
       "additionalProperties": false,
       "required": [
         "actor_type",
-        "actor_id"
+        "actor_id",
+        "issuer",
+        "subject"
       ],
       "properties": {
         "actor_type": {
