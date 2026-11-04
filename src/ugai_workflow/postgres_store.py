@@ -558,7 +558,7 @@ class PostgresWorkflowStore:
                         or not isinstance(evidence_digest, str)
                         or not _SHA256.fullmatch(evidence_digest)
                     ):
-                        raise ValueError("reconciliation_requires_unleased_verified_evidence")
+                        raise PermissionError("reconciliation_evidence_required")
 
                 validate_transition(
                     current.state,
