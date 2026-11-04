@@ -19,6 +19,7 @@ from app.ai_schemas import AICompletionRequest, AICompletionResponse
 from app.config import settings
 from app.observability import RequestObservabilityMiddleware, configure_logging
 from app.providers.router import TextModelRouter
+from app.reasoning.api import router as reasoning_router
 from app.providers.text_errors import TextGenerationProviderError
 from app.pipelines.planner import build_pipeline_plan
 from app.pipelines.schemas import PipelinePlan, PipelineRequest
@@ -93,6 +94,7 @@ async def lifespan(_: FastAPI) -> collections.abc.AsyncIterator[None]:
 configure_logging()
 app = FastAPI(title=settings.app_name, version="0.5.0", lifespan=lifespan)
 app.add_middleware(RequestObservabilityMiddleware)
+app.include_router(reasoning_router)
 
 
 def require_worker_token(token: str | None) -> None:
