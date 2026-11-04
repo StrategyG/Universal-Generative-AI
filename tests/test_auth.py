@@ -51,6 +51,8 @@ def test_oidc_token_signature_issuer_and_audience_are_verified(monkeypatch):
     principal = principal_from_claims(claims)
 
     assert principal.subject == "user-1"
+    assert principal.issuer == settings.oidc_issuer
+    assert principal.actor_id.startswith("principal:")
     assert principal.tenant_id == "tenant-1"
     assert principal.roles == frozenset({"developer"})
     assert principal.project_ids == frozenset({"project-1"})
@@ -86,7 +88,7 @@ def test_oidc_token_with_wrong_audience_is_rejected(monkeypatch):
 def test_principal_requires_tenant_claim(monkeypatch):
     _oidc_settings(monkeypatch)
     with pytest.raises(ValueError, match="tenant claim"):
-        principal_from_claims({"sub": "user-1", "roles": ["developer"]})
+        principal_from_claims({"sub": "user-1", "iss": settings.oidc_issuer, "roles": ["developer"]})
 
 
 def test_generation_requires_authorized_role():
@@ -210,6 +212,7 @@ def test_oidc_scope_claim_is_parsed_as_space_delimited_tokens(monkeypatch):
     principal = principal_from_claims(
         {
             "sub": "user-1",
+            "iss": settings.oidc_issuer,
             "tenant_id": "tenant-1",
             "scope": "ugai:tasks:read ugai:tasks:write",
         }
@@ -222,6 +225,7 @@ def test_oidc_scope_array_is_supported_and_malformed_scope_is_rejected(monkeypat
     principal = principal_from_claims(
         {
             "sub": "user-1",
+            "iss": settings.oidc_issuer,
             "tenant_id": "tenant-1",
             "scope": ["ugai:tasks:read", "ugai:tasks:cancel"],
         }
@@ -238,6 +242,7 @@ def test_workspace_membership_uses_its_own_signed_claim(monkeypatch):
     principal = principal_from_claims(
         {
             "sub": "user-1",
+            "iss": settings.oidc_issuer,
             "tenant_id": "tenant-1",
             "workspace_ids": ["workspace-1"],
         }
@@ -274,3 +279,26 @@ def test_task_scope_is_required_and_never_inferred_from_role(monkeypatch):
         auth.require_scope(authorized, "ugai:tasks:read")
     assert read_exc.value.status_code == 403
 
+
+
+
+def test_actor_identity_is_issuer_scoped(monkeypatch):
+    _oidc_settings(monkeypatch)
+    same_subject_a = principal_from_claims({
+        "iss": "https://identity-a.example.test/",
+        "sub": "same-user",
+        "tenant_id": "tenant-1",
+    })
+    same_subject_b = principal_from_claims({
+        "iss": "https://identity-b.example.test/",
+        "sub": "same-user",
+        "tenant_id": "tenant-1",
+    })
+    same_identity = principal_from_claims({
+        "iss": "https://identity-a.example.test/",
+        "sub": "same-user",
+        "tenant_id": "tenant-1",
+    })
+
+    assert same_subject_a.actor_id != same_subject_b.actor_id
+    assert same_subject_a.actor_id == same_identity.actor_id
