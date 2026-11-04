@@ -76,6 +76,62 @@ class UGAITaskService:
             task_id=task_id,
         )
 
+    async def save_result(
+        self,
+        *,
+        task_id: UUID,
+        tenant_id: str,
+        actor_id: str,
+        result: dict,
+    ):
+        """Encrypt and persist one immutable task result under its task identity."""
+        encoded = json.dumps(
+            result,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+        ).encode("utf-8")
+        digest = hashlib.sha256(encoded).hexdigest()
+        envelope = self.cipher.encrypt_json(
+            result, tenant_id=tenant_id, task_id=task_id
+        )
+        return await self.store.save_task_result(
+            task_id=task_id,
+            tenant_id=tenant_id,
+            actor_id=actor_id,
+            encrypted_payload=envelope.ciphertext,
+            payload_nonce=envelope.nonce,
+            payload_key_version=envelope.key_version,
+            result_digest=digest,
+        )
+
+    async def load_result(
+        self, *, task_id: UUID, tenant_id: str, actor_id: str | None = None
+    ) -> dict:
+        """Decrypt, authenticate and digest-check a persisted task result."""
+        stored = await self.store.get_task_result(
+            task_id=task_id, tenant_id=tenant_id, actor_id=actor_id
+        )
+        envelope = EncryptedTaskPayload(
+            ciphertext=stored.ciphertext,
+            nonce=stored.nonce,
+            key_version=stored.key_version,
+        )
+        result = self.cipher.decrypt_json(
+            envelope, tenant_id=tenant_id, task_id=task_id
+        )
+        encoded = json.dumps(
+            result,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+        ).encode("utf-8")
+        if hashlib.sha256(encoded).hexdigest() != stored.result_digest:
+            raise ValueError("task_result_digest_mismatch")
+        return result
+
     async def status(self, *, task_id: UUID, tenant_id: str):
         return await self.store.get_task(task_id=task_id, tenant_id=tenant_id)
 
