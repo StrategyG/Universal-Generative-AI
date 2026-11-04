@@ -107,3 +107,18 @@ def test_uses_lower_ranked_evaluator_when_best_route_exceeds_budget():
     )
 
     assert decision.independent_evaluator.route_id == "evaluator-affordable"
+
+
+def test_critical_profile_requires_quality_floor_and_independent_evaluator():
+    primary = route("primary", "reasoning_primary", "provider-a", "family-a", 95)
+    evaluator = route("evaluator", "independent_evaluator", "provider-b", "family-b", 92)
+    req = requirements("moderate").model_copy(update={"profile": "critical"})
+
+    decision = select_model_routes([primary, evaluator], req)
+
+    assert decision.evaluator_required is True
+    assert decision.independent_evaluator.route_id == "evaluator"
+
+    low_quality_primary = primary.model_copy(update={"quality_rank": 89})
+    with pytest.raises(NoEligibleModelRoute):
+        select_model_routes([low_quality_primary, evaluator], req)
