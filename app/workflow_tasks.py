@@ -245,7 +245,7 @@ async def submit_task(
         task_id=task.task_id,
         request_id=request_id,
         state=_STATE_PROJECTION[task.state],
-        created_at=None,
+        created_at=task.created_at.isoformat() if task.created_at else None,
     )
 
 
