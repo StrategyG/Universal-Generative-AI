@@ -15,6 +15,9 @@ class FakeConnection:
     async def fetchrow(self, query, *args):
         self.calls.append((query, args))
         if query.lstrip().startswith("INSERT"):
+            if self.inserted:
+                # Simulate INSERT ... ON CONFLICT DO NOTHING.
+                return None
             self.inserted = {
                 "event_id": args[0],
                 "workflow_id": args[1],
@@ -117,7 +120,7 @@ async def test_postgres_sink_rejects_oversized_details():
     details = tuple((f"field_{index}", "x" * 950) for index in range(9))
     event = replace(sample_event(), details=details)
 
-    with pytest.raises(ValueError, match="encoded size"):
+    with pytest.raises(ValueError, match="encoded_size"):
         await PostgresDecisionAuditSink(pool).append(event)
 
     assert pool.connection.calls == []
@@ -130,7 +133,6 @@ async def test_postgres_sink_rejects_duplicate_event_id_with_different_content()
     existing = replace(sample_event(), outcome="old")
     await sink.append(existing)
     pool.connection.calls.clear()
-    pool.connection.inserted["outcome"] = "accepted"
 
     with pytest.raises(RuntimeError, match="event_id_conflict"):
         await sink.append(sample_event())
