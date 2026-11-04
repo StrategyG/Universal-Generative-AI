@@ -135,10 +135,6 @@ def _require_acceptance(runtime: WorkflowRuntime) -> None:
         )
 
 
-def _request_uuid(value: UUID) -> UUID:
-    return value
-
-
 def _status(task) -> TaskStatus:
     correlation = task.metadata.get("correlation_id")
     try:
@@ -157,7 +153,6 @@ def _status(task) -> TaskStatus:
 @router.post("/task-inputs", response_model=TaskInputReceipt, status_code=201)
 async def create_task_input(
     payload: TaskInputCreateRequest,
-    request_id: UUID = Header(alias="X-Request-ID"),
     idempotency_key: str = Header(alias="Idempotency-Key", min_length=8, max_length=128),
     principal: Principal = Depends(get_current_principal),
     runtime: WorkflowRuntime = Depends(_runtime),
@@ -239,7 +234,7 @@ async def submit_task(
                 "context_ref": str(payload.input_ref),
                 "project_id": payload.project_id,
                 "schema_version": "1.0",
-                "correlation_id": str(_request_uuid(request_id)),
+                "correlation_id": str(request_id),
             },
         )
     except IdempotencyConflict as exc:
