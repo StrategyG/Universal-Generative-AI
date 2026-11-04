@@ -339,6 +339,31 @@ async def test_uncertain_external_outcome_requires_unleased_evidence_reconciliat
     task = await store.create_task(
         **new_task_args(tenant_id=tenant, suffix=str(uuid4()))
     )
+    # Drive the task through the real lifecycle before simulating an external
+    # side effect; an uncertain outcome is only possible while executing.
+    for source, target, worker_id in (
+        (TaskState.RECEIVED, TaskState.OBSERVING, "worker-observe"),
+        (TaskState.OBSERVING, TaskState.PLANNING, "worker-plan"),
+        (TaskState.PLANNING, TaskState.EXECUTING, "worker-execute"),
+    ):
+        claimed = await store.claim_next(
+            tenant_id=tenant,
+            worker_id=worker_id,
+            supported_task_types=("integration_work",),
+            lease_seconds=30,
+        )
+        assert claimed is not None
+        assert claimed.state is source
+        await store.transition(
+            task_id=task.task_id,
+            tenant_id=tenant,
+            expected_version=claimed.version,
+            target=target,
+            actor_id=claimed.actor_id,
+            reason_code=f"advance_{target.value}",
+            lease=LeaseIdentity(worker_id, claimed.lease_token),
+        )
+
     claimed = await store.claim_next(
         tenant_id=tenant,
         worker_id="worker-uncertain",
@@ -346,6 +371,7 @@ async def test_uncertain_external_outcome_requires_unleased_evidence_reconciliat
         lease_seconds=30,
     )
     assert claimed is not None
+    assert claimed.state is TaskState.EXECUTING
 
     uncertain = await store.transition(
         task_id=task.task_id,
