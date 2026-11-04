@@ -69,6 +69,20 @@ create index if not exists ugai_workflow_tenant_created_idx
 
 -- User intent is encrypted before it reaches this table. Ciphertext is bound
 -- to tenant_id + task_id + key_version using AES-256-GCM associated data.
+do $task_tenant_key$
+begin
+    if not exists (
+        select 1
+        from pg_constraint
+        where conname = 'uq_ugai_workflow_task_tenant_id'
+          and conrelid = 'ugai_workflow.tasks'::regclass
+    ) then
+        alter table ugai_workflow.tasks
+            add constraint uq_ugai_workflow_task_tenant_id unique (tenant_id, task_id);
+    end if;
+end
+$task_tenant_key$;
+
 create table if not exists ugai_workflow.task_payloads (
     task_id uuid primary key,
     tenant_id text not null,
