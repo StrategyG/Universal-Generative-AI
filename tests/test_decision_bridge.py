@@ -84,14 +84,16 @@ def make_handler(*, fail_store: bool = False):
 
 
 @pytest.mark.asyncio
-async def test_decision_bridge_advances_state_machine_before_evaluation() -> None:
+async def test_decision_bridge_persists_execution_state_before_side_effects() -> None:
     handler, resolver, workflow, result_store = make_handler()
 
     observing = await handler.handle(make_task(TaskState.RECEIVED))
     planning = await handler.handle(make_task(TaskState.OBSERVING))
+    executing = await handler.handle(make_task(TaskState.PLANNING))
 
     assert observing.next_state is TaskState.OBSERVING
     assert planning.next_state is TaskState.PLANNING
+    assert executing.next_state is TaskState.EXECUTING
     assert resolver.calls == []
     assert workflow.calls == []
     assert result_store.saved == []
@@ -100,7 +102,7 @@ async def test_decision_bridge_advances_state_machine_before_evaluation() -> Non
 @pytest.mark.asyncio
 async def test_decision_bridge_reuses_existing_decision_workflow_and_persists_approval() -> None:
     handler, resolver, workflow, result_store = make_handler()
-    task = make_task(TaskState.PLANNING)
+    task = make_task(TaskState.EXECUTING)
 
     outcome = await handler.handle(task)
     outcome.validate()
@@ -123,7 +125,7 @@ async def test_decision_bridge_reuses_existing_decision_workflow_and_persists_ap
 @pytest.mark.asyncio
 async def test_decision_bridge_blocks_when_protected_input_reference_is_missing() -> None:
     handler, resolver, workflow, result_store = make_handler()
-    task = make_task(TaskState.PLANNING)
+    task = make_task(TaskState.EXECUTING)
     task.metadata = {}
 
     outcome = await handler.handle(task)
@@ -140,7 +142,7 @@ async def test_decision_bridge_does_not_retry_uncertain_result_persistence() -> 
     handler, _resolver, workflow, result_store = make_handler(fail_store=True)
 
     with pytest.raises(ExternalOutcomeUnknown):
-        await handler.handle(make_task(TaskState.PLANNING))
+        await handler.handle(make_task(TaskState.EXECUTING))
 
     assert len(workflow.calls) == 1
     assert result_store.saved == []
