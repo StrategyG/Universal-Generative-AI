@@ -83,13 +83,17 @@
     "state": {
       "type": "string",
       "enum": [
-        "queued",
-        "running",
+        "received",
+        "observing",
+        "planning",
+        "executing",
+        "verifying",
         "awaiting_approval",
-        "succeeded",
-        "failed",
-        "cancelled",
+        "awaiting_clarification",
         "blocked",
+        "failed",
+        "succeeded",
+        "cancelled",
         "outcome_unknown"
       ]
     },
