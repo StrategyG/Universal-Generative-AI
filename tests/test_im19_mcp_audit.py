@@ -68,6 +68,7 @@ async def test_tool_call_is_audited_without_arguments_or_result_body():
     result = await client.call_tool("youtube_get_channel", {"private": "sensitive-value"})
 
     assert result["status"] == "success"
+    assert result["trust_classification"] == "UNTRUSTED_EXTERNAL_DATA"
     assert len(audit.events) == 2
     assert [event.outcome for event in audit.events] == ["STARTED", "SUCCEEDED"]
     assert all(not hasattr(event, "arguments") for event in audit.events)
