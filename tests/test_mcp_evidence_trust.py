@@ -3,12 +3,12 @@ from typing import Any
 
 import pytest
 
-from ugai_decision.models import EvidenceItem
 from ugai_decision.mcp_source import (
     EvidenceExtractionError,
     MCPToolEvidenceSource,
     MCPToolQuery,
 )
+from ugai_decision.models import EvidenceItem
 
 
 class FakeProvider:
