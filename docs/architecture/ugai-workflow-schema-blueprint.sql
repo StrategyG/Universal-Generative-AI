@@ -173,7 +173,16 @@ create policy ugai_workflow_task_results_select on ugai_workflow.task_results
 drop policy if exists ugai_workflow_task_results_insert on ugai_workflow.task_results;
 create policy ugai_workflow_task_results_insert on ugai_workflow.task_results
     for insert to ugai_workflow_runtime
-    with check (tenant_id = nullif(current_setting('app.ugai_tenant_id', true), ''));
+    with check (
+        tenant_id = nullif(current_setting('app.ugai_tenant_id', true), '')
+        and exists (
+            select 1 from ugai_workflow.tasks task
+            where task.task_id = task_results.task_id
+              and task.tenant_id = task_results.tenant_id
+              and task.actor_id = task_results.actor_id
+              and task.state in ('executing', 'verifying')
+        )
+    );
 
 drop policy if exists ugai_workflow_events_runtime on ugai_workflow.events;
 create policy ugai_workflow_events_runtime on ugai_workflow.events
