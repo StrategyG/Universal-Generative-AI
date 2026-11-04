@@ -49,6 +49,11 @@ class Settings(BaseSettings):
     external_worker_token: str = ""
     worker_admin_token: str = ""
     database_url: str = ""
+    workflow_database_url: str = ""
+    workflow_input_keyring_json: str = "{}"
+    workflow_input_active_key_id: str = ""
+    workflow_task_acceptance_enabled: bool = False
+    workflow_enabled_task_types: str = ""
     model_registry_enforcement: bool = False
     auth_mode: str = "disabled"
     oidc_issuer: str = ""
