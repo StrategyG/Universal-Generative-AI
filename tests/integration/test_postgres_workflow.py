@@ -51,12 +51,12 @@ async def workflow_database():
         )
 
         root = Path(__file__).resolve().parents[2]
-        blueprint = (
-            root / "docs" / "architecture" / "ugai-workflow-schema-blueprint.sql"
+        migration = (
+            root / "postgres" / "migrations" / "0003_ugai_workflow_runtime.sql"
         ).read_text(encoding="utf-8")
-        # Re-apply the idempotent blueprint for every test. This exercises both
-        # fresh creation and upgrade paths when a prior test created the schema.
-        await admin.execute(blueprint)
+        # Re-apply the versioned, idempotent migration for every test. This
+        # exercises creation and repeat-apply behavior against isolated PostgreSQL.
+        await admin.execute(migration)
 
         await ensure_role(
             "ugai_workflow_test",
