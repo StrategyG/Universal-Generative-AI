@@ -83,8 +83,16 @@ def select_model_routes(
     routes: list[ModelRouteDescriptor],
     requirements: RoutingRequirements,
 ) -> RoutingDecision:
-    """Select approved hybrid routes deterministically; never invent a provider fallback."""
+    """Select approved hybrid routes with a conservative worst-case cost budget.
+
+    The budget reserves for a primary attempt, a fallback attempt, and an
+    independent evaluation when configured. The evaluator must be independent
+    from the route that may actually produce the final draft, including fallback.
+    """
     eligible = [route for route in routes if _eligible(route, requirements)]
+    if len({route.route_id for route in eligible}) != len(eligible):
+        raise NoEligibleModelRoute("Model route IDs must be unique")
+
     evaluator_required = (
         requirements.risk_tier in {RiskTier.HIGH, RiskTier.CRITICAL}
         or requirements.profile == ReasoningProfile.CRITICAL
@@ -96,6 +104,20 @@ def select_model_routes(
     if not primary_candidates:
         raise NoEligibleModelRoute("No approved reasoning_primary route meets policy")
 
+    fallback_candidates: list[ModelRouteDescriptor | None] = [None]
+    fallback_candidates.extend(
+        route for route in eligible if route.role == ModelRole.REASONING_FALLBACK
+    )
+    evaluator_candidates: list[ModelRouteDescriptor | None] = (
+        [
+            route
+            for route in eligible
+            if route.role == ModelRole.INDEPENDENT_EVALUATOR
+        ]
+        if evaluator_required
+        else [None]
+    )
+
     decisions: list[
         tuple[
             ModelRouteDescriptor,
@@ -106,59 +128,60 @@ def select_model_routes(
     ] = []
     for primary in primary_candidates:
         primary_cost = _estimated_cost(primary, requirements)
-        if primary_cost > requirements.max_estimated_cost:
-            continue
+        for fallback in fallback_candidates:
+            if fallback is not None and (
+                fallback.route_id == primary.route_id
+                or fallback.provider == primary.provider
+                or fallback.model_family == primary.model_family
+            ):
+                continue
+            fallback_cost = _estimated_cost(fallback, requirements) if fallback else 0.0
 
-        fallback_candidates = [
-            route for route in eligible
-            if route.role == ModelRole.REASONING_FALLBACK
-            and route.route_id != primary.route_id
-            and route.provider != primary.provider
-            and route.model_family != primary.model_family
-            and _estimated_cost(route, requirements) <= requirements.max_estimated_cost
-        ]
-        fallback = sorted(
-            fallback_candidates,
-            key=lambda route: (
-                -route.quality_rank,
-                _estimated_cost(route, requirements),
-                route.route_id,
-            ),
-        )[0] if fallback_candidates else None
+            for evaluator in evaluator_candidates:
+                if evaluator is not None:
+                    if (
+                        evaluator.provider == primary.provider
+                        or evaluator.model_family == primary.model_family
+                    ):
+                        continue
+                    if fallback is not None and (
+                        evaluator.provider == fallback.provider
+                        or evaluator.model_family == fallback.model_family
+                    ):
+                        continue
 
-        if evaluator_required:
-            evaluator_candidates = [
-                route for route in eligible
-                if route.role == ModelRole.INDEPENDENT_EVALUATOR
-                and route.provider != primary.provider
-                and route.model_family != primary.model_family
-            ]
-        else:
-            evaluator_candidates = [None]
-
-        for evaluator in evaluator_candidates:
-            cost = primary_cost + (
-                _estimated_cost(evaluator, requirements) if evaluator else 0.0
-            )
-            if cost <= requirements.max_estimated_cost:
-                decisions.append((primary, fallback, evaluator, cost))
+                evaluator_cost = (
+                    _estimated_cost(evaluator, requirements) if evaluator else 0.0
+                )
+                # Conservative budget: include the primary attempt even if it
+                # fails before fallback, plus fallback and evaluator costs.
+                total_cost = primary_cost + fallback_cost + evaluator_cost
+                if total_cost <= requirements.max_estimated_cost:
+                    decisions.append((primary, fallback, evaluator, total_cost))
 
     if not decisions:
         if evaluator_required:
             raise NoEligibleModelRoute(
                 "No independent evaluator from a different provider and model family "
-                "meets the risk, capability, region and cost policy"
+                "meets the risk, capability, region and total cost policy"
             )
-        raise NoEligibleModelRoute("No reasoning route meets the configured cost and policy limits")
+        raise NoEligibleModelRoute(
+            "No reasoning route meets the configured total cost and policy limits"
+        )
 
-    # Quality is operator-assessed and registry-controlled; cost breaks quality ties.
+    # Operator-scored quality is primary. Prefer a safe fallback and evaluator
+    # where the total worst-case budget permits, then use cost as tie-breaker.
     primary, fallback, evaluator, cost = sorted(
         decisions,
         key=lambda item: (
             -item[0].quality_rank,
-            item[3],
             -(item[2].quality_rank if item[2] else 0),
+            -(1 if item[1] else 0),
+            - (item[1].quality_rank if item[1] else 0),
+            item[3],
             item[0].route_id,
+            item[1].route_id if item[1] else "",
+            item[2].route_id if item[2] else "",
         ),
     )[0]
     return RoutingDecision(
