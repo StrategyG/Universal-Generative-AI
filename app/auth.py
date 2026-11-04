@@ -248,6 +248,23 @@ def require_job_read_role(principal: Principal) -> None:
         )
 
 
+def ensure_workspace_access(principal: Principal, workspace_id: str | None) -> None:
+    """Require a workspace explicitly bound to the verified caller token."""
+    if principal.auth_mode == "disabled" and settings.environment.strip().lower() not in _PRODUCTION_ENVIRONMENTS:
+        return
+    if not workspace_id or not workspace_id.strip():
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="workspace_id is required",
+        )
+    if workspace_id in principal.workspace_ids:
+        return
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail={"code": "workspace_access_denied"},
+    )
+
+
 def ensure_project_access(principal: Principal, project_id: str | None) -> None:
     if principal.auth_mode == "disabled":
         return
