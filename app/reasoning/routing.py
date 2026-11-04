@@ -56,6 +56,14 @@ def _estimated_cost(route: ModelRouteDescriptor, requirements: RoutingRequiremen
     ) / 1_000_000
 
 
+def _minimum_quality(profile: ReasoningProfile) -> int:
+    return {
+        ReasoningProfile.STANDARD: 50,
+        ReasoningProfile.DEEP: 75,
+        ReasoningProfile.CRITICAL: 90,
+    }[profile]
+
+
 def _eligible(
     route: ModelRouteDescriptor,
     requirements: RoutingRequirements,
@@ -63,6 +71,7 @@ def _eligible(
     return (
         route.approved
         and route.enabled
+        and route.quality_rank >= _minimum_quality(requirements.profile)
         and route.max_context_tokens
         >= requirements.estimated_input_tokens + requirements.max_output_tokens
         and requirements.required_capabilities.issubset(route.capabilities)
@@ -76,7 +85,10 @@ def select_model_routes(
 ) -> RoutingDecision:
     """Select approved hybrid routes deterministically; never invent a provider fallback."""
     eligible = [route for route in routes if _eligible(route, requirements)]
-    evaluator_required = requirements.risk_tier in {RiskTier.HIGH, RiskTier.CRITICAL}
+    evaluator_required = (
+        requirements.risk_tier in {RiskTier.HIGH, RiskTier.CRITICAL}
+        or requirements.profile == ReasoningProfile.CRITICAL
+    )
 
     primary_candidates = [
         route for route in eligible if route.role == ModelRole.REASONING_PRIMARY
