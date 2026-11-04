@@ -92,3 +92,46 @@ def test_model_trace_requires_immutable_revision():
             model_revision="",
             latency_ms=100,
         )
+
+
+def test_artifact_rejects_claim_with_unknown_evidence_reference():
+    from app.reasoning.schemas import SupportedClaim
+
+    with pytest.raises(ValidationError, match="claim_references_unknown_evidence"):
+        ReasoningArtifact(
+            request_id="req-1",
+            tenant_id="tenant-1",
+            project_id="project-1",
+            policy_version="p1",
+            risk_tier="low",
+            profile="standard",
+            claims=[
+                SupportedClaim(
+                    claim_id="claim-1",
+                    statement="A material claim",
+                    evidence_ids=["missing-evidence"],
+                )
+            ],
+            rationale_summary="summary",
+            conclusion="answer",
+            correlation_id="trace-1",
+        )
+
+
+def test_artifact_rejects_duplicate_evidence_identifiers():
+    first = evidence()
+    duplicate = first.model_copy()
+
+    with pytest.raises(ValidationError, match="duplicate_evidence_ids"):
+        ReasoningArtifact(
+            request_id="req-1",
+            tenant_id="tenant-1",
+            project_id="project-1",
+            policy_version="p1",
+            risk_tier="low",
+            profile="standard",
+            evidence=[first, duplicate],
+            rationale_summary="summary",
+            conclusion="answer",
+            correlation_id="trace-1",
+        )
