@@ -13,6 +13,7 @@ from app.auth import (
     get_current_principal,
     require_generation_role,
     require_job_read_role,
+    require_scope,
 )
 from app.config import settings
 from app.tasks.schemas import TaskReceipt, TaskStatus, TaskSubmission
@@ -62,6 +63,7 @@ async def submit_task(
     service: UGAITaskService = Depends(get_task_service),
 ) -> TaskReceipt:
     require_generation_role(principal)
+    require_scope(principal, "ugai:tasks:write")
     ensure_project_access(principal, str(submission.workspace_id))
     try:
         task = await service.submit(
@@ -98,6 +100,7 @@ async def get_task_status(
     service: UGAITaskService = Depends(get_task_service),
 ) -> TaskStatus:
     require_job_read_role(principal)
+    require_scope(principal, "ugai:tasks:read")
     try:
         task = await service.status(task_id=task_id, tenant_id=principal.tenant_id)
     except TaskNotFound as exc:
@@ -120,6 +123,7 @@ async def cancel_task(
     service: UGAITaskService = Depends(get_task_service),
 ) -> TaskStatus:
     require_generation_role(principal)
+    require_scope(principal, "ugai:tasks:cancel")
     try:
         current = await service.status(task_id=task_id, tenant_id=principal.tenant_id)
         _assert_task_owner(current, principal)
