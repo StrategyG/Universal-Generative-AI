@@ -343,6 +343,38 @@ class PostgresWorkflowStore:
                 await connection.fetchval(
                     "SELECT set_config('app.ugai_tenant_id', $1, true)", tenant_id
                 )
+                # An expired execution lease is unsafe to replay: the external side
+                # effect may already have completed. Quarantine it before looking for
+                # another claim; ordinary unleased EXECUTING tasks remain claimable.
+                await connection.execute(
+                    """
+                    WITH expired AS (
+                        UPDATE ugai_workflow.tasks
+                        SET state = 'outcome_unknown',
+                            version = version + 1,
+                            retryable = false,
+                            error_code = 'outcome_unknown',
+                            lease_owner = NULL,
+                            lease_token = NULL,
+                            lease_expires_at = NULL,
+                            updated_at = clock_timestamp()
+                        WHERE tenant_id = $1
+                          AND state = 'executing'
+                          AND lease_token IS NOT NULL
+                          AND lease_expires_at <= clock_timestamp()
+                        RETURNING task_id, version
+                    )
+                    INSERT INTO ugai_workflow.events (
+                        task_id, task_version, actor_id, event_type,
+                        from_state, to_state, details
+                    )
+                    SELECT task_id, version, 'system:lease-reaper',
+                           'execution_lease_expired', 'executing', 'outcome_unknown',
+                           jsonb_build_object('reason_code', 'execution_lease_expired')
+                    FROM expired
+                    """,
+                    tenant_id,
+                )
                 row = await connection.fetchrow(
                     """
                     WITH candidate AS (
