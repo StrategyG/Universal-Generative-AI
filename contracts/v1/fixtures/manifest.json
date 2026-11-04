@@ -32,6 +32,10 @@
     {
       "schema": "schemas/a2a-dispatch.schema.json",
       "document": "valid/a2a-dispatch.json"
+    },
+    {
+      "schema": "schemas/platform-event-envelope.schema.json",
+      "document": "valid/platform-event-envelope.json"
     }
   ],
   "invalid": [
@@ -46,6 +50,14 @@
     {
       "schema": "schemas/identity-context.schema.json",
       "document": "invalid/identity-context-http-issuer.json"
+    },
+    {
+      "schema": "schemas/platform-event-envelope.schema.json",
+      "document": "invalid/platform-event-http-issuer.json"
+    },
+    {
+      "schema": "schemas/platform-event-envelope.schema.json",
+      "document": "invalid/platform-event-secret-field.json"
     }
   ]
 }
