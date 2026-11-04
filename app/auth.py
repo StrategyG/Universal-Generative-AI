@@ -26,6 +26,7 @@ class Principal:
     roles: frozenset[str]
     project_ids: frozenset[str]
     auth_mode: str
+    scopes: frozenset[str] = frozenset()
 
     @property
     def is_tenant_admin(self) -> bool:
@@ -111,6 +112,22 @@ def _string_set(value: Any, claim_name: str) -> frozenset[str]:
     return frozenset(item.strip() for item in values if item.strip())
 
 
+def _scope_set(value: Any, claim_name: str) -> frozenset[str]:
+    """Parse standard OIDC scope strings or explicit string arrays."""
+    if value is None:
+        return frozenset()
+    if isinstance(value, str):
+        values = value.split()
+    elif isinstance(value, list) and all(isinstance(item, str) for item in value):
+        values = value
+    else:
+        raise ValueError(f"OIDC claim '{claim_name}' must be a scope string or array of strings")
+    scopes = [item.strip() for item in values if item.strip()]
+    if any(any(ch.isspace() for ch in item) for item in scopes):
+        raise ValueError("OIDC scope entries must be individual tokens")
+    return frozenset(scopes)
+
+
 def principal_from_claims(claims: dict[str, Any]) -> Principal:
     """Map verified OIDC claims into the platform's authorization context."""
     subject = claims.get("sub")
@@ -125,12 +142,17 @@ def principal_from_claims(claims: dict[str, Any]) -> Principal:
         claims.get(settings.oidc_projects_claim),
         settings.oidc_projects_claim,
     )
+    scopes = _scope_set(
+        claims.get(settings.oidc_scopes_claim),
+        settings.oidc_scopes_claim,
+    )
     return Principal(
         subject=subject.strip(),
         tenant_id=tenant_id.strip(),
         roles=roles,
         project_ids=projects,
         auth_mode="oidc",
+        scopes=scopes,
     )
 
 
@@ -171,6 +193,19 @@ async def get_current_principal(
             detail="Bearer token is invalid or expired",
             headers={"WWW-Authenticate": "Bearer"},
         ) from exc
+
+
+def require_scope(principal: Principal, required_scope: str) -> None:
+    """Require an exact delegated permission; never infer scopes from a broad role."""
+    if principal.auth_mode == "disabled" and settings.environment.strip().lower() not in _PRODUCTION_ENVIRONMENTS:
+        return
+    if not required_scope or any(ch.isspace() for ch in required_scope):
+        raise ValueError("required_scope_invalid")
+    if required_scope not in principal.scopes:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"code": "required_scope_missing", "scope": required_scope},
+        )
 
 
 def require_generation_role(principal: Principal) -> None:
