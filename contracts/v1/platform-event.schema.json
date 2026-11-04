@@ -4,6 +4,27 @@
   "title": "Cataran Platform Event Envelope v1",
   "type": "object",
   "additionalProperties": false,
+  "$defs": {
+    "safeJsonValue": {
+      "oneOf": [
+        { "type": ["null", "boolean", "number", "string"] },
+        { "$ref": "#/$defs/safeObject" },
+        {
+          "type": "array",
+          "items": { "$ref": "#/$defs/safeJsonValue" }
+        }
+      ]
+    },
+    "safeObject": {
+      "type": "object",
+      "propertyNames": {
+        "not": {
+          "pattern": "[Aa]ccess[_-]?[Tt]oken|[Rr]efresh[_-]?[Tt]oken|[Ss]ession[_-]?[Tt]oken|[Bb]earer|[Aa]uthorization|[Aa][Pp][Ii][_-]?[Kk]ey|[Cc]lient[_-]?[Ss]ecret|[Pp]rivate[_-]?[Kk]ey|[Pp]assword|[Cc]ookie|[Cc]redential|[Ss]ecret"
+        }
+      },
+      "additionalProperties": { "$ref": "#/$defs/safeJsonValue" }
+    }
+  },
   "required": [
     "contract_version",
     "message_id",
@@ -72,6 +93,6 @@
         "tracestate": { "type": "string", "maxLength": 512 }
       }
     },
-    "payload": { "type": "object" }
+    "payload": { "$ref": "#/$defs/safeObject" }
   }
 }
