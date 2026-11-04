@@ -45,9 +45,13 @@ class ToolPolicy:
 
         annotations = _get(tool, "annotations", {}) or {}
         read_only = _get(annotations, "readOnlyHint", _MISSING)
+        # An operator allowlist does not prove that a discovered upstream tool
+        # is safe. Require an explicit positive server annotation; missing,
+        # malformed, or false values must fail closed.
+        if read_only is not True:
+            return ToolDecision(False, "explicit_read_only_hint_required")
+
         destructive = _get(annotations, "destructiveHint", _MISSING)
-        if read_only is not _MISSING and read_only is not True:
-            return ToolDecision(False, "server_marks_tool_not_read_only")
         if destructive is not _MISSING and destructive is not False:
             return ToolDecision(False, "server_marks_tool_destructive")
 
