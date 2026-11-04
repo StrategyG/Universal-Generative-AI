@@ -4,6 +4,7 @@ from uuid import uuid4
 
 import pytest
 
+from ugai_workflow.postgres_store import LeaseLost
 from ugai_workflow.state_machine import TaskState
 from ugai_workflow.worker import (
     ExternalOutcomeUnknown,
@@ -190,3 +191,73 @@ async def test_retry_scheduler_stop_event_prevents_polling() -> None:
 
     await scheduler.run(stop)
     assert store.calls == []
+
+
+def test_worker_registration_rejects_boolean_lease_values() -> None:
+    with pytest.raises(ValueError, match="lease_seconds_out_of_bounds"):
+        WorkerRegistration(
+            "worker-1", WorkerTier.INLINE, "tenant-001", ("rag_observe",), True, 1
+        ).validate()
+
+    with pytest.raises(ValueError, match="heartbeat_interval_must_be_less_than_half"):
+        WorkerRegistration(
+            "worker-1", WorkerTier.INLINE, "tenant-001", ("rag_observe",), 10, True
+        ).validate()
+
+
+def test_worker_registration_rejects_non_enum_tier() -> None:
+    config = WorkerRegistration(
+        "worker-1", "inline", "tenant-001", ("rag_observe",), 10, 1
+    )
+    with pytest.raises(ValueError, match="worker_tier_invalid"):
+        config.validate()
+
+
+def test_worker_outcome_rejects_invalid_types() -> None:
+    with pytest.raises(ValueError, match="worker_next_state_invalid"):
+        WorkerOutcome("succeeded", "completed").validate()
+
+    with pytest.raises(ValueError, match="worker_retryable_must_be_boolean"):
+        WorkerOutcome(TaskState.FAILED, "retry_requested", retryable=1).validate()
+
+    with pytest.raises(ValueError, match="worker_metadata_must_be_mapping"):
+        WorkerOutcome(TaskState.SUCCEEDED, "completed", metadata=["unsafe"]).validate()
+
+
+@pytest.mark.asyncio
+async def test_worker_cancels_handler_on_unexpected_heartbeat_database_error() -> None:
+    class DatabaseDriverError(Exception):
+        pass
+
+    class FailingHeartbeatStore(FakeStore):
+        async def heartbeat(self, **kwargs):
+            raise DatabaseDriverError("connection reset by database proxy")
+
+    class BlockingHandler:
+        def __init__(self):
+            self.started = asyncio.Event()
+            self.cancelled = asyncio.Event()
+
+        async def handle(self, task):
+            self.started.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                self.cancelled.set()
+                raise
+
+    task = sample_task()
+    store = FailingHeartbeatStore(task)
+    handler = BlockingHandler()
+    worker = HybridWorker(
+        store=store,
+        registration=registration(),
+        handlers={"rag_observe": handler},
+    )
+
+    with pytest.raises(LeaseLost, match="lost_lease"):
+        await asyncio.wait_for(worker.run_once(), timeout=3)
+
+    assert handler.started.is_set()
+    assert handler.cancelled.is_set()
+    assert store.transition_calls == []
