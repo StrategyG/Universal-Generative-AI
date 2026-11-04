@@ -587,7 +587,7 @@ class PostgresWorkflowStore:
                         version = version + 1,
                         retry_count = $4,
                         retryable = $5,
-                        error_code = CASE WHEN $3 = 'failed' THEN $6 ELSE NULL END,
+                        error_code = CASE WHEN $3 IN ('failed', 'outcome_unknown') THEN $6 ELSE NULL END,
                         approval_reference = CASE
                             WHEN $3 = 'received' THEN NULL
                             ELSE COALESCE($9, approval_reference)
