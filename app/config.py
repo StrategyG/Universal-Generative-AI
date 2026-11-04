@@ -1,3 +1,4 @@
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -24,7 +25,7 @@ class Settings(BaseSettings):
     text_generation_retry_backoff_seconds: float = 0.5
     reasoning_route_catalog_json: str = ""
     reasoning_permitted_data_regions: str = "ap-southeast-1"
-    reasoning_max_estimated_cost: float = 1.0
+    reasoning_max_estimated_cost: float = Field(default=1.0, gt=0.0, le=100.0)
     text_generation_provider_order: str = (
         "openai-compatible-chat,openai-compatible-chat-fallback,"
         "anthropic-messages,gemini-generate-content"
