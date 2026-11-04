@@ -12,6 +12,8 @@ from typing import Any, Protocol
 
 from .models import EvidenceItem
 
+_REQUIRED_TRUST_CLASSIFICATION = "UNTRUSTED_EXTERNAL_DATA"
+
 
 class MCPToolProvider(Protocol):
     actor_id: str
@@ -20,11 +22,11 @@ class MCPToolProvider(Protocol):
         """Return the provider's currently policy-approved tools."""
 
     async def execute(self, tool_name: str, arguments: Mapping[str, Any]) -> dict[str, Any]:
-        """Execute one already-approved tool."""
+        """Execute one already-approved tool and classify its result."""
 
 
 class EvidenceExtractionError(RuntimeError):
-    """Raised when a connector response cannot be mapped to trusted evidence."""
+    """Raised when a connector response cannot be mapped to attributable evidence."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,8 +55,9 @@ class MCPToolEvidenceSource:
 
     Construct this source for one authenticated actor and keep the provider
     session open for the duration of DecisionWorkflow.run(). The provider's
-    actor_id is checked against the trusted workflow actor. The extractor
-    must resolve primary-source independence groups and attach stable locators.
+    actor_id is checked against the trusted workflow actor. Tool responses
+    must be explicitly classified as untrusted external data before any
+    extractor can interpret their contents.
     """
 
     def __init__(
@@ -111,6 +114,10 @@ class MCPToolEvidenceSource:
             response = await self._provider.execute(query.tool_name, dict(arguments))
             if not isinstance(response, Mapping):
                 raise EvidenceExtractionError("MCP provider returned a non-mapping result")
+            if response.get("trust_classification") != _REQUIRED_TRUST_CLASSIFICATION:
+                raise EvidenceExtractionError(
+                    "MCP result is missing the required untrusted-data classification"
+                )
             extracted = self._extractor(query.tool_name, response)
             if not isinstance(extracted, Sequence) or isinstance(extracted, (str, bytes)):
                 raise EvidenceExtractionError("Evidence extractor must return a sequence")
