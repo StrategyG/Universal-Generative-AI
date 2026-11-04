@@ -54,6 +54,7 @@ def test_oidc_token_signature_issuer_and_audience_are_verified(monkeypatch):
     assert principal.tenant_id == "tenant-1"
     assert principal.roles == frozenset({"developer"})
     assert principal.project_ids == frozenset({"project-1"})
+    assert principal.scopes == frozenset()
 
 
 def test_oidc_token_with_wrong_audience_is_rejected(monkeypatch):
@@ -203,3 +204,58 @@ def test_oidc_mode_requires_bearer_authentication(monkeypatch):
             json={"task": "text_to_image", "prompt": "unauthenticated", "project_id": "project-1"},
         )
     assert response.status_code == 401
+
+def test_oidc_scope_claim_is_parsed_as_space_delimited_tokens(monkeypatch):
+    _oidc_settings(monkeypatch)
+    principal = principal_from_claims(
+        {
+            "sub": "user-1",
+            "tenant_id": "tenant-1",
+            "scope": "ugai:tasks:read ugai:tasks:write",
+        }
+    )
+    assert principal.scopes == frozenset({"ugai:tasks:read", "ugai:tasks:write"})
+
+
+def test_oidc_scope_array_is_supported_and_malformed_scope_is_rejected(monkeypatch):
+    _oidc_settings(monkeypatch)
+    principal = principal_from_claims(
+        {
+            "sub": "user-1",
+            "tenant_id": "tenant-1",
+            "scope": ["ugai:tasks:read", "ugai:tasks:cancel"],
+        }
+    )
+    assert principal.scopes == frozenset({"ugai:tasks:read", "ugai:tasks:cancel"})
+    with pytest.raises(ValueError, match="scope string or array"):
+        principal_from_claims(
+            {"sub": "user-1", "tenant_id": "tenant-1", "scope": {"admin": True}}
+        )
+
+
+def test_task_scope_is_required_and_never_inferred_from_role(monkeypatch):
+    _oidc_settings(monkeypatch)
+    principal = Principal(
+        subject="developer-1",
+        tenant_id="tenant-1",
+        roles=frozenset({"developer"}),
+        project_ids=frozenset({"project-1"}),
+        auth_mode="oidc",
+    )
+    with pytest.raises(HTTPException) as exc:
+        auth.require_scope(principal, "ugai:tasks:write")
+    assert exc.value.status_code == 403
+
+    authorized = Principal(
+        subject="developer-1",
+        tenant_id="tenant-1",
+        roles=frozenset({"developer"}),
+        project_ids=frozenset({"project-1"}),
+        auth_mode="oidc",
+        scopes=frozenset({"ugai:tasks:write"}),
+    )
+    auth.require_scope(authorized, "ugai:tasks:write")
+    with pytest.raises(HTTPException) as read_exc:
+        auth.require_scope(authorized, "ugai:tasks:read")
+    assert read_exc.value.status_code == 403
+\n
