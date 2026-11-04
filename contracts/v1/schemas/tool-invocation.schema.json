@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cataran.invalid/contracts/v1/tool-invocation.schema.json",
+  "title": "Cataran IM19 Tool Invocation Audit Record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract_version",
+    "invocation_id",
+    "tenant_id",
+    "task_id",
+    "gateway",
+    "connector_id",
+    "connector_revision",
+    "tool_name",
+    "arguments_digest",
+    "side_effect_class",
+    "authorization_decision",
+    "requested_at",
+    "trace_id"
+  ],
+  "properties": {
+    "contract_version": {
+      "const": "1.0.0"
+    },
+    "invocation_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "tenant_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "task_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "gateway": {
+      "const": "IM19"
+    },
+    "connector_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "connector_revision": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "tool_name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "arguments_digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "side_effect_class": {
+      "type": "string",
+      "enum": [
+        "read_only",
+        "write",
+        "destructive"
+      ]
+    },
+    "authorization_decision": {
+      "type": "string",
+      "enum": [
+        "allow",
+        "deny"
+      ]
+    },
+    "approval_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "audit_record_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "result_digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "requested_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "completed_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "trace_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "outcome_certainty": {
+      "type": "string",
+      "enum": [
+        "known",
+        "unknown"
+      ]
+    }
+  }
+}
