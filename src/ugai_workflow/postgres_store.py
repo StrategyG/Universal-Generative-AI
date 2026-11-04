@@ -515,8 +515,10 @@ class PostgresWorkflowStore:
             raise ValueError("reason_code_invalid")
         if error_code is not None and not _SAFE_CODE.fullmatch(error_code):
             raise ValueError("error_code_invalid")
-        if not isinstance(expected_version, int) or expected_version < 0:
+        if not isinstance(expected_version, int) or isinstance(expected_version, bool) or expected_version < 0:
             raise ValueError("expected_version_invalid")
+        if not isinstance(require_no_lease, bool):
+            raise ValueError("require_no_lease_must_be_boolean")
         if (
             not isinstance(retry_delay_seconds, int)
             or isinstance(retry_delay_seconds, bool)
