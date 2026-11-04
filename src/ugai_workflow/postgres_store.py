@@ -619,6 +619,7 @@ class PostgresWorkflowStore:
         approval_verified: bool = False,
         clarification_received: bool = False,
         operator_override: bool = False,
+        reconciliation_verified: bool = False,
         retry_delay_seconds: int = 0,
         error_code: str | None = None,
         approval_reference: str | None = None,
@@ -636,6 +637,8 @@ class PostgresWorkflowStore:
             raise ValueError("expected_version_invalid")
         if not isinstance(require_no_lease, bool):
             raise ValueError("require_no_lease_must_be_boolean")
+        if not isinstance(reconciliation_verified, bool):
+            raise ValueError("reconciliation_verified_must_be_boolean")
         if (
             not isinstance(retry_delay_seconds, int)
             or isinstance(retry_delay_seconds, bool)
@@ -698,6 +701,24 @@ class PostgresWorkflowStore:
                 elif require_no_lease and current.lease_token is not None:
                     raise LeaseLost("task_has_worker_lease_or_requires_reconciliation")
 
+                is_reconciliation = (
+                    current.state is TaskState.OUTCOME_UNKNOWN
+                    and target is TaskState.VERIFYING
+                )
+                if reconciliation_verified and not is_reconciliation:
+                    raise ValueError("reconciliation_flag_not_applicable")
+                if is_reconciliation:
+                    evidence_digest = event_details.get("evidence_digest")
+                    if (
+                        reconciliation_verified is not True
+                        or require_lease
+                        or lease is not None
+                        or not require_no_lease
+                        or not isinstance(evidence_digest, str)
+                        or not _SHA256.fullmatch(evidence_digest)
+                    ):
+                        raise PermissionError("reconciliation_evidence_required")
+
                 validate_transition(
                     current.state,
                     target,
@@ -707,6 +728,7 @@ class PostgresWorkflowStore:
                     approval_verified=approval_verified,
                     clarification_received=clarification_received,
                     operator_override=operator_override,
+                    reconciliation_verified=reconciliation_verified,
                 )
 
                 retry_count = current.retry_count
@@ -724,7 +746,7 @@ class PostgresWorkflowStore:
                         version = version + 1,
                         retry_count = $4,
                         retryable = $5,
-                        error_code = CASE WHEN $3 = 'failed' THEN $6 ELSE NULL END,
+                        error_code = CASE WHEN $3 IN ('failed', 'outcome_unknown') THEN $6 ELSE NULL END,
                         approval_reference = CASE
                             WHEN $3 = 'received' THEN NULL
                             ELSE COALESCE($9, approval_reference)
