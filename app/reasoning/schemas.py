@@ -156,12 +156,29 @@ class ReasoningArtifact(StrictContract):
     conclusion: str = Field(min_length=1, max_length=6000)
     limitations: list[str] = Field(default_factory=list, max_length=100)
     calibrated_confidence: FiniteFloat | None = Field(default=None, ge=0.0, le=1.0)
+    confidence_calibration_id: str | None = Field(default=None, min_length=1, max_length=160)
+    confidence_calibration_version: str | None = Field(default=None, min_length=1, max_length=100)
+    confidence_sample_count: int | None = Field(default=None, ge=1)
     verification: VerificationRecord = Field(default_factory=VerificationRecord)
     approval_required: bool = False
     correlation_id: str = Field(min_length=1, max_length=160)
 
     @model_validator(mode="after")
     def validate_artifact_references(self) -> "ReasoningArtifact":
+        calibration_provenance = (
+            self.confidence_calibration_id,
+            self.confidence_calibration_version,
+            self.confidence_sample_count,
+        )
+        if self.calibrated_confidence is not None and any(
+            value is None for value in calibration_provenance
+        ):
+            raise ValueError("calibrated_confidence_requires_calibration_provenance")
+        if self.calibrated_confidence is None and any(
+            value is not None for value in calibration_provenance
+        ):
+            raise ValueError("calibration_provenance_requires_confidence")
+
         evidence_ids = [item.evidence_id for item in self.evidence]
         if len(evidence_ids) != len(set(evidence_ids)):
             raise ValueError("reasoning_artifact_duplicate_evidence_ids")
