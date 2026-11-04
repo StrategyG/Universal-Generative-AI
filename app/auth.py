@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
+import json
 from functools import lru_cache
 from typing import Any
 
@@ -28,6 +30,17 @@ class Principal:
     auth_mode: str
     scopes: frozenset[str] = frozenset()
     workspace_ids: frozenset[str] = frozenset()
+    issuer: str = ""
+
+    @property
+    def actor_id(self) -> str:
+        """Stable, issuer-scoped identity key for task ownership and audit."""
+        canonical = json.dumps(
+            [self.issuer, self.subject],
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return "principal:" + hashlib.sha256(canonical).hexdigest()
 
     @property
     def is_tenant_admin(self) -> bool:
@@ -150,7 +163,10 @@ def _scope_set(value: Any, claim_name: str) -> frozenset[str]:
 def principal_from_claims(claims: dict[str, Any]) -> Principal:
     """Map verified OIDC claims into the platform's authorization context."""
     subject = claims.get("sub")
+    issuer = claims.get("iss")
     tenant_id = claims.get(settings.oidc_tenant_claim)
+    if not isinstance(issuer, str) or not issuer.strip() or issuer != settings.oidc_issuer:
+        raise ValueError("OIDC issuer is missing or does not match the verified configuration")
     if not isinstance(subject, str) or not subject.strip():
         raise ValueError("OIDC subject is missing")
     if not isinstance(tenant_id, str) or not tenant_id.strip():
@@ -173,6 +189,7 @@ def principal_from_claims(claims: dict[str, Any]) -> Principal:
         subject=subject.strip(),
         tenant_id=tenant_id.strip(),
         roles=roles,
+        issuer=issuer,
         project_ids=projects,
         auth_mode="oidc",
         scopes=scopes,
@@ -199,6 +216,7 @@ async def get_current_principal(
             roles=frozenset(_GENERATION_ROLES),
             project_ids=frozenset({"*"}),
             auth_mode="disabled",
+            issuer="urn:cataran:local-development",
         )
 
     if credentials is None or credentials.scheme.lower() != "bearer":
