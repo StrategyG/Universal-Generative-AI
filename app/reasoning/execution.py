@@ -59,6 +59,10 @@ class PolicyRoutedTextExecutor:
         if len(set(route_ids)) != len(route_ids):
             raise ValueError("model_route_ids_must_be_unique")
         for route in self._routes:
+            if not route.approved or not route.enabled:
+                raise ReasoningRouteConfigurationError(
+                    "Reasoning execution rejects unapproved or disabled model routes"
+                )
             self._validate_provider_binding(route)
 
     def _validate_provider_binding(self, route: ModelRouteDescriptor) -> None:
@@ -100,6 +104,12 @@ class PolicyRoutedTextExecutor:
             expected_model_revision=route.model_revision,
         )
         response = AICompletionResponse.model_validate(result)
+        provider = self._router.get_provider(route.provider)
+        if response.provider != provider.name or response.model != provider.model:
+            raise TextGenerationProviderError(
+                "Provider response identity does not match the selected model route",
+                code="provider_identity_mismatch",
+            )
         if not response.final_content.strip():
             raise TextGenerationProviderError(
                 "The selected model returned an empty completion",
