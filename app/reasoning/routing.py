@@ -84,39 +84,50 @@ def select_model_routes(
     if not primary_candidates:
         raise NoEligibleModelRoute("No approved reasoning_primary route meets policy")
 
-    def total_cost(primary: ModelRouteDescriptor, evaluator: ModelRouteDescriptor | None) -> float:
-        return _estimated_cost(primary, requirements) + (
-            _estimated_cost(evaluator, requirements) if evaluator else 0.0
-        )
-
-    decisions: list[tuple[ModelRouteDescriptor, ModelRouteDescriptor | None, ModelRouteDescriptor | None, float]] = []
+    decisions: list[
+        tuple[
+            ModelRouteDescriptor,
+            ModelRouteDescriptor | None,
+            ModelRouteDescriptor | None,
+            float,
+        ]
+    ] = []
     for primary in primary_candidates:
+        primary_cost = _estimated_cost(primary, requirements)
+        if primary_cost > requirements.max_estimated_cost:
+            continue
+
         fallback_candidates = [
             route for route in eligible
             if route.role == ModelRole.REASONING_FALLBACK
             and route.route_id != primary.route_id
+            and _estimated_cost(route, requirements) <= requirements.max_estimated_cost
         ]
         fallback = sorted(
             fallback_candidates,
-            key=lambda route: (-route.quality_rank, _estimated_cost(route, requirements), route.route_id),
+            key=lambda route: (
+                -route.quality_rank,
+                _estimated_cost(route, requirements),
+                route.route_id,
+            ),
         )[0] if fallback_candidates else None
 
-        evaluator_candidates = [
-            route for route in eligible
-            if route.role == ModelRole.INDEPENDENT_EVALUATOR
-            and route.provider != primary.provider
-            and route.model_family != primary.model_family
-        ]
-        evaluator = sorted(
-            evaluator_candidates,
-            key=lambda route: (-route.quality_rank, _estimated_cost(route, requirements), route.route_id),
-        )[0] if evaluator_candidates else None
+        if evaluator_required:
+            evaluator_candidates = [
+                route for route in eligible
+                if route.role == ModelRole.INDEPENDENT_EVALUATOR
+                and route.provider != primary.provider
+                and route.model_family != primary.model_family
+            ]
+        else:
+            evaluator_candidates = [None]
 
-        if evaluator_required and evaluator is None:
-            continue
-        cost = total_cost(primary, evaluator)
-        if cost <= requirements.max_estimated_cost:
-            decisions.append((primary, fallback, evaluator, cost))
+        for evaluator in evaluator_candidates:
+            cost = primary_cost + (
+                _estimated_cost(evaluator, requirements) if evaluator else 0.0
+            )
+            if cost <= requirements.max_estimated_cost:
+                decisions.append((primary, fallback, evaluator, cost))
 
     if not decisions:
         if evaluator_required:
@@ -129,7 +140,12 @@ def select_model_routes(
     # Quality is operator-assessed and registry-controlled; cost breaks quality ties.
     primary, fallback, evaluator, cost = sorted(
         decisions,
-        key=lambda item: (-item[0].quality_rank, item[3], item[0].route_id),
+        key=lambda item: (
+            -item[0].quality_rank,
+            item[3],
+            -(item[2].quality_rank if item[2] else 0),
+            item[0].route_id,
+        ),
     )[0]
     return RoutingDecision(
         primary=primary,
