@@ -95,8 +95,17 @@ async def test_database_enforces_tenant_rls_and_idempotency(workflow_database) -
     args = new_task_args(tenant_id=tenant, suffix=str(uuid4()))
 
     first = await store.create_task(**args)
-    repeated = await store.create_task(**args)
+    repeated = await store.create_task(
+        **{
+            **args,
+            "metadata": {
+                "request_ref": f"new-transport-request-{uuid4()}",
+                "correlation_id": f"new-correlation-{uuid4()}",
+            },
+        }
+    )
     assert repeated.task_id == first.task_id
+    assert repeated.metadata == first.metadata
 
     # Prove the runtime database role is not privileged and that row visibility
     # is enforced by PostgreSQL RLS itself, not only by an application WHERE clause.
