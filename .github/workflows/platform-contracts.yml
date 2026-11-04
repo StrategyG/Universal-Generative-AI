@@ -1,0 +1,33 @@
+name: Platform Contracts
+
+on:
+  pull_request:
+    paths:
+      - "contracts/v1/**"
+      - "scripts/validate_platform_contracts.py"
+      - ".github/workflows/platform-contracts.yml"
+  push:
+    branches: [main]
+    paths:
+      - "contracts/v1/**"
+      - "scripts/validate_platform_contracts.py"
+      - ".github/workflows/platform-contracts.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  validate-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install pinned validator
+        run: python -m pip install --disable-pip-version-check jsonschema==4.23.0
+      - name: Validate schemas and golden fixtures
+        run: python scripts/validate_platform_contracts.py
