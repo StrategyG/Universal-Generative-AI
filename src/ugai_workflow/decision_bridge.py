@@ -97,10 +97,10 @@ class DecisionResultStore(Protocol):
 class DecisionWorkflowTaskHandler:
     """Advance one durable decision task using the single existing decision engine.
 
-    The task moves RECEIVED -> OBSERVING -> PLANNING before evaluation. The
-    existing DecisionWorkflow remains responsible for evidence, evaluation,
-    approval request creation and audit. Only the resulting digests and opaque
-    approval reference are written to the durable task row.
+    The task moves RECEIVED -> OBSERVING -> PLANNING -> EXECUTING before any
+    approval-producing evaluation. The existing DecisionWorkflow remains
+    responsible for evidence, evaluation, approval request creation and audit.
+    A durable EXECUTING lease therefore fences any uncertain external outcome.
     """
 
     def __init__(
@@ -133,7 +133,15 @@ class DecisionWorkflowTaskHandler:
                 next_state=TaskState.PLANNING,
                 reason_code="decision_planning_started",
             )
-        if task.state is not TaskState.PLANNING:
+        if task.state is TaskState.PLANNING:
+            # Persist the EXECUTING transition before approval creation or any
+            # other external side effect. A worker crash after this point is
+            # quarantined as outcome_unknown by the lease reaper.
+            return WorkerOutcome(
+                next_state=TaskState.EXECUTING,
+                reason_code="decision_execution_started",
+            )
+        if task.state is not TaskState.EXECUTING:
             return WorkerOutcome(
                 next_state=TaskState.BLOCKED,
                 reason_code="decision_stage_not_supported",
