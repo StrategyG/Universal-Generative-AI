@@ -6,14 +6,13 @@ import hashlib
 import json
 from uuid import UUID, uuid4
 
-from app.tasks.payloads import TaskPayloadCipher
+from app.tasks.payloads import EncryptedTaskPayload, TaskPayloadCipher
 from app.tasks.schemas import TaskSubmission
 from ugai_workflow.postgres_store import (
     IdempotencyConflict,
     LeaseLost,
     PostgresWorkflowStore,
     StaleWorkflowVersion,
-    TaskNotFound,
 )
 from ugai_workflow.state_machine import TaskState, TransitionDenied
 
@@ -61,6 +60,20 @@ class UGAITaskService:
             encrypted_payload=envelope.ciphertext,
             payload_nonce=envelope.nonce,
             payload_key_version=envelope.key_version,
+        )
+
+    async def load_payload(self, *, task_id: UUID, tenant_id: str) -> dict:
+        """Decrypt one tenant-scoped task input for a trusted worker."""
+        stored = await self.store.get_task_payload(task_id=task_id, tenant_id=tenant_id)
+        envelope = EncryptedTaskPayload(
+            ciphertext=stored.ciphertext,
+            nonce=stored.nonce,
+            key_version=stored.key_version,
+        )
+        return self.cipher.decrypt_json(
+            envelope,
+            tenant_id=tenant_id,
+            task_id=task_id,
         )
 
     async def status(self, *, task_id: UUID, tenant_id: str):
