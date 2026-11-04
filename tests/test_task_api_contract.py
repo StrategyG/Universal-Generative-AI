@@ -78,8 +78,19 @@ class CapturingStore:
     def __init__(self) -> None:
         self.calls = []
         self.task = None
+        self.by_idempotency = {}
 
     async def create_task(self, **kwargs):
+        key = (kwargs["tenant_id"], kwargs["idempotency_key"])
+        existing = self.by_idempotency.get(key)
+        if existing is not None:
+            if (
+                existing.input_digest != kwargs["input_digest"]
+                or existing.actor_id != kwargs["actor_id"]
+                or existing.task_type != kwargs["task_type"]
+            ):
+                raise ValueError("idempotency_conflict")
+            return existing
         self.calls.append(kwargs)
         self.task = SimpleNamespace(
             task_id=kwargs["task_id"],
@@ -87,11 +98,14 @@ class CapturingStore:
             created_at=datetime.now(timezone.utc),
             actor_id=kwargs["actor_id"],
             tenant_id=kwargs["tenant_id"],
+            task_type=kwargs["task_type"],
+            input_digest=kwargs["input_digest"],
             version=0,
             lease_token=None,
             metadata=kwargs["metadata"],
             error_code=None,
         )
+        self.by_idempotency[key] = self.task
         return self.task
 
     async def get_task(self, *, task_id, tenant_id):
@@ -132,11 +146,12 @@ async def test_task_service_encrypts_payload_and_keeps_idempotency_metadata_stab
         idempotency_key=idempotency_key,
     )
 
-    assert first.task_id != second.task_id
-    first_call, second_call = store.calls
+    assert first.task_id == second.task_id
+    assert len(store.calls) == 1
+    first_call = store.calls[0]
     assert first_call["task_type"] == "notebook.request"
-    assert first_call["input_digest"] == second_call["input_digest"]
-    assert first_call["metadata"] == second_call["metadata"]
+    assert first_call["input_digest"] == store.task.input_digest
+    assert first_call["metadata"]["correlation_id"] != str(idempotency_key)
     assert "intent" not in first_call["metadata"]
     assert "tenant_id" not in first_call["metadata"]
     assert submission.intent.encode() not in first_call["encrypted_payload"]
