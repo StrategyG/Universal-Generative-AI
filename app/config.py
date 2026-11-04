@@ -49,6 +49,11 @@ class Settings(BaseSettings):
     external_worker_token: str = ""
     worker_admin_token: str = ""
     database_url: str = ""
+    workflow_tasks_enabled: bool = False
+    workflow_database_url: str = ""
+    workflow_database_ssl_mode: str = "prefer"
+    task_payload_encryption_key: str = ""
+    task_payload_key_version: str = "v1"
     model_registry_enforcement: bool = False
     auth_mode: str = "disabled"
     oidc_issuer: str = ""
@@ -57,6 +62,7 @@ class Settings(BaseSettings):
     oidc_tenant_claim: str = "tenant_id"
     oidc_roles_claim: str = "roles"
     oidc_projects_claim: str = "project_ids"
+    oidc_scopes_claim: str = "scope"
 
 
 settings = Settings()

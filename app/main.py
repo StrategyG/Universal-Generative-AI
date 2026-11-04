@@ -24,6 +24,8 @@ from app.providers.text_errors import TextGenerationProviderError
 from app.pipelines.planner import build_pipeline_plan
 from app.pipelines.schemas import PipelinePlan, PipelineRequest
 from app.schemas import GenerationRequest, JobResponse
+from app.tasks.router import router as task_router
+from app.tasks.runtime import open_task_runtime
 from app.services.external_gpu_queue import (
     approve_model_version,
     assert_model_approved,
@@ -82,20 +84,30 @@ from app.workers.schemas import (
 
 
 @contextlib.asynccontextmanager
-async def lifespan(_: FastAPI) -> collections.abc.AsyncIterator[None]:
+async def lifespan(application: FastAPI) -> collections.abc.AsyncIterator[None]:
     validate_auth_configuration()
     validate_database_configuration()
     await initialize_queue()
+    task_runtime = None
     try:
+        task_runtime = await open_task_runtime(settings)
+        application.state.task_service = (
+            task_runtime.service if task_runtime is not None else None
+        )
         yield
     finally:
+        application.state.task_service = None
+        if task_runtime is not None:
+            await task_runtime.close()
         await close_queue()
 
 
 configure_logging()
 app = FastAPI(title=settings.app_name, version="0.5.0", lifespan=lifespan)
+app.state.task_service = None
 app.add_middleware(RequestObservabilityMiddleware)
 app.include_router(reasoning_router)
+app.include_router(task_router)
 
 
 def require_worker_token(token: str | None) -> None:
@@ -146,6 +158,7 @@ async def health():
         "worker_administration_enabled": bool(settings.worker_admin_token),
         "queue_backend": backend,
         "queue_persistent": backend == "postgresql",
+        "workflow_tasks_enabled": app.state.task_service is not None,
     }
 
 
