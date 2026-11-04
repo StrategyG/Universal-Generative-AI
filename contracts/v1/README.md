@@ -46,17 +46,18 @@ UGAI is the source of truth for task state. Notebook and workers hold projection
 
 ## State machine
 
-Allowed normal path:
+Allowed normal path follows the current UGAI state machine:
 
-`queued -> running -> awaiting_approval -> running -> succeeded`
+`received -> observing -> planning -> executing -> verifying -> succeeded`
 
-Allowed terminal paths:
+Other allowed transitions are enforced by UGAI's application-owned state machine and include approval, clarification, blocked, failed and cancelled branches. Consumers must not invent alternate transitions.
 
-- `queued|running|awaiting_approval -> failed|cancelled|blocked`
-- `running -> outcome_unknown` when a side effect may have occurred but confirmation is missing.
-- `outcome_unknown -> succeeded|failed|cancelled` only by an explicit reconciliation event that carries evidence; never retry an uncertain side effect blindly.
+Uncertain external effects use a dedicated non-claimable state:
 
-Additional transitions (for example direct `queued -> succeeded`) require explicit versioned policy and tests; consumers must not invent transitions.
+- `executing -> outcome_unknown` when a side effect may have occurred but confirmation is missing.
+- `outcome_unknown` cannot be claimed, retried or moved directly to success.
+- Only a trusted, unleased reconciliation path may move `outcome_unknown -> verifying`, and only with a valid evidence digest and `reconciliation_verified=true`.
+- A reconciliation must not replay the side effect; it verifies the existing external outcome first.
 
 ## Human approval rules
 
