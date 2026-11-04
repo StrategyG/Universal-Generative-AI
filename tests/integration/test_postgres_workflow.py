@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import os
 from pathlib import Path
 from uuid import uuid4
@@ -465,7 +466,7 @@ async def test_task_results_are_encrypted_immutable_idempotent_and_tenant_scoped
     cipher = TaskPayloadCipher(b"r" * 32, key_version="result-v1")
     envelope = cipher.encrypt_json(result, tenant_id=tenant, task_id=task.task_id)
     digest = hashlib.sha256(
-        __import__("json").dumps(
+        json.dumps(
             result, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
         ).encode("utf-8")
     ).hexdigest()
