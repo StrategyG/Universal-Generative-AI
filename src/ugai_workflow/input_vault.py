@@ -182,7 +182,6 @@ class WorkflowInputVault:
                                workspace_id, notebook_id, expires_at
                         FROM ugai_workflow.inputs
                         WHERE tenant_id = $1 AND actor_id = $2 AND idempotency_key = $3
-                        FOR UPDATE
                         """,
                         tenant_id, actor_id, idempotency_key,
                     )
