@@ -310,7 +310,6 @@ class PostgresWorkflowStore:
                         existing.input_digest != input_digest
                         or existing.task_type != task_type
                         or existing.actor_id != actor_id
-                        or existing.metadata != safe_metadata
                     ):
                         raise IdempotencyConflict("idempotency_key_payload_mismatch")
                     if encrypted_payload is not None:
