@@ -52,6 +52,11 @@ class Settings(BaseSettings):
     workflow_database_ssl_mode: str = "prefer"
     task_payload_encryption_key: str = ""
     task_payload_key_version: str = "v1"
+    workflow_worker_tenant_id: str = ""
+    workflow_worker_id: str = "ugai-notebook-worker"
+    workflow_worker_poll_seconds: float = 1.0
+    workflow_worker_lease_seconds: int = 90
+    workflow_worker_heartbeat_seconds: int = 20
     model_registry_enforcement: bool = False
     auth_mode: str = "disabled"
     oidc_issuer: str = ""
