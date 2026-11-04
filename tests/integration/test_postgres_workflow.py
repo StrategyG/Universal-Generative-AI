@@ -342,3 +342,140 @@ async def test_decision_approval_reference_and_digests_are_durable(workflow_data
     assert persisted.approval_reference == approval_reference
     assert persisted.decision_digest == decision_digest
     assert persisted.plan_digest == plan_digest
+
+@pytest.mark.asyncio
+async def test_encrypted_input_vault_is_actor_scoped_and_idempotent(workflow_database) -> None:
+    pool, admin = workflow_database
+    tenant = f"tenant-{uuid4()}"
+    actor = f"actor-{uuid4()}"
+    project = f"project-{uuid4()}"
+    workspace_id = uuid4()
+    notebook_id = uuid4()
+    vault = WorkflowInputVault(
+        pool=pool,
+        active_key_id="integration-key-v1",
+        keyring={"integration-key-v1": bytes(range(32))},
+    )
+    payload = {
+        "intent": "private notebook content must never be stored as plaintext",
+        "workspace_id": str(workspace_id),
+        "notebook_id": str(notebook_id),
+        "requested_capabilities": ["reasoning.read"],
+    }
+    first = await vault.put(
+        tenant_id=tenant,
+        actor_id=actor,
+        project_id=project,
+        workspace_id=workspace_id,
+        notebook_id=notebook_id,
+        idempotency_key="input-idempotency-0001",
+        payload=payload,
+    )
+    repeated = await vault.put(
+        tenant_id=tenant,
+        actor_id=actor,
+        project_id=project,
+        workspace_id=workspace_id,
+        notebook_id=notebook_id,
+        idempotency_key="input-idempotency-0001",
+        payload=payload,
+    )
+    assert repeated.input_ref == first.input_ref
+    assert repeated.input_digest == first.input_digest
+
+    stored = await admin.fetchrow(
+        """
+        SELECT ciphertext, nonce, key_id, payload_digest
+        FROM ugai_workflow.inputs WHERE input_ref = $1
+        """,
+        first.input_ref,
+    )
+    assert stored is not None
+    assert stored["key_id"] == "integration-key-v1"
+    assert stored["payload_digest"] == first.input_digest
+    assert payload["intent"].encode("utf-8") not in stored["ciphertext"]
+
+    resolved = await vault.resolve(
+        input_ref=first.input_ref,
+        tenant_id=tenant,
+        actor_id=actor,
+        expected_project_id=project,
+    )
+    assert resolved == payload
+
+    with pytest.raises(WorkflowInputConflict):
+        await vault.put(
+            tenant_id=tenant,
+            actor_id=actor,
+            project_id=project,
+            workspace_id=workspace_id,
+            notebook_id=notebook_id,
+            idempotency_key="input-idempotency-0001",
+            payload={**payload, "intent": "different payload"},
+        )
+
+    with pytest.raises(WorkflowInputNotFound):
+        await vault.get_metadata(
+            input_ref=first.input_ref,
+            tenant_id=tenant,
+            actor_id="different-actor",
+        )
+
+    # PostgreSQL RLS itself hides the input from another actor in the same tenant.
+    async with pool.acquire() as connection:
+        async with connection.transaction():
+            await connection.fetchval(
+                "SELECT set_config('app.ugai_tenant_id', $1, true)", tenant
+            )
+            await connection.fetchval(
+                "SELECT set_config('app.ugai_actor_id', $1, true)", "different-actor"
+            )
+            visible = await connection.fetchval(
+                "SELECT count(*) FROM ugai_workflow.inputs WHERE input_ref = $1",
+                first.input_ref,
+            )
+            assert visible == 0
+
+
+@pytest.mark.asyncio
+async def test_user_cannot_cancel_task_while_any_worker_lease_exists(workflow_database) -> None:
+    pool, _admin = workflow_database
+    store = PostgresWorkflowStore(pool)
+    tenant = f"tenant-{uuid4()}"
+    task = await store.create_task(
+        **new_task_args(tenant_id=tenant, suffix=str(uuid4()))
+    )
+    claimed = await store.claim_next(
+        tenant_id=tenant,
+        worker_id="worker-cancellation-race",
+        supported_task_types=("integration_work",),
+        lease_seconds=30,
+    )
+    assert claimed is not None
+
+    with pytest.raises(LeaseLost, match="worker_lease"):
+        await store.transition(
+            task_id=task.task_id,
+            tenant_id=tenant,
+            expected_version=claimed.version,
+            target=TaskState.CANCELLED,
+            actor_id=task.actor_id,
+            reason_code="user_requested_cancel",
+            require_lease=False,
+        )
+
+    # A queued task without a worker lease can still be cancelled safely.
+    queued = await store.create_task(
+        **new_task_args(tenant_id=tenant, suffix=str(uuid4()))
+    )
+    cancelled = await store.transition(
+        task_id=queued.task_id,
+        tenant_id=tenant,
+        expected_version=queued.version,
+        target=TaskState.CANCELLED,
+        actor_id=queued.actor_id,
+        reason_code="user_requested_cancel",
+        require_lease=False,
+    )
+    assert cancelled.state is TaskState.CANCELLED
+
