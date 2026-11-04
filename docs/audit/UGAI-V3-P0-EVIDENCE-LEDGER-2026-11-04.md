@@ -125,3 +125,30 @@ This audit does not claim:
 - the RAG corpus is fully published or independently evaluated;
 - the platform is secure solely because RLS is enabled;
 - the current score is an independently certified production-readiness score.
+
+
+## 7. Exact release-gate output rechecked at 2026-11-04 05:31 UTC
+
+The release views were queried again after creating this audit branch. They returned nine technical gates:
+
+| Gate | Observed | Required | Result |
+|---|---:|---|---|
+| EMBEDDING_MODEL_ATTESTED | 0 | At least 1 approved artifact and real authenticated user identity | FAIL — P0 |
+| STAGING_EMBEDDING_VALIDATED | 0 | At least 30 completed staging embeddings with verified model | FAIL — P0 |
+| REVIEWER_IDENTITY_READY | 0 | At least 2 independent active real reviewers | FAIL — P0 |
+| APPROVED_KNOWLEDGE_AVAILABLE | 0 | At least 1 formally approved and published cited excerpt | FAIL — P0 |
+| INDEPENDENT_EVALUATION_SET | 0 | At least 50 independently authored labeled questions | FAIL — P0 |
+| INDEPENDENT_EVALUATION_RUN | 0 | At least 50 complete scored cases with citations, relevance, and groundedness | FAIL — P0 |
+| SOURCE_CATALOG_RECONCILED | 0 | At least 1 fully indexed document; full-corpus audit remains separate | FAIL — P1 |
+| AI_TRIAGE_RECORDED | 528 | At least 502 distinct AI-reviewed candidates (advisory only) | PASS |
+| HOLD_NOT_SILENTLY_INDEXED | 293/293 jobs aligned | All jobs match current AI review, excerpt provenance, and source SHA | PASS |
+
+Release view: **NO_GO**. Technical gates: **2/9**. Operational gates: **0/4**. GO requires all technical gates and four unexpired operator-attested operational test results.
+
+The 528 AI triage records are advisory only and do not substitute for human review or publication approval. The 293/293 alignment result is a positive provenance/hold control; it does not mean embeddings were completed or approved.
+
+## 8. Security Advisor recheck
+
+At 2026-11-04 05:31 UTC, Supabase Security Advisor returned 21 `rls_enabled_no_policy` findings, severity `INFO`, affecting Institutional RAG tables including source documents, document chunks, embedding jobs, reviewer registry, review votes, evaluation data, staging evidence, and release evidence.
+
+The Advisor description identifies RLS enabled without policies. Interpret this together with the inspected private-schema usage and table grants; do not call it public exposure without evidence of an exposed path. Keep the schemas private and verify table owners, BYPASSRLS roles, function grants, API exposure, and runtime identities. Do not add permissive policies just to clear the informational findings.
