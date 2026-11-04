@@ -38,6 +38,8 @@ class WorkerRegistration:
             raise ValueError("worker_id_invalid")
         if not isinstance(self.tenant_id, str) or not self.tenant_id.strip() or len(self.tenant_id) > 128:
             raise ValueError("worker_tenant_id_invalid")
+        if not isinstance(self.tier, WorkerTier):
+            raise ValueError("worker_tier_invalid")
         if not self.task_types or any(
             not isinstance(item, str) or not item.strip() or len(item) > 128
             for item in self.task_types
@@ -45,9 +47,17 @@ class WorkerRegistration:
             raise ValueError("worker_task_types_required")
         if len(set(self.task_types)) != len(self.task_types):
             raise ValueError("worker_task_types_must_be_unique")
-        if not 5 <= self.lease_seconds <= 900:
+        if (
+            not isinstance(self.lease_seconds, int)
+            or isinstance(self.lease_seconds, bool)
+            or not 5 <= self.lease_seconds <= 900
+        ):
             raise ValueError("lease_seconds_out_of_bounds")
-        if not 1 <= self.heartbeat_seconds < self.lease_seconds // 2:
+        if (
+            not isinstance(self.heartbeat_seconds, int)
+            or isinstance(self.heartbeat_seconds, bool)
+            or not 1 <= self.heartbeat_seconds < self.lease_seconds // 2
+        ):
             raise ValueError("heartbeat_interval_must_be_less_than_half_the_lease")
 
 
@@ -60,6 +70,12 @@ class WorkerOutcome:
     metadata: Mapping[str, Any] | None = None
 
     def validate(self) -> None:
+        if not isinstance(self.next_state, TaskState):
+            raise ValueError("worker_next_state_invalid")
+        if not isinstance(self.retryable, bool):
+            raise ValueError("worker_retryable_must_be_boolean")
+        if self.metadata is not None and not isinstance(self.metadata, Mapping):
+            raise ValueError("worker_metadata_must_be_mapping")
         if not _CODE.fullmatch(self.reason_code or ""):
             raise ValueError("worker_reason_code_invalid")
         if self.error_code is not None and not _CODE.fullmatch(self.error_code):
@@ -241,7 +257,9 @@ class HybridWorker:
                         lease=lease,
                         lease_seconds=self.registration.lease_seconds,
                     )
-                except (OSError, TimeoutError, RuntimeError):
+                except Exception:
+                    # Any unverified heartbeat means lease ownership is uncertain.
+                    # Stop the handler rather than risk duplicate external side effects.
                     lost_lease.set()
                     return
 
