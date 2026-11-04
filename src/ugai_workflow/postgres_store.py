@@ -426,6 +426,9 @@ class PostgresWorkflowStore:
         operator_override: bool = False,
         retry_delay_seconds: int = 0,
         error_code: str | None = None,
+        approval_reference: str | None = None,
+        decision_digest: str | None = None,
+        plan_digest: str | None = None,
         metadata: Mapping[str, Any] | None = None,
     ) -> WorkflowTask:
         _validate_text("tenant_id", tenant_id, 128)
@@ -436,8 +439,18 @@ class PostgresWorkflowStore:
             raise ValueError("error_code_invalid")
         if not isinstance(expected_version, int) or expected_version < 0:
             raise ValueError("expected_version_invalid")
-        if not isinstance(retry_delay_seconds, int) or not 0 <= retry_delay_seconds <= 86_400:
+        if (
+            not isinstance(retry_delay_seconds, int)
+            or isinstance(retry_delay_seconds, bool)
+            or not 0 <= retry_delay_seconds <= 86_400
+        ):
             raise ValueError("retry_delay_seconds_out_of_bounds")
+        if approval_reference is not None:
+            _validate_text("approval_reference", approval_reference, 512)
+        if decision_digest is not None and not _SHA256.fullmatch(decision_digest):
+            raise ValueError("decision_digest_must_be_sha256")
+        if plan_digest is not None and not _SHA256.fullmatch(plan_digest):
+            raise ValueError("plan_digest_must_be_sha256")
 
         event_details = _safe_event_details(metadata)
         event_details["reason_code"] = reason_code
@@ -513,6 +526,18 @@ class PostgresWorkflowStore:
                         retry_count = $4,
                         retryable = $5,
                         error_code = CASE WHEN $3 = 'failed' THEN $6 ELSE NULL END,
+                        approval_reference = CASE
+                            WHEN $3 = 'received' THEN NULL
+                            ELSE COALESCE($9, approval_reference)
+                        END,
+                        decision_digest = CASE
+                            WHEN $3 = 'received' THEN NULL
+                            ELSE COALESCE($10, decision_digest)
+                        END,
+                        plan_digest = CASE
+                            WHEN $3 = 'received' THEN NULL
+                            ELSE COALESCE($11, plan_digest)
+                        END,
                         available_at = CASE
                             WHEN $3 = 'failed' AND $5
                                 THEN clock_timestamp() + make_interval(secs => $7)
@@ -529,6 +554,7 @@ class PostgresWorkflowStore:
                     """,
                     task_id, tenant_id, target.value, retry_count, stored_retryable,
                     error_code, effective_retry_delay, expected_version,
+                    approval_reference, decision_digest, plan_digest,
                 )
                 if updated is None:
                     raise StaleWorkflowVersion("task_changed_during_transition")
