@@ -14,15 +14,6 @@ end
 $$;
 
 revoke all on schema ugai_workflow from public;
-do $1declare role_name text;
-begin
-    foreach role_name in array array['anon', 'authenticated', 'service_role'] loop
-        if exists (select 1 from pg_roles where rolname = role_name) then
-            execute format('revoke all on schema ugai_workflow from %I', role_name);
-        end if;
-    end loop;
-end
-$;
 grant usage on schema ugai_workflow to ugai_workflow_runtime;
 
 create table if not exists ugai_workflow.tasks (
@@ -33,7 +24,7 @@ create table if not exists ugai_workflow.tasks (
     state text not null default 'received'
         check (state = any (array[
             'received','observing','planning','executing','verifying',
-            'awaiting_approval','awaiting_clarification','blocked','outcome_unknown',
+            'awaiting_approval','awaiting_clarification','blocked',
             'failed','succeeded','cancelled'
         ])),
     version bigint not null default 0 check (version >= 0),
@@ -151,15 +142,6 @@ create policy ugai_workflow_artifacts_insert on ugai_workflow.artifacts
     ));
 
 revoke all on all tables in schema ugai_workflow from public;
-do $1declare role_name text;
-begin
-    foreach role_name in array array['anon', 'authenticated', 'service_role'] loop
-        if exists (select 1 from pg_roles where rolname = role_name) then
-            execute format('revoke all on all tables in schema ugai_workflow from %I', role_name);
-        end if;
-    end loop;
-end
-$;
 grant select, insert on ugai_workflow.tasks to ugai_workflow_runtime;
 grant update (
     state, version, retry_count, retryable, available_at,
@@ -181,15 +163,6 @@ end;
 $$;
 
 revoke all on function ugai_workflow.reject_event_mutation() from public;
-do $1declare role_name text;
-begin
-    foreach role_name in array array['anon', 'authenticated', 'service_role'] loop
-        if exists (select 1 from pg_roles where rolname = role_name) then
-            execute format('revoke all on function ugai_workflow.reject_event_mutation() from %I', role_name);
-        end if;
-    end loop;
-end
-$;
 drop trigger if exists ugai_workflow_events_immutable on ugai_workflow.events;
 create trigger ugai_workflow_events_immutable
     before update or delete on ugai_workflow.events
@@ -210,15 +183,6 @@ end;
 $$;
 
 revoke all on function ugai_workflow.reject_artifact_mutation() from public;
-do $1declare role_name text;
-begin
-    foreach role_name in array array['anon', 'authenticated', 'service_role'] loop
-        if exists (select 1 from pg_roles where rolname = role_name) then
-            execute format('revoke all on function ugai_workflow.reject_artifact_mutation() from %I', role_name);
-        end if;
-    end loop;
-end
-$;
 drop trigger if exists ugai_workflow_artifacts_immutable on ugai_workflow.artifacts;
 create trigger ugai_workflow_artifacts_immutable
     before update or delete on ugai_workflow.artifacts
