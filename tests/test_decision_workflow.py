@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -504,6 +505,25 @@ async def test_decision_idempotency_key_rejects_unsafe_values() -> None:
             options=options(),
             actor_id="trusted-user",
             idempotency_key="short",
+        )
+
+    assert approval.requests == []
+
+
+@pytest.mark.asyncio
+async def test_cancellation_during_evidence_collection_is_propagated() -> None:
+    source = FakeSource(
+        "mcp-a",
+        (evidence("e1", "mcp-a", "origin-a"),),
+        asyncio.CancelledError(),
+    )
+    workflow, _, approval = make_workflow([source])
+
+    with pytest.raises(asyncio.CancelledError):
+        await workflow.evaluate(
+            question="Should we expand?",
+            options=options(),
+            actor_id="trusted-user",
         )
 
     assert approval.requests == []
