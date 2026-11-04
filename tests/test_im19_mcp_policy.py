@@ -36,14 +36,38 @@ def test_non_object_schema_is_denied():
     assert decision.allowed is False
 
 
-def test_allowlisted_im19_tool_without_annotations_is_supported():
-    im19_tool = SimpleNamespace(
+def test_tool_without_annotations_is_denied():
+    discovered = SimpleNamespace(
         name="youtube_get_channel",
         inputSchema={"type": "object"},
     )
-    decision = ToolPolicy({"youtube_get_channel"}).evaluate(im19_tool)
-    assert decision.allowed is True
-    assert decision.reason == "operator_allowlisted"
+    decision = ToolPolicy({"youtube_get_channel"}).evaluate(discovered)
+    assert decision.allowed is False
+    assert decision.reason == "explicit_read_only_hint_required"
+
+
+def test_tool_without_explicit_read_only_hint_is_denied():
+    discovered = SimpleNamespace(
+        name="youtube_get_channel",
+        annotations=SimpleNamespace(destructiveHint=False),
+        inputSchema={"type": "object"},
+    )
+    decision = ToolPolicy({"youtube_get_channel"}).evaluate(discovered)
+    assert decision.allowed is False
+    assert decision.reason == "explicit_read_only_hint_required"
+
+
+def test_read_only_hint_must_be_boolean_true():
+    policy = ToolPolicy({"youtube_get_channel"})
+    for malformed in ("true", 1, None, False):
+        discovered = SimpleNamespace(
+            name="youtube_get_channel",
+            annotations={"readOnlyHint": malformed, "destructiveHint": False},
+            inputSchema={"type": "object"},
+        )
+        decision = policy.evaluate(discovered)
+        assert decision.allowed is False
+        assert decision.reason == "explicit_read_only_hint_required"
 
 
 def test_privileged_tools_are_hard_denied_even_if_allowlisted():
