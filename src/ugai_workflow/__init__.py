@@ -25,9 +25,9 @@ from .state_machine import (
 from .worker import (
     ExternalOutcomeUnknown,
     HybridWorker,
+    RetryableWorkerError,
     RetryScheduler,
     RetrySchedulerRegistration,
-    RetryableWorkerError,
     WorkerOutcome,
     WorkerRegistration,
     WorkerTier,
