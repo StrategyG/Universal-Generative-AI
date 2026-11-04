@@ -181,7 +181,11 @@ def _safe_event_details(value: Mapping[str, Any] | None) -> dict[str, str | int 
 def _validate_create_task_scalars(*, priority: int, max_retries: int) -> None:
     if isinstance(priority, bool) or not isinstance(priority, int) or not -100 <= priority <= 100:
         raise ValueError("priority_out_of_bounds")
-    if isinstance(max_retries, bool) or not isinstance(max_retries, int) or not 0 <= max_retries <= 2:
+    if (
+        isinstance(max_retries, bool)
+        or not isinstance(max_retries, int)
+        or not 0 <= max_retries <= 2
+    ):
         raise ValueError("max_retries_must_be_between_0_and_2")
 
 
