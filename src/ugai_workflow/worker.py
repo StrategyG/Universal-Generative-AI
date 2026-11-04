@@ -136,7 +136,7 @@ class RetryScheduler:
                     stop_event.wait(),
                     timeout=self.registration.poll_interval_seconds,
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 continue
 
 
