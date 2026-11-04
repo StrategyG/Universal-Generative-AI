@@ -21,13 +21,14 @@ blocked -> observing (operator override required)
 succeeded / cancelled -> terminal
 ~~~
 
-The transition policy is deterministic and separate from model output. Every transition uses an expected version and a worker lease token. A transition clears the lease atomically so a capable worker can claim the next stage.
+The transition policy is deterministic and separate from model output. Every transition uses an expected version and a worker lease token. A transition clears the lease atomically so a capable worker can claim the next stage. The booleans `approval_verified` and `operator_override` are trusted internal policy inputs only; an HTTP/API adapter must never map user or model fields directly into them. Only a trusted verifier may set them after checking a scoped, unexpired receipt or an authenticated operator action. Until that adapter exists, these flags do not constitute production approval enforcement by themselves.
 
 ## Recovery and concurrency
 
 - Claim uses PostgreSQL row locking with SKIP LOCKED inside a short transaction.
 - Every claim issues a fresh random fencing token.
 - Each store call sets a transaction-local tenant context; RLS predicates scope task, event and artifact rows to that tenant. RLS is both enabled and forced so the ordinary table owner is also subject to policies (superusers and `BYPASSRLS` roles remain privileged and must never be used by workers).
+- **Trust boundary:** `app.ugai_tenant_id` is a caller-settable PostgreSQL custom setting, not a cryptographic identity assertion. RLS with this setting protects against missing tenant predicates and accidental cross-tenant queries; it does **not** isolate tenants from a compromised runtime credential that can execute arbitrary SQL and set another tenant ID. The runtime pool/credential must remain private to a trusted service that derives tenant and actor from verified authentication and authorized task context. Never expose this DB credential to a client, model, notebook or general-purpose tool. If the threat model requires isolation against a compromised worker/runtime, replace this design with an independently verified database identity/context mechanism before production; do not claim the current GUC policy provides that guarantee.
 - Heartbeat and transition require the tenant, worker ID, token, and unexpired lease to match.
 - State update and event append commit in one transaction.
 - A crashed worker leaves the last durable state. A new worker can reclaim the task after lease expiry.
