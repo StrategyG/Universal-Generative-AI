@@ -425,7 +425,7 @@ class PostgresWorkflowStore:
                 )
                 task = await connection.fetchrow(
                     """
-                    SELECT actor_id FROM ugai_workflow.tasks
+                    SELECT actor_id, state FROM ugai_workflow.tasks
                     WHERE task_id = $1 AND tenant_id = $2
                     FOR UPDATE
                     """,
@@ -435,6 +435,8 @@ class PostgresWorkflowStore:
                     raise TaskNotFound(str(task_id))
                 if task["actor_id"] != actor_id:
                     raise IdempotencyConflict("task_result_actor_mismatch")
+                if task["state"] not in {"executing", "verifying"}:
+                    raise WorkflowStoreError("task_result_write_state_invalid")
 
                 await connection.execute(
                     """
