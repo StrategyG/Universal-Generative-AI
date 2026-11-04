@@ -36,6 +36,7 @@ class TaskSubmission(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     intent: IntentText
+    context: str = Field(default="", max_length=20_000)
     workspace_id: UUID
     notebook_id: UUID | None = None
     cell_revision: str | None = Field(default=None, max_length=128)
