@@ -199,7 +199,7 @@ def test_worker_registration_rejects_boolean_lease_values() -> None:
             "worker-1", WorkerTier.INLINE, "tenant-001", ("rag_observe",), True, 1
         ).validate()
 
-    with pytest.raises(ValueError, match="heartbeat_interval_must_be_less_than_half"):
+    with pytest.raises(TypeError, match="heartbeat_seconds_must_be_integer"):
         WorkerRegistration(
             "worker-1", WorkerTier.INLINE, "tenant-001", ("rag_observe",), 10, True
         ).validate()
