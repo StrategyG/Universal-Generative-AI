@@ -45,6 +45,49 @@ class PlatformEventSchemaTests(unittest.TestCase):
         event["access_token"] = "must-never-be-present"
         self.assertTrue(list(self.validator.iter_errors(event)))
 
+
+    def test_rejects_credential_fields_recursively(self):
+        forbidden_keys = (
+            "access_token",
+            "Authorization",
+            "refreshToken",
+            "api_key",
+            "clientSecret",
+            "private_key",
+            "password",
+            "cookie",
+            "credential",
+            "secret",
+        )
+        for key in forbidden_keys:
+            with self.subTest(key=key):
+                event = copy.deepcopy(self.event)
+                event["payload"] = {
+                    "metadata": [
+                        {
+                            "nested": {
+                                key: "must-never-be-serialized",
+                            }
+                        }
+                    ]
+                }
+                self.assertTrue(
+                    list(self.validator.iter_errors(event)),
+                    msg=f"credential property {key!r} was accepted",
+                )
+
+    def test_accepts_safe_nested_payload(self):
+        event = copy.deepcopy(self.event)
+        event["payload"] = {
+            "metadata": {
+                "source": "notebook",
+                "attempt": 2,
+                "labels": ["verified", "internal"],
+                "context": None,
+            }
+        }
+        self.assertEqual(list(self.validator.iter_errors(event)), [])
+
     def test_rejects_invalid_actor_issuer(self):
         event = copy.deepcopy(self.event)
         event["principal"]["issuer"] = "not-an-issuer-uri"
