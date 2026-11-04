@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 from pathlib import Path
 from uuid import uuid4
@@ -264,7 +265,10 @@ async def test_expired_execution_lease_is_quarantined_not_reclaimed(workflow_dat
     assert event["event_type"] == "execution_lease_expired"
     assert event["from_state"] == "executing"
     assert event["to_state"] == "outcome_unknown"
-    assert event["details"]["reason_code"] == "execution_lease_expired"
+    details = event["details"]
+    if isinstance(details, str):
+        details = json.loads(details)
+    assert details["reason_code"] == "execution_lease_expired"
 
     with pytest.raises(LeaseLost):
         await store.heartbeat(
