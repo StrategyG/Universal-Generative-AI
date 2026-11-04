@@ -13,6 +13,7 @@ from .postgres_store import (
     PostgresWorkflowStore,
     StaleWorkflowVersion,
     StoredTaskPayload,
+    StoredTaskResult,
     TaskNotFound,
     WorkflowTask,
 )
@@ -52,6 +53,7 @@ __all__ = [
     "RetryableWorkerError",
     "StaleWorkflowVersion",
     "StoredTaskPayload",
+    "StoredTaskResult",
     "TaskNotFound",
     "TaskState",
     "TransitionDenied",
