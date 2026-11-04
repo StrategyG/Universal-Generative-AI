@@ -9,6 +9,8 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from app.main import app
+from app.auth import Principal
+from app.tasks.router import _assert_task_owner
 from app.tasks.payloads import (
     EncryptedTaskPayload,
     TaskPayloadCipher,
@@ -220,7 +222,15 @@ def test_task_api_derives_actor_and_tenant_from_verified_principal() -> None:
         assert body["request_id"] == str(request_id)
         assert body["state"] == "received"
         assert service.identity["tenant_id"] == "local-development"
-        assert service.identity["actor_id"] == "local-development"
+        assert service.identity["actor_id"] == Principal(
+            subject="local-development",
+            tenant_id="local-development",
+            roles=frozenset({"developer", "project_owner", "tenant_admin", "platform_admin"}),
+            project_ids=frozenset({"*"}),
+            auth_mode="disabled",
+            issuer="urn:cataran:local-development",
+        ).actor_id
+        assert service.identity["actor_id"].startswith("principal:")
         assert service.identity["request_id"] == request_id
         assert service.identity["idempotency_key"] == idempotency_key
 
@@ -237,3 +247,29 @@ def test_task_api_derives_actor_and_tenant_from_verified_principal() -> None:
             },
         )
         assert spoofed.status_code == 422
+
+
+
+def test_task_owner_is_scoped_to_verified_issuer_and_subject():
+    issuer_a = Principal(
+        subject="same-user",
+        tenant_id="tenant-1",
+        roles=frozenset({"developer"}),
+        project_ids=frozenset(),
+        auth_mode="oidc",
+        issuer="https://identity-a.example.test/",
+    )
+    issuer_b = Principal(
+        subject="same-user",
+        tenant_id="tenant-1",
+        roles=frozenset({"developer"}),
+        project_ids=frozenset(),
+        auth_mode="oidc",
+        issuer="https://identity-b.example.test/",
+    )
+    task = SimpleNamespace(actor_id=issuer_a.actor_id)
+
+    _assert_task_owner(task, issuer_a)
+    with pytest.raises(Exception) as denied:
+        _assert_task_owner(task, issuer_b)
+    assert getattr(denied.value, "status_code", None) == 404
