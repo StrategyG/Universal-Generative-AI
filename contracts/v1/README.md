@@ -1,11 +1,11 @@
-# Cataran Platform Contracts v1 — proposal
+# Cataran Platform Contracts v1
 
-**Status:** PROPOSED / NOT CANONICAL / NOT APPROVED FOR PRODUCTION  
-**Version:** 1.0.0  
-**Proposed home:** `StrategyG/Universal-Generative-AI/contracts/v1` as a transitional candidate only.  
-**Architecture decision:** tracked by [UGAI issue #32](https://github.com/StrategyG/Universal-Generative-AI/issues/32).
+**Status:** Architecture-approved transitional source; release candidate under review, not yet published as a production contract.
+**Version:** 1.0.0
+**Canonical home:** `StrategyG/Universal-Generative-AI/contracts/v1`
+**Decision:** [ADR-0003 — Canonical contract home and change control](../../docs/adr/0003-platform-contracts-home.md)
 
-This directory is a reviewable, machine-readable proposal. Runtime repositories must not independently treat it as an accepted contract until the Architecture Owner approves the canonical home, contract owner, compatibility policy and consumer migration plan.
+Runtime consumers must continue pinning immutable revisions and must not infer production compatibility from this directory alone. Adoption requires consumer CI, migration notes, review and a tagged release.
 
 ## Contract inventory
 
@@ -13,14 +13,15 @@ This directory is a reviewable, machine-readable proposal. Runtime repositories 
 |---|---|
 | `identity-context` | Verified principal, issuer-scoped subject, tenant, project and namespaced roles |
 | `task` | UGAI-owned task identity, lifecycle state and idempotency tuple |
-| `task-event` | Append-only event sequence and state transition evidence |
+| `task-event` | Append-only task event sequence and state transition evidence |
+| `platform-event-envelope` | Shared cross-plane message envelope, trace context and secret-safe payload |
 | `approval-receipt` | Human decision bound to an immutable stage digest |
 | `tool-invocation` | IM19 gateway, connector revision, authorization and audit references |
 | `evidence-record` | Artifact/source hash and producer provenance |
 | `error-envelope` | Safe error and uncertain-outcome semantics |
 | `a2a-dispatch` | Cross-service dispatch identity and idempotency |
 
-## Normative ownership proposal
+## Normative ownership
 
 - **UGAI:** authoritative task state, decision policy, orchestration and task-event publication.
 - **IM19:** sole MCP gateway; connector/tool authorization, secret resolution, egress enforcement and tool invocation audit.
@@ -32,7 +33,7 @@ This directory is a reviewable, machine-readable proposal. Runtime repositories 
 ## Identity rules
 
 1. `issuer` plus opaque `subject` identify an external principal; `subject` alone is not globally unique.
-2. Every configured issuer in a production identity context must be an absolute HTTPS URI; insecure HTTP issuers are rejected.
+2. Production issuers must be absolute HTTPS URIs. URL userinfo, query and fragment components are rejected.
 3. Tenant and project context must be derived and verified server-side. Client-supplied tenant/project IDs are selectors only and must be authorized against the verified principal.
 4. Never cast an OIDC subject to a Supabase UUID, infer identity from email, or accept JWT role claims as authoritative membership.
 5. Role values are namespaced. Unknown namespaces/roles deny by default.
@@ -42,26 +43,26 @@ This directory is a reviewable, machine-readable proposal. Runtime repositories 
 
 The idempotency identity is `(tenant_id, actor_id, idempotency_key)`. The request digest is SHA-256 over a documented canonical serialization of the semantic request (excluding transport-only headers and secrets). Same tuple + same digest returns the original task; same tuple + different digest returns a conflict. The server must persist task creation and outbox/event intent transactionally.
 
-UGAI is the source of truth for task state. Notebook and workers hold projections/caches only. Task events are append-only and monotonically sequenced per task. Consumers deduplicate by `event_id` and reject gaps until replay/reconciliation completes.
+UGAI is the source of truth for task state. Notebook and workers hold projections/caches only. Task events are append-only and monotonically sequenced per task. Consumers deduplicate by `event_id` and reject sequence gaps until replay/reconciliation completes.
 
 ## State machine
 
-Allowed normal path follows the current UGAI state machine:
+The normal path follows UGAI's current state machine:
 
 `received -> observing -> planning -> executing -> verifying -> succeeded`
 
-Other allowed transitions are enforced by UGAI's application-owned state machine and include approval, clarification, blocked, failed and cancelled branches. Consumers must not invent alternate transitions.
+Other allowed transitions include approval, clarification, blocked, failed, cancelled and outcome-unknown branches. Consumers must not invent alternate transitions.
 
 Uncertain external effects use a dedicated non-claimable state:
 
 - `executing -> outcome_unknown` when a side effect may have occurred but confirmation is missing.
 - `outcome_unknown` cannot be claimed, retried or moved directly to success.
-- Only a trusted, unleased reconciliation path may move `outcome_unknown -> verifying`, and only with a valid evidence digest and `reconciliation_verified=true`.
-- A reconciliation must not replay the side effect; it verifies the existing external outcome first.
+- Only a trusted, unleased reconciliation path may move `outcome_unknown -> verifying`, with a valid evidence digest and `reconciliation_verified=true`.
+- Reconciliation verifies the existing external outcome first; it must not replay the side effect.
 
 ## Human approval rules
 
-Approval is action-specific and bound to `stage_digest`, task, tenant, policy version and expiry. Any change to the approved stage invalidates the receipt. Only an authenticated human principal may issue a human approval. A receipt is not transferable across tenants/tasks/actions. Expired, revoked or denied approvals never authorize execution. UI text alone is not approval evidence.
+Approval is action-specific and bound to stage digest, task, tenant, policy version and expiry. Any change to the approved stage invalidates the receipt. Only an authenticated human principal may issue a human approval. A receipt is not transferable across tenants/tasks/actions. Expired, revoked or denied approvals never authorize execution. UI text alone is not approval evidence.
 
 ## IM19 tool rules
 
@@ -75,10 +76,10 @@ Evidence records preserve source/version/hash and producer version. Audit record
 
 - Semantic versioning: patch = non-breaking clarification/optional additive constraints; minor = backward-compatible optional additions; major = breaking schema/semantics.
 - Every consumer declares supported contract major/minor and records its version in release metadata.
-- CI validates schemas and valid/invalid golden fixtures.
+- CI validates every Draft 2020-12 schema and positive/negative golden fixtures in the manifest.
 - Breaking changes require a new major version, migration notes, consumer matrix, dual-read/dual-write plan where necessary, and rollback instructions.
 - No runtime repo may copy a schema and silently diverge; consumers pin a version or immutable revision.
-- This proposal remains non-canonical until issue #32 records Architecture Owner approval and the approved owner.
+- The Architecture Owner controls changes to identity, task lifecycle, approval and gateway semantics. A named repository maintainer must own implementation and release automation; the role mapping must be recorded before the v1 tag is cut.
 
 ## Validation
 
@@ -89,4 +90,4 @@ python -m pip install jsonschema==4.23.0
 python scripts/validate_platform_contracts.py
 ```
 
-The validator checks every Draft 2020-12 schema, every positive fixture and every negative fixture in the manifest. It does not prove runtime consumer conformance. Each consumer must add contract fixtures and integration tests before claiming compatibility.
+The validator checks all Draft 2020-12 schemas, positive fixtures and negative fixtures listed in the manifest. It does not prove runtime consumer conformance. Each consumer must add contract fixtures and integration tests before claiming compatibility.
