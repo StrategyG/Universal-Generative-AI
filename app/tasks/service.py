@@ -55,6 +55,7 @@ class UGAITaskService:
                 "request_ref": f"notebook-task:{idempotency_key}",
                 "correlation_id": str(idempotency_key),
                 "schema_version": "1",
+                "workspace_id": str(submission.workspace_id),
             },
             encrypted_payload=envelope.ciphertext,
             payload_nonce=envelope.nonce,
