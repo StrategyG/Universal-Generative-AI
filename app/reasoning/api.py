@@ -33,6 +33,7 @@ from app.reasoning.execution import (
 )
 from app.reasoning.routing import NoEligibleModelRoute, RoutingRequirements
 from app.reasoning.schemas import ReasoningProfile, RiskTier, VerificationStatus
+from app.workflows.schemas import ProjectDomain
 
 router = APIRouter()
 
@@ -41,7 +42,7 @@ class ReasoningCompletionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     project_id: str = Field(min_length=1, max_length=128)
-    domain: str = Field(min_length=1, max_length=64)
+    domain: ProjectDomain
     objective: str = Field(min_length=1, max_length=8_000)
     context: str = Field(default="", max_length=20_000)
     output_format: str = Field(
