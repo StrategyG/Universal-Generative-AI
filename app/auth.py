@@ -35,6 +35,8 @@ class Principal:
     @property
     def actor_id(self) -> str:
         """Stable, issuer-scoped identity key for task ownership and audit."""
+        if self.auth_mode == "oidc" and not self.issuer.strip():
+            raise ValueError("verified_oidc_issuer_required")
         canonical = json.dumps(
             [self.issuer, self.subject],
             ensure_ascii=False,
