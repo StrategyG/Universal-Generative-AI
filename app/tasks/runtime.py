@@ -29,12 +29,12 @@ async def open_task_runtime(settings: Settings) -> TaskRuntime | None:
         settings.task_payload_encryption_key,
         key_version=settings.task_payload_key_version,
     )
-    if settings.environment.lower() in {"production", "prod"}:
-        ssl_mode = settings.workflow_database_ssl_mode
-        if ssl_mode != "verify-full":
-            raise RuntimeError("Production workflow database SSL mode must be verify-full")
-    else:
-        ssl_mode = settings.workflow_database_ssl_mode
+    ssl_mode = settings.workflow_database_ssl_mode.strip().lower()
+    allowed_ssl_modes = {"disable", "allow", "prefer", "require", "verify-ca", "verify-full"}
+    if ssl_mode not in allowed_ssl_modes:
+        raise RuntimeError("WORKFLOW_DATABASE_SSL_MODE is invalid")
+    if settings.environment.lower() in {"production", "prod"} and ssl_mode != "verify-full":
+        raise RuntimeError("Production workflow database SSL mode must be verify-full")
     try:
         import asyncpg
     except ImportError as exc:
