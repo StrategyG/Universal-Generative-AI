@@ -233,7 +233,7 @@ def test_oidc_scope_array_is_supported_and_malformed_scope_is_rejected(monkeypat
     assert principal.scopes == frozenset({"ugai:tasks:read", "ugai:tasks:cancel"})
     with pytest.raises(ValueError, match="scope string or array"):
         principal_from_claims(
-            {"sub": "user-1", "tenant_id": "tenant-1", "scope": {"admin": True}}
+            {"sub": "user-1", "iss": settings.oidc_issuer, "tenant_id": "tenant-1", "scope": {"admin": True}}
         )
 
 
