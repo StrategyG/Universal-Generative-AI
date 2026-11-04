@@ -1,0 +1,11 @@
+{
+  "contract_version": "1.0.0",
+  "error_id": "error-01",
+  "code": "UPSTREAM_UNAVAILABLE",
+  "safe_message": "The requested upstream service is unavailable.",
+  "retryable": true,
+  "outcome_certainty": "known",
+  "task_id": "task-01",
+  "trace_id": "trace-01",
+  "occurred_at": "2026-11-05T00:00:00Z"
+}
