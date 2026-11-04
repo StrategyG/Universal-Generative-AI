@@ -10,7 +10,7 @@
     "subject": "opaque-sub-123"
   },
   "task_type": "reasoning.complete",
-  "state": "queued",
+  "state": "received",
   "idempotency_key": "idem-2026-11-05-0001",
   "request_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "policy_version": "policy-1",
