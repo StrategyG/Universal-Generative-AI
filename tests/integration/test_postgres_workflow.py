@@ -52,10 +52,10 @@ async def workflow_database():
         )
         if not schema_exists:
             root = Path(__file__).resolve().parents[2]
-            blueprint = (
-                root / "docs" / "architecture" / "ugai-workflow-schema-blueprint.sql"
+            migration = (
+                root / "postgres" / "migrations" / "0003_ugai_workflow_runtime.sql"
             ).read_text(encoding="utf-8")
-            await admin.execute(blueprint)
+            await admin.execute(migration)
 
         await ensure_role(
             "ugai_workflow_test",
