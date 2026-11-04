@@ -68,3 +68,31 @@ def test_retry_backoff_rejects_unsafe_bounds() -> None:
         retry_backoff_seconds(0, base_delay_seconds=0)
     with pytest.raises(ValueError, match="retry_max_delay_out_of_bounds"):
         retry_backoff_seconds(0, base_delay_seconds=30, max_delay_seconds=29)
+
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "error"),
+    [
+        ("priority", True, "priority_out_of_bounds"),
+        ("max_retries", True, "max_retries_must_be_between_0_and_2"),
+    ],
+)
+def test_create_task_rejects_boolean_integer_fields(field, value, error):
+    # Validate the same scalar guards used before any database pool acquisition.
+    from ugai_workflow.postgres_store import _validate_create_task_scalars
+
+    kwargs = {
+        "priority": 0,
+        "max_retries": 2,
+    }
+    kwargs[field] = value
+    with pytest.raises(ValueError, match=error):
+        _validate_create_task_scalars(**kwargs)
+
+
+def test_transition_rejects_boolean_expected_version_before_database_access():
+    from ugai_workflow.postgres_store import _validate_expected_version
+
+    with pytest.raises(ValueError, match="expected_version_invalid"):
+        _validate_expected_version(True)
