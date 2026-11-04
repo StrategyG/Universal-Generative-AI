@@ -103,9 +103,9 @@ def validate_transition(
     if destination not in _ALLOWED[source]:
         raise TransitionDenied(f"transition_not_allowed:{source.value}->{destination.value}")
 
-    if not isinstance(retry_count, int) or retry_count < 0:
+    if isinstance(retry_count, bool) or not isinstance(retry_count, int) or retry_count < 0:
         raise TransitionDenied("retry_count_invalid")
-    if not isinstance(max_retries, int) or not 0 <= max_retries <= 2:
+    if isinstance(max_retries, bool) or not isinstance(max_retries, int) or not 0 <= max_retries <= 2:
         raise TransitionDenied("max_retries_out_of_bounds")
 
     if (
