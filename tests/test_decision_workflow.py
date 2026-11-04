@@ -1,4 +1,6 @@
 from collections.abc import Mapping, Sequence
+import asyncio
+import hashlib
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -507,3 +509,49 @@ async def test_decision_idempotency_key_rejects_unsafe_values() -> None:
         )
 
     assert approval.requests == []
+
+
+@pytest.mark.asyncio
+async def test_source_cancellation_propagates_without_creating_partial_approval():
+    class SelfCancellingSource(FakeSource):
+        async def collect(self, question: str, actor_id: str):
+            self.calls += 1
+            raise asyncio.CancelledError()
+
+    source = SelfCancellingSource("mcp-a", ())
+    workflow, _, approval = make_workflow([source])
+
+    with pytest.raises(asyncio.CancelledError):
+        await workflow.evaluate(
+            question="Should we expand?",
+            options=options(),
+            actor_id="trusted-user",
+        )
+
+    assert approval.requests == []
+
+
+@pytest.mark.asyncio
+async def test_audit_stores_approval_reference_digest_not_plain_reference():
+    sources = [
+        FakeSource("mcp-a", (evidence("e1", "mcp-a", "origin-a"),)),
+        FakeSource("mcp-b", (evidence("e2", "mcp-b", "origin-b"),)),
+        FakeSource("mcp-c", (evidence("e3", "mcp-c", "origin-c"),)),
+    ]
+    workflow, audit, _ = make_workflow(sources)
+
+    result = await workflow.evaluate(
+        question="Should we expand?",
+        options=options(),
+        actor_id="trusted-user",
+    )
+
+    expected_digest = hashlib.sha256(result.approval_reference.encode("utf-8")).hexdigest()
+    audit_details = [dict(event.details) for event in audit.events]
+    approval_events = [details for details in audit_details if "approval_reference_sha256" in details]
+
+    assert approval_events == [{"approval_reference_sha256": expected_digest, "decision_status": result.decision.status}]
+    assert all(
+        result.approval_reference not in repr(event.details)
+        for event in audit.events
+    )
