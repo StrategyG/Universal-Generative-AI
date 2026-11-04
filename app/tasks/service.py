@@ -52,8 +52,8 @@ class UGAITaskService:
             input_digest=digest,
             max_retries=2,
             metadata={
-                "request_ref": f"notebook-task:{idempotency_key}",
-                "correlation_id": str(idempotency_key),
+                "request_ref": f"notebook-request:{request_id}",
+                "correlation_id": str(request_id),
                 "schema_version": "1",
                 "workspace_id": str(submission.workspace_id),
             },
