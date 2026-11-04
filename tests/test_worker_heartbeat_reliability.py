@@ -5,7 +5,6 @@ from uuid import uuid4
 import pytest
 
 from ugai_workflow.postgres_store import LeaseLost
-from ugai_workflow.state_machine import TaskState
 from ugai_workflow.worker import HybridWorker, WorkerRegistration, WorkerTier
 
 
