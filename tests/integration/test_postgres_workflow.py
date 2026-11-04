@@ -49,15 +49,13 @@ async def workflow_database():
             "service_role", "CREATE ROLE service_role NOLOGIN BYPASSRLS"
         )
 
-        schema_exists = await admin.fetchval(
-            "SELECT EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = 'ugai_workflow')"
-        )
-        if not schema_exists:
-            root = Path(__file__).resolve().parents[2]
-            blueprint = (
-                root / "docs" / "architecture" / "ugai-workflow-schema-blueprint.sql"
-            ).read_text(encoding="utf-8")
-            await admin.execute(blueprint)
+        root = Path(__file__).resolve().parents[2]
+        blueprint = (
+            root / "docs" / "architecture" / "ugai-workflow-schema-blueprint.sql"
+        ).read_text(encoding="utf-8")
+        # Re-apply the idempotent blueprint for every test. This exercises both
+        # fresh creation and upgrade paths when a prior test created the schema.
+        await admin.execute(blueprint)
 
         await ensure_role(
             "ugai_workflow_test",
