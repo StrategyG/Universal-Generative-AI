@@ -1,32 +1,31 @@
--- UGAI hybrid replication control plane.
--- Apply to the PostgreSQL VM target only. This file does not modify Supabase.
+-- UGAI hybrid replication control plane. Apply to the PostgreSQL VM only.
 BEGIN;
-
 CREATE EXTENSION IF NOT EXISTS vector;
 CREATE SCHEMA IF NOT EXISTS ugai_sync;
 
 CREATE TABLE IF NOT EXISTS ugai_sync.stream_checkpoints (
     stream_name text PRIMARY KEY,
     last_event_id uuid,
+    last_stream_sequence bigint CHECK (last_stream_sequence IS NULL OR last_stream_sequence >= 0),
     last_source_position text,
     last_event_at timestamptz,
     updated_at timestamptz NOT NULL DEFAULT now(),
     lease_owner text,
     lease_expires_at timestamptz,
-    fencing_token bigint NOT NULL DEFAULT 0,
+    fencing_token bigint NOT NULL DEFAULT 0 CHECK (fencing_token >= 0),
     CHECK (stream_name <> '')
 );
-
 CREATE TABLE IF NOT EXISTS ugai_sync.event_receipts (
     event_id uuid PRIMARY KEY,
     stream_name text NOT NULL,
+    stream_sequence bigint NOT NULL CHECK (stream_sequence > 0),
     aggregate_key text NOT NULL,
     event_type text NOT NULL,
     schema_version integer NOT NULL CHECK (schema_version > 0),
     source_position text,
     payload_sha256 char(64) NOT NULL,
     applied_at timestamptz NOT NULL DEFAULT now(),
-    UNIQUE (stream_name, aggregate_key, event_id)
+    UNIQUE (stream_name, stream_sequence)
 );
 CREATE INDEX IF NOT EXISTS event_receipts_stream_applied_idx ON ugai_sync.event_receipts (stream_name, applied_at DESC);
 
@@ -78,7 +77,6 @@ CREATE TABLE IF NOT EXISTS ugai_sync.backup_manifests (
     created_at timestamptz NOT NULL DEFAULT now(),
     UNIQUE (artifact_name, ciphertext_sha256)
 );
-
 CREATE TABLE IF NOT EXISTS ugai_sync.audit_log (
     audit_id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     occurred_at timestamptz NOT NULL DEFAULT now(),
@@ -91,8 +89,5 @@ CREATE TABLE IF NOT EXISTS ugai_sync.audit_log (
     details jsonb NOT NULL DEFAULT '{}'::jsonb
 );
 CREATE INDEX IF NOT EXISTS audit_log_occurred_idx ON ugai_sync.audit_log (occurred_at DESC);
-
-COMMENT ON SCHEMA ugai_sync IS
-    'UGAI hybrid synchronization control plane; contains metadata, receipts and checkpoints, not RAG source content.';
-
+COMMENT ON SCHEMA ugai_sync IS 'UGAI hybrid sync metadata, receipts and checkpoints; not RAG source content.';
 COMMIT;
