@@ -233,6 +233,21 @@ def test_oidc_scope_array_is_supported_and_malformed_scope_is_rejected(monkeypat
         )
 
 
+def test_workspace_membership_uses_its_own_signed_claim(monkeypatch):
+    _oidc_settings(monkeypatch)
+    principal = principal_from_claims(
+        {
+            "sub": "user-1",
+            "tenant_id": "tenant-1",
+            "workspace_ids": ["workspace-1"],
+        }
+    )
+    auth.ensure_workspace_access(principal, "workspace-1")
+    with pytest.raises(HTTPException) as exc:
+        auth.ensure_workspace_access(principal, "project-1")
+    assert exc.value.status_code == 403
+
+
 def test_task_scope_is_required_and_never_inferred_from_role(monkeypatch):
     _oidc_settings(monkeypatch)
     principal = Principal(
