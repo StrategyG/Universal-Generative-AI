@@ -86,6 +86,7 @@ class WorkflowTask:
     plan_digest: str | None
     error_code: str | None
     metadata: Mapping[str, Any]
+    created_at: datetime | None = None
 
     @classmethod
     def from_record(cls, row: Mapping[str, Any]) -> WorkflowTask:
@@ -114,6 +115,7 @@ class WorkflowTask:
             plan_digest=row["plan_digest"],
             error_code=row["error_code"],
             metadata=raw_metadata or {},
+            created_at=row["created_at"],
         )
 
 
