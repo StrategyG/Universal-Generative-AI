@@ -14,8 +14,7 @@ end
 $$;
 
 revoke all on schema ugai_workflow from public;
-do $
-declare role_name text;
+do $1declare role_name text;
 begin
     foreach role_name in array array['anon', 'authenticated', 'service_role'] loop
         if exists (select 1 from pg_roles where rolname = role_name) then
@@ -152,8 +151,7 @@ create policy ugai_workflow_artifacts_insert on ugai_workflow.artifacts
     ));
 
 revoke all on all tables in schema ugai_workflow from public;
-do $
-declare role_name text;
+do $1declare role_name text;
 begin
     foreach role_name in array array['anon', 'authenticated', 'service_role'] loop
         if exists (select 1 from pg_roles where rolname = role_name) then
@@ -183,8 +181,7 @@ end;
 $$;
 
 revoke all on function ugai_workflow.reject_event_mutation() from public;
-do $
-declare role_name text;
+do $1declare role_name text;
 begin
     foreach role_name in array array['anon', 'authenticated', 'service_role'] loop
         if exists (select 1 from pg_roles where rolname = role_name) then
@@ -213,8 +210,7 @@ end;
 $$;
 
 revoke all on function ugai_workflow.reject_artifact_mutation() from public;
-do $
-declare role_name text;
+do $1declare role_name text;
 begin
     foreach role_name in array array['anon', 'authenticated', 'service_role'] loop
         if exists (select 1 from pg_roles where rolname = role_name) then
