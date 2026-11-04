@@ -72,6 +72,8 @@ All cross-service task, tool, worker, approval and evidence messages carry these
 
 Never put bearer tokens, OAuth refresh tokens, API keys, cookies, passwords, private prompts containing secrets, or raw secret values in events, logs, traces or evidence. Pass opaque vault references only, and only between authorized services.
 
+The v1 event schema applies a recursive property-name denylist to every object under `payload`, including nested objects and arrays. Common credential-bearing keys (for example access/refresh tokens, authorization, API keys, client secrets, private keys, passwords, cookies and generic credential/secret fields) are rejected. This is defense in depth only: producers and audit/logging layers must still redact sensitive values, because a schema cannot reliably identify a secret hidden under an innocuous property name. If a future event needs a vault reference, define a narrowly typed, non-secret reference field in a message-specific schema instead of weakening the generic payload rule.
+
 ## 4. Task contract and lifecycle
 
 ### 4.1 Authoritative ownership
