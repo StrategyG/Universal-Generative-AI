@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import os
 from pathlib import Path
 from uuid import uuid4
@@ -8,6 +9,7 @@ from uuid import uuid4
 import asyncpg
 import pytest
 
+from app.tasks.payloads import EncryptedTaskPayload, TaskPayloadCipher, TaskPayloadIntegrityError
 from ugai_workflow import (
     IdempotencyConflict,
     LeaseIdentity,
@@ -326,3 +328,125 @@ async def test_decision_approval_reference_and_digests_are_durable(workflow_data
     assert persisted.approval_reference == approval_reference
     assert persisted.decision_digest == decision_digest
     assert persisted.plan_digest == plan_digest
+
+@pytest.mark.asyncio
+async def test_encrypted_task_payload_is_atomic_tenant_scoped_and_idempotent(workflow_database) -> None:
+    pool, admin = workflow_database
+    store = PostgresWorkflowStore(pool)
+    tenant = f"tenant-{uuid4()}"
+    actor = "notebook-actor"
+    idempotency_key = f"notebook-{uuid4()}"
+    plaintext = b'{"intent":"private notebook content","workspace_id":"workspace-1"}'
+    digest = hashlib.sha256(plaintext).hexdigest()
+    cipher = TaskPayloadCipher(b"p" * 32, key_version="test-v1")
+    first_task_id = uuid4()
+    first_envelope = cipher.encrypt_bytes(
+        plaintext, tenant_id=tenant, task_id=first_task_id
+    )
+    metadata = {
+        "request_ref": f"notebook-task:{idempotency_key}",
+        "correlation_id": idempotency_key,
+        "schema_version": "1",
+    }
+
+    first = await store.create_task(
+        tenant_id=tenant,
+        actor_id=actor,
+        task_type="notebook.request",
+        idempotency_key=idempotency_key,
+        input_digest=digest,
+        task_id=first_task_id,
+        metadata=metadata,
+        encrypted_payload=first_envelope.ciphertext,
+        payload_nonce=first_envelope.nonce,
+        payload_key_version=first_envelope.key_version,
+    )
+
+    # A second request may use a new request ID and candidate task UUID, but the
+    # stable idempotency key and digest must return the original durable task.
+    retry_task_id = uuid4()
+    retry_envelope = cipher.encrypt_bytes(
+        plaintext, tenant_id=tenant, task_id=retry_task_id
+    )
+    repeated = await store.create_task(
+        tenant_id=tenant,
+        actor_id=actor,
+        task_type="notebook.request",
+        idempotency_key=idempotency_key,
+        input_digest=digest,
+        task_id=retry_task_id,
+        metadata=metadata,
+        encrypted_payload=retry_envelope.ciphertext,
+        payload_nonce=retry_envelope.nonce,
+        payload_key_version=retry_envelope.key_version,
+    )
+    assert repeated.task_id == first.task_id
+
+    stored = await store.get_task_payload(task_id=first.task_id, tenant_id=tenant)
+    assert plaintext not in stored.ciphertext
+    decrypted = cipher.decrypt_bytes(
+        EncryptedTaskPayload(
+            ciphertext=stored.ciphertext,
+            nonce=stored.nonce,
+            key_version=stored.key_version,
+        ),
+        tenant_id=tenant,
+        task_id=first.task_id,
+    )
+    assert decrypted == plaintext
+
+    payload_count = await admin.fetchval(
+        """
+        SELECT count(*) FROM ugai_workflow.task_payloads
+        WHERE tenant_id = $1 AND task_id = $2
+        """,
+        tenant,
+        first.task_id,
+    )
+    assert payload_count == 1
+
+    with pytest.raises(TaskNotFound):
+        await store.get_task_payload(
+            task_id=first.task_id, tenant_id=f"other-{uuid4()}"
+        )
+
+    with pytest.raises(TaskPayloadIntegrityError):
+        cipher.decrypt_bytes(
+            EncryptedTaskPayload(
+                ciphertext=stored.ciphertext,
+                nonce=stored.nonce,
+                key_version=stored.key_version,
+            ),
+            tenant_id=f"other-{uuid4()}",
+            task_id=first.task_id,
+        )
+
+
+@pytest.mark.asyncio
+async def test_unleased_cancellation_cannot_revoke_worker_lease(workflow_database) -> None:
+    pool, _admin = workflow_database
+    store = PostgresWorkflowStore(pool)
+    tenant = f"tenant-{uuid4()}"
+    task = await store.create_task(
+        **new_task_args(tenant_id=tenant, suffix=str(uuid4()))
+    )
+    claimed = await store.claim_next(
+        tenant_id=tenant,
+        worker_id="worker-cancel-race",
+        supported_task_types=("integration_work",),
+        lease_seconds=30,
+    )
+    assert claimed is not None
+
+    with pytest.raises(LeaseLost):
+        await store.transition(
+            task_id=task.task_id,
+            tenant_id=tenant,
+            expected_version=claimed.version,
+            target=TaskState.CANCELLED,
+            actor_id=claimed.actor_id,
+            reason_code="user_cancelled",
+            require_lease=False,
+            require_no_lease=True,
+        )
+
