@@ -300,7 +300,13 @@ class DecisionWorkflow:
         evidence: list[EvidenceItem] = []
         successful_sources: list[tuple[str, tuple[EvidenceItem, ...]]] = []
         for source, value in zip(self._sources, collected, strict=True):
-            if isinstance(value, BaseException):
+            # Cancellation is control flow, not a failed source. Propagate it so
+            # the worker can stop without issuing an approval request from partial work.
+            if isinstance(value, asyncio.CancelledError):
+                raise value
+            if isinstance(value, BaseException) and not isinstance(value, Exception):
+                raise value
+            if isinstance(value, Exception):
                 failures.append(source.source_id)
                 await self._write_audit(
                     workflow_id, decision_id, actor_id, "evidence_source_failed", "failed",
@@ -398,9 +404,15 @@ class DecisionWorkflow:
         if not isinstance(approval_reference, str) or not approval_reference.strip():
             raise DecisionWorkflowError("Approval gateway returned an invalid reference")
 
+        approval_reference_digest = hashlib.sha256(
+            approval_reference.encode("utf-8")
+        ).hexdigest()
         await self._write_audit(
             workflow_id, decision_id, actor_id, "approval_requested", "pending",
-            (("approval_reference", approval_reference), ("decision_status", result.status)),
+            (
+                ("approval_reference_sha256", approval_reference_digest),
+                ("decision_status", result.status),
+            ),
             may_have_completed=True,
         )
         return DecisionWorkflowResult(
