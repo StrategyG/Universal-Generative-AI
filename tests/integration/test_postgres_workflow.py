@@ -532,3 +532,96 @@ async def test_task_results_are_encrypted_immutable_idempotent_and_tenant_scoped
     )
     assert role_result is True  # administrative test connection only
 
+
+@pytest.mark.asyncio
+async def test_uncertain_external_outcome_requires_evidence_gated_reconciliation(
+    workflow_database,
+) -> None:
+    pool, _admin = workflow_database
+    store = PostgresWorkflowStore(pool)
+    tenant = f"tenant-{uuid4()}"
+    task = await store.create_task(
+        **new_task_args(tenant_id=tenant, suffix=str(uuid4()))
+    )
+
+    for source, target, worker_id in (
+        (TaskState.RECEIVED, TaskState.OBSERVING, "worker-observe"),
+        (TaskState.OBSERVING, TaskState.PLANNING, "worker-plan"),
+        (TaskState.PLANNING, TaskState.EXECUTING, "worker-execute"),
+    ):
+        claimed = await store.claim_next(
+            tenant_id=tenant,
+            worker_id=worker_id,
+            supported_task_types=("integration_work",),
+            lease_seconds=30,
+        )
+        assert claimed is not None
+        assert claimed.task_id == task.task_id
+        assert claimed.state is source
+        await store.transition(
+            task_id=task.task_id,
+            tenant_id=tenant,
+            expected_version=claimed.version,
+            target=target,
+            actor_id=claimed.actor_id,
+            reason_code=f"advance_{target.value}",
+            lease=LeaseIdentity(worker_id, claimed.lease_token),
+        )
+
+    claimed = await store.claim_next(
+        tenant_id=tenant,
+        worker_id="worker-uncertain",
+        supported_task_types=("integration_work",),
+        lease_seconds=30,
+    )
+    assert claimed is not None
+    assert claimed.state is TaskState.EXECUTING
+    uncertain = await store.transition(
+        task_id=task.task_id,
+        tenant_id=tenant,
+        expected_version=claimed.version,
+        target=TaskState.OUTCOME_UNKNOWN,
+        actor_id=claimed.actor_id,
+        reason_code="external_outcome_unknown",
+        lease=LeaseIdentity("worker-uncertain", claimed.lease_token),
+        error_code="provider_outcome_unknown",
+    )
+    assert uncertain.state is TaskState.OUTCOME_UNKNOWN
+    assert uncertain.lease_token is None
+    assert uncertain.retryable is False
+
+    # The uncertain side effect must never be automatically claimed or replayed.
+    assert await store.claim_next(
+        tenant_id=tenant,
+        worker_id="worker-after-unknown",
+        supported_task_types=("integration_work",),
+        lease_seconds=30,
+    ) is None
+
+    with pytest.raises(PermissionError, match="reconciliation_evidence_required"):
+        await store.transition(
+            task_id=task.task_id,
+            tenant_id=tenant,
+            expected_version=uncertain.version,
+            target=TaskState.VERIFYING,
+            actor_id="trusted-reconciler",
+            reason_code="external_outcome_reconciled",
+            require_lease=False,
+            require_no_lease=True,
+            reconciliation_verified=True,
+        )
+
+    reconciled = await store.transition(
+        task_id=task.task_id,
+        tenant_id=tenant,
+        expected_version=uncertain.version,
+        target=TaskState.VERIFYING,
+        actor_id="trusted-reconciler",
+        reason_code="external_outcome_reconciled",
+        require_lease=False,
+        require_no_lease=True,
+        reconciliation_verified=True,
+        metadata={"evidence_digest": "e" * 64},
+    )
+    assert reconciled.state is TaskState.VERIFYING
+    assert reconciled.lease_token is None
