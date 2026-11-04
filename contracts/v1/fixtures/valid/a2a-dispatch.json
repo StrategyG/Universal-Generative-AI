@@ -1,0 +1,12 @@
+{
+  "contract_version": "1.0.0",
+  "dispatch_id": "dispatch-01",
+  "task_id": "task-01",
+  "tenant_id": "tenant-01",
+  "source_service": "UGAI",
+  "target_service": "IM19",
+  "idempotency_key": "idem-dispatch-0001",
+  "request_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "trace_id": "trace-01",
+  "created_at": "2026-11-05T00:00:00Z"
+}
