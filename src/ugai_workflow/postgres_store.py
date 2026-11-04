@@ -71,6 +71,15 @@ class StoredTaskPayload:
 
 
 @dataclass(frozen=True, slots=True)
+class StoredTaskResult:
+    ciphertext: bytes
+    nonce: bytes
+    key_version: str
+    result_digest: str
+    actor_id: str
+
+
+@dataclass(frozen=True, slots=True)
 class WorkflowTask:
     task_id: UUID
     tenant_id: str
@@ -381,6 +390,112 @@ class PostgresWorkflowStore:
             ciphertext=bytes(row["ciphertext"]),
             nonce=bytes(row["nonce"]),
             key_version=row["key_version"],
+        )
+
+    async def save_task_result(
+        self,
+        *,
+        task_id: UUID,
+        tenant_id: str,
+        actor_id: str,
+        encrypted_payload: bytes,
+        payload_nonce: bytes,
+        payload_key_version: str,
+        result_digest: str,
+    ) -> StoredTaskResult:
+        """Persist one immutable encrypted result, idempotently and tenant-scoped."""
+        _validate_text("tenant_id", tenant_id, 128)
+        _validate_text("actor_id", actor_id, 255)
+        if not _SHA256.fullmatch(result_digest or ""):
+            raise ValueError("result_digest_must_be_sha256")
+        if (
+            not isinstance(encrypted_payload, bytes)
+            or not 16 <= len(encrypted_payload) <= 64 * 1024 + 16
+            or not isinstance(payload_nonce, bytes)
+            or len(payload_nonce) != 12
+            or not isinstance(payload_key_version, str)
+            or not re.fullmatch(r"[A-Za-z0-9._-]{1,32}", payload_key_version)
+        ):
+            raise ValueError("encrypted_task_result_envelope_invalid")
+
+        async with self._pool.acquire() as connection:
+            async with connection.transaction():
+                await connection.fetchval(
+                    "SELECT set_config('app.ugai_tenant_id', $1, true)", tenant_id
+                )
+                task = await connection.fetchrow(
+                    """
+                    SELECT actor_id FROM ugai_workflow.tasks
+                    WHERE task_id = $1 AND tenant_id = $2
+                    FOR UPDATE
+                    """,
+                    task_id, tenant_id,
+                )
+                if task is None:
+                    raise TaskNotFound(str(task_id))
+                if task["actor_id"] != actor_id:
+                    raise IdempotencyConflict("task_result_actor_mismatch")
+
+                await connection.execute(
+                    """
+                    INSERT INTO ugai_workflow.task_results (
+                        task_id, tenant_id, actor_id, result_digest,
+                        ciphertext, nonce, key_version
+                    )
+                    VALUES ($1, $2, $3, $4, $5, $6, $7)
+                    ON CONFLICT (task_id) DO NOTHING
+                    """,
+                    task_id, tenant_id, actor_id, result_digest,
+                    encrypted_payload, payload_nonce, payload_key_version,
+                )
+                row = await connection.fetchrow(
+                    """
+                    SELECT actor_id, result_digest, ciphertext, nonce, key_version
+                    FROM ugai_workflow.task_results
+                    WHERE task_id = $1 AND tenant_id = $2
+                    """,
+                    task_id, tenant_id,
+                )
+                if row is None:
+                    raise WorkflowStoreError("task_result_insert_not_visible")
+                if row["actor_id"] != actor_id or row["result_digest"] != result_digest:
+                    raise IdempotencyConflict("task_result_immutable_conflict")
+                return StoredTaskResult(
+                    ciphertext=bytes(row["ciphertext"]),
+                    nonce=bytes(row["nonce"]),
+                    key_version=row["key_version"],
+                    result_digest=row["result_digest"],
+                    actor_id=row["actor_id"],
+                )
+
+    async def get_task_result(
+        self, *, task_id: UUID, tenant_id: str, actor_id: str | None = None
+    ) -> StoredTaskResult:
+        """Retrieve one encrypted task result within the verified tenant boundary."""
+        _validate_text("tenant_id", tenant_id, 128)
+        if actor_id is not None:
+            _validate_text("actor_id", actor_id, 255)
+        async with self._pool.acquire() as connection:
+            async with connection.transaction():
+                await connection.fetchval(
+                    "SELECT set_config('app.ugai_tenant_id', $1, true)", tenant_id
+                )
+                row = await connection.fetchrow(
+                    """
+                    SELECT actor_id, result_digest, ciphertext, nonce, key_version
+                    FROM ugai_workflow.task_results
+                    WHERE task_id = $1 AND tenant_id = $2
+                    """,
+                    task_id, tenant_id,
+                )
+        if row is None or (actor_id is not None and row["actor_id"] != actor_id):
+            raise TaskNotFound(str(task_id))
+        return StoredTaskResult(
+            ciphertext=bytes(row["ciphertext"]),
+            nonce=bytes(row["nonce"]),
+            key_version=row["key_version"],
+            result_digest=row["result_digest"],
+            actor_id=row["actor_id"],
         )
 
     async def claim_next(
