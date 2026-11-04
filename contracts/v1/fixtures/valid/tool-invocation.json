@@ -1,0 +1,16 @@
+{
+  "contract_version": "1.0.0",
+  "invocation_id": "invoke-01",
+  "tenant_id": "tenant-01",
+  "task_id": "task-01",
+  "gateway": "IM19",
+  "connector_id": "github.readonly",
+  "connector_revision": "rev-3",
+  "tool_name": "get_repository",
+  "arguments_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "side_effect_class": "read_only",
+  "authorization_decision": "allow",
+  "requested_at": "2026-11-05T00:00:00Z",
+  "trace_id": "trace-01",
+  "outcome_certainty": "known"
+}
