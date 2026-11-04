@@ -34,6 +34,11 @@ class TextModelRouter:
     ) -> None:
         if not providers:
             raise ValueError("At least one text provider must be configured")
+        names = [provider.name for provider in providers]
+        if any(not isinstance(name, str) or not name.strip() for name in names):
+            raise ValueError("Every text provider must have a stable non-empty name")
+        if len(set(names)) != len(names):
+            raise ValueError("Text provider names must be unique")
         self.providers = tuple(providers)
         self.max_retries = max(0, min(max_retries, 3))
         self.retry_backoff_seconds = max(0.0, min(retry_backoff_seconds, 10.0))
@@ -195,6 +200,69 @@ class TextModelRouter:
                 "models": model_ids,
             })
         return {"routes": routes}
+
+    def get_provider(self, provider_name: str) -> TextModelProvider:
+        """Return one exact configured provider or fail closed."""
+        if not isinstance(provider_name, str) or not provider_name.strip():
+            raise TextGenerationProviderError(
+                "An exact provider name is required for policy-routed inference",
+                code="configuration_error",
+            )
+        for provider in self.providers:
+            if provider.name == provider_name:
+                return provider
+        raise TextGenerationProviderError(
+            "The policy-selected provider is not configured",
+            code="provider_not_configured",
+        )
+
+    async def generate_with_provider(
+        self,
+        provider_name: str,
+        request: AICompletionRequest,
+        *,
+        expected_model_id: str | None = None,
+        expected_model_revision: str | None = None,
+    ) -> dict:
+        """Invoke only the named provider; never fall through to another route.
+
+        Higher-level policy code is responsible for selecting an explicitly
+        approved fallback and invoking it as a separate, auditable attempt.
+        Expected immutable model identity is checked before any provider call.
+        """
+        if (expected_model_id is None) != (expected_model_revision is None):
+            raise ValueError("expected_model_id_and_revision_must_be_supplied_together")
+
+        provider = self.get_provider(provider_name)
+        if expected_model_id is not None and (
+            getattr(provider, "model_id", None) != expected_model_id
+            or getattr(provider, "model_revision", None) != expected_model_revision
+        ):
+            raise TextGenerationProviderError(
+                "Configured provider model identity does not match the approved route",
+                code="model_revision_mismatch",
+            )
+
+        for attempt in range(self.max_retries + 1):
+            try:
+                result = await provider.generate(request)
+                result["routing"] = {
+                    "selected_provider": provider.name,
+                    "fallback_used": False,
+                    "policy_selected": True,
+                    "model_id": getattr(provider, "model_id", ""),
+                    "model_revision": getattr(provider, "model_revision", ""),
+                }
+                return result
+            except TextGenerationProviderError as exc:
+                if not exc.retryable or attempt >= self.max_retries:
+                    raise
+                await self._wait_before_retry(exc, attempt)
+
+        raise TextGenerationProviderError(
+            "The policy-selected provider exhausted its retry budget",
+            code="provider_retry_exhausted",
+        )
 
     async def generate(self, request: AICompletionRequest) -> dict:
         failures: list[TextGenerationProviderError] = []
