@@ -60,6 +60,7 @@ class Settings(BaseSettings):
     oidc_tenant_claim: str = "tenant_id"
     oidc_roles_claim: str = "roles"
     oidc_projects_claim: str = "project_ids"
+    oidc_scopes_claim: str = "scope"
 
 
 settings = Settings()
