@@ -135,3 +135,40 @@ def test_artifact_rejects_duplicate_evidence_identifiers():
             conclusion="answer",
             correlation_id="trace-1",
         )
+
+
+def test_calibrated_confidence_requires_calibration_provenance():
+    with pytest.raises(ValidationError, match="calibrated_confidence_requires_calibration_provenance"):
+        ReasoningArtifact(
+            request_id="req-1",
+            tenant_id="tenant-1",
+            project_id="project-1",
+            policy_version="p1",
+            risk_tier="low",
+            profile="standard",
+            calibrated_confidence=0.82,
+            rationale_summary="summary",
+            conclusion="answer",
+            correlation_id="trace-1",
+        )
+
+
+def test_calibrated_confidence_accepts_versioned_calibration_provenance():
+    artifact = ReasoningArtifact(
+        request_id="req-1",
+        tenant_id="tenant-1",
+        project_id="project-1",
+        policy_version="p1",
+        risk_tier="low",
+        profile="standard",
+        calibrated_confidence=0.82,
+        confidence_calibration_id="calibration-indonesian-reasoning",
+        confidence_calibration_version="2026-11-01",
+        confidence_sample_count=500,
+        rationale_summary="summary",
+        conclusion="answer",
+        correlation_id="trace-1",
+    )
+
+    assert artifact.calibrated_confidence == 0.82
+    assert artifact.confidence_sample_count == 500
