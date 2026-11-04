@@ -467,6 +467,30 @@ async def test_task_results_are_encrypted_immutable_idempotent_and_tenant_scoped
     task = await store.create_task(
         **new_task_args(tenant_id=tenant, actor_id=actor, suffix=str(uuid4()))
     )
+    for source, target, worker_id in (
+        (TaskState.RECEIVED, TaskState.OBSERVING, "result-observe"),
+        (TaskState.OBSERVING, TaskState.PLANNING, "result-plan"),
+        (TaskState.PLANNING, TaskState.EXECUTING, "result-execute"),
+        (TaskState.EXECUTING, TaskState.VERIFYING, "result-verify"),
+    ):
+        claimed = await store.claim_next(
+            tenant_id=tenant,
+            worker_id=worker_id,
+            supported_task_types=("integration_work",),
+            lease_seconds=30,
+        )
+        assert claimed is not None
+        assert claimed.task_id == task.task_id
+        assert claimed.state is source
+        await store.transition(
+            task_id=task.task_id,
+            tenant_id=tenant,
+            expected_version=claimed.version,
+            target=target,
+            actor_id=claimed.actor_id,
+            reason_code=f"advance_{target.value}",
+            lease=LeaseIdentity(worker_id, claimed.lease_token),
+        )
     result = {
         "task_id": str(task.task_id),
         "candidate_answer": "private reasoning output",
