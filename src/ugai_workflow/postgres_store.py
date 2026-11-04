@@ -178,6 +178,18 @@ def _safe_event_details(value: Mapping[str, Any] | None) -> dict[str, str | int 
 
 
 
+def _validate_create_task_scalars(*, priority: int, max_retries: int) -> None:
+    if isinstance(priority, bool) or not isinstance(priority, int) or not -100 <= priority <= 100:
+        raise ValueError("priority_out_of_bounds")
+    if isinstance(max_retries, bool) or not isinstance(max_retries, int) or not 0 <= max_retries <= 2:
+        raise ValueError("max_retries_must_be_between_0_and_2")
+
+
+def _validate_expected_version(value: int) -> None:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ValueError("expected_version_invalid")
+
+
 def retry_backoff_seconds(
     attempt: int, *, base_delay_seconds: int = 30, max_delay_seconds: int = 3600
 ) -> int:
@@ -226,10 +238,7 @@ class PostgresWorkflowStore:
             raise ValueError("idempotency_key_invalid")
         if not _SHA256.fullmatch(input_digest or ""):
             raise ValueError("input_digest_must_be_sha256")
-        if not isinstance(priority, int) or not -100 <= priority <= 100:
-            raise ValueError("priority_out_of_bounds")
-        if not isinstance(max_retries, int) or not 0 <= max_retries <= 2:
-            raise ValueError("max_retries_must_be_between_0_and_2")
+        _validate_create_task_scalars(priority=priority, max_retries=max_retries)
 
         safe_metadata = _safe_metadata(metadata)
         canonical_json_digest(safe_metadata)
@@ -437,8 +446,7 @@ class PostgresWorkflowStore:
             raise ValueError("reason_code_invalid")
         if error_code is not None and not _SAFE_CODE.fullmatch(error_code):
             raise ValueError("error_code_invalid")
-        if not isinstance(expected_version, int) or expected_version < 0:
-            raise ValueError("expected_version_invalid")
+        _validate_expected_version(expected_version)
         if (
             not isinstance(retry_delay_seconds, int)
             or isinstance(retry_delay_seconds, bool)
