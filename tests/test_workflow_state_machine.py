@@ -1,6 +1,11 @@
 import pytest
 
-from ugai_workflow.state_machine import TaskState, TransitionDenied, validate_transition
+from ugai_workflow.state_machine import (
+    CLAIMABLE_STATES,
+    TaskState,
+    TransitionDenied,
+    validate_transition,
+)
 
 
 def test_happy_path_transitions_are_allowed() -> None:
@@ -96,4 +101,31 @@ def test_validate_transition_rejects_boolean_retry_counters(
             retry_count=retry_count,
             max_retries=max_retries,
             retryable=True,
+        )
+
+
+def test_uncertain_outcome_requires_evidence_gated_reconciliation() -> None:
+    assert validate_transition(TaskState.EXECUTING, TaskState.OUTCOME_UNKNOWN) == (
+        TaskState.EXECUTING,
+        TaskState.OUTCOME_UNKNOWN,
+    )
+    assert TaskState.OUTCOME_UNKNOWN not in CLAIMABLE_STATES
+    with pytest.raises(TransitionDenied, match="reconciliation_evidence_required"):
+        validate_transition(TaskState.OUTCOME_UNKNOWN, TaskState.VERIFYING)
+    assert validate_transition(
+        TaskState.OUTCOME_UNKNOWN,
+        TaskState.VERIFYING,
+        reconciliation_verified=True,
+    ) == (TaskState.OUTCOME_UNKNOWN, TaskState.VERIFYING)
+
+
+def test_uncertain_outcome_cannot_be_retried_or_reconciled_without_evidence() -> None:
+    for target in (TaskState.EXECUTING, TaskState.RECEIVED, TaskState.SUCCEEDED):
+        with pytest.raises(TransitionDenied):
+            validate_transition(TaskState.OUTCOME_UNKNOWN, target)
+    with pytest.raises(TransitionDenied, match="reconciliation_flag_not_applicable"):
+        validate_transition(
+            TaskState.EXECUTING,
+            TaskState.VERIFYING,
+            reconciliation_verified=True,
         )
