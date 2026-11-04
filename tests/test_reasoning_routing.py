@@ -127,3 +127,50 @@ def test_critical_profile_requires_quality_floor_and_independent_evaluator():
     low_quality_primary = primary.model_copy(update={"quality_rank": 89})
     with pytest.raises(NoEligibleModelRoute):
         select_model_routes([low_quality_primary, evaluator], req)
+
+
+def test_total_budget_includes_fallback_and_independent_evaluator_costs():
+    primary = route("primary", "reasoning_primary", "provider-a", "family-a", 95)
+    fallback = route(
+        "fallback",
+        "reasoning_fallback",
+        "provider-b",
+        "family-b",
+        90,
+        input_cost=20,
+        output_cost=20,
+    )
+    evaluator = route(
+        "evaluator",
+        "independent_evaluator",
+        "provider-c",
+        "family-c",
+        90,
+        input_cost=20,
+        output_cost=20,
+    )
+    req = requirements("high").model_copy(update={"max_estimated_cost": 0.20})
+
+    decision = select_model_routes([primary, fallback, evaluator], req)
+
+    # Each optional route alone is affordable, but selecting all three would
+    # exceed the conservative total budget.
+    assert decision.fallback is None
+    assert decision.independent_evaluator.route_id == "evaluator"
+    assert decision.estimated_total_cost <= req.max_estimated_cost
+
+
+def test_evaluator_must_be_independent_of_the_selected_fallback():
+    primary = route("primary", "reasoning_primary", "provider-a", "family-a", 95)
+    fallback = route("fallback", "reasoning_fallback", "provider-b", "family-b", 90)
+    evaluator = route("evaluator", "independent_evaluator", "provider-b", "family-b", 90)
+
+    decision = select_model_routes(
+        [primary, fallback, evaluator],
+        requirements("high"),
+    )
+
+    # The evaluator can still be used with the primary path, but the fallback
+    # is excluded because it shares the evaluator's provider/model family.
+    assert decision.independent_evaluator.route_id == "evaluator"
+    assert decision.fallback is None
