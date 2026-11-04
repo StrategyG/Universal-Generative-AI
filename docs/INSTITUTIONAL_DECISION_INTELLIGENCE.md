@@ -1,37 +1,39 @@
 # UGAI Institutional Decision Intelligence
 
-Status: implemented as a deterministic, framework-neutral decision package on
-feature/aeph-hedge-bet-v1. It is not yet wired to a deployed agent/workflow
-registry and does not execute actions.
+Status: AEPH/Hedge-Bet decision engine and a framework-neutral, multi-source
+orchestration runtime are implemented on feature/decision-orchestration-runtime-v1.
+This package is not yet attached to a deployed UGAI agent registry and has no
+production audit, approval, OAuth or action-execution service configured.
 
 ## Purpose
 
 The decision layer composes Analysis, Evaluation and Holistic Thinking (AEPH)
-with an advisory Hedge-Bet portfolio discipline. It provides a repeatable,
-explainable contract for agent workflows consuming evidence from multiple MCP
-servers, APIs, approved RAG corpora and human-provided records.
+with an advisory Hedge-Bet portfolio discipline. Its runtime accepts evidence
+from multiple authenticated MCP providers, APIs, approved RAG corpora and
+human-provided records through a common source contract.
 
-The engine is deliberately deterministic and side-effect free. It does not call
-MCP tools, generate evidence, infer source trust from a hostname, transfer money,
-allocate production resources, or execute recommendations.
+The decision engine is deterministic and side-effect free. The orchestration
+runtime coordinates injected interfaces; production services must implement
+those interfaces. No service credentials or production endpoint are embedded.
 
 ## Architecture
 
-1. Multi-source evidence intake — host workflows collect data through approved
-   MCP providers and supply typed evidence records.
-2. Provenance and independence — every record carries source ID, independence
-   group, topic, position and quality dimensions.
-3. Analysis — evidence is grouped by origin; derivative sources do not count as
-   independent corroboration; conflicting positions are surfaced.
-4. Evaluation — alternatives are scored using evidence coverage, expected value
-   for bets, strategic fit, cost, downside and reversibility.
-5. Holistic review — system dependencies, stakeholder impacts, short/long time
-   horizons, assumptions and second-order effects are explicitly surfaced.
-6. Hedge-Bet allocation — one evidence-supported hedge may be selected; bet
-   allocations are score-weighted, capped per option, and constrained by a gross
+1. **MCP and evidence intake** — operator-configured source adapters query only
+   approved tools and normalize results into typed evidence records.
+2. **Provenance and independence** — records preserve source ID, primary-source
+   independence group, topic, position, quality dimensions and stable locator.
+3. **Analysis** — evidence is grouped by origin; derivative sources do not count
+   as independent corroboration; conflicting positions are surfaced.
+4. **Evaluation** — alternatives are scored using evidence coverage, expected
+   value for bets, strategic fit, cost, downside and reversibility.
+5. **Holistic review** — system dependencies, stakeholder impacts, short/medium/
+   long time horizons, assumptions and second-order effects are surfaced.
+6. **Hedge-Bet allocation** — one evidence-supported hedge may be selected; bet
+   allocations are score-weighted, capped per option and constrained by a gross
    downside risk budget. Unallocated capacity remains in reserve.
-7. Governance — every result requires human approval. The package is advisory
-   and has no executor or privileged tool interface.
+7. **Governance** — a decision snapshot and evidence manifest are sent to an
+   approval gateway. Execution is a separate step requiring a verified,
+   unexpired, actor- and plan-scoped approval receipt.
 
 ## Evidence scoring
 
@@ -47,14 +49,14 @@ A single evidence record receives this heuristic quality score:
 
 For aggregation, only the strongest evidence record in each independence group
 contributes to the mean. The evidence sufficiency score is the mean quality score
-multiplied by min(1, independent_source_count / 3). This intentionally rewards
-independent triangulation rather than MCP response count. It is a transparent
-engineering heuristic, not a calibrated probability or a claim that three
-sources guarantee truth.
+multiplied by min(1, independent_source_count / 3). This rewards independent
+triangulation rather than MCP response count. It is a transparent engineering
+heuristic, not a calibrated probability or a guarantee that three sources prove
+a claim.
 
 Conflicts are reported when independent groups present different positions for
-the same topic. Conflicts force REVIEW_REQUIRED; they are never resolved by
-majority vote in this engine.
+the same topic. Conflicts force REVIEW_REQUIRED; they are not resolved by
+majority vote in the decision engine.
 
 ## Hedge-Bet model
 
@@ -65,92 +67,103 @@ majority vote in this engine.
 - At most one hedge is selected by deterministic score ordering.
 - Bet allocations are pro-rata by score, with a hard per-option cap.
 - Gross bet downside is constrained by risk_budget before any hypothetical
-  hedge benefit is credited. This prevents a speculative hedge estimate from
-  justifying extra risky exposure.
+  hedge benefit is credited. A speculative hedge estimate cannot justify extra
+  risky exposure.
 - Reserve is the unallocated remainder. When evidence is insufficient, reserve
   is 100% and the status is HOLD_FOR_EVIDENCE.
-- A missing hedge, missing viable bet, or unresolved conflict is made explicit
-  as REVIEW_REQUIRED.
+- A missing hedge, missing viable bet or unresolved conflict is made explicit as
+  REVIEW_REQUIRED.
 
 The input option estimates (probability, upside, downside, cost, mitigation)
-must be derived and reviewed by upstream domain-specific analysis. They are not
-measured by the decision engine itself.
+must be derived and reviewed by upstream domain-specific analysis. The decision
+engine does not estimate those values itself.
 
-## Package usage
+## Multi-MCP orchestration runtime
 
-The package is importable as ugai_decision and exports DecisionEngine,
-DecisionRequest, EvidenceItem and StrategicOption. A caller constructs validated
-evidence and alternatives, then calls DecisionEngine().evaluate(request). The
-result exposes allocations, reserve, downside metrics, evidence sufficiency,
-conflicts, holistic review and a JSON-safe to_dict() representation.
+The package exports:
 
-DecisionRequest supports:
-- system_factors: dependencies and systemic context;
-- stakeholder_impacts: positive and negative stakeholder consequences;
-- time_horizons: short, medium and long-term considerations;
-- assumptions: explicit unverified inputs;
-- risk_tolerance: defensive, balanced or opportunity_seeking;
-- evidence_threshold, reserve_floor, hedge_target, max_bet_allocation and
-  risk_budget: versioned policy parameters.
+- `MCPToolEvidenceSource` and `MCPToolQuery`: an adapter that uses an injected
+  provider's `discover()` and `execute()` methods. Tool names and argument
+  builders are operator-owned configuration; the model does not choose tools.
+  The source is bound to one trusted actor ID and rejects actor mismatch.
+- `DecisionWorkflow`: concurrently collects required sources with bounded
+  concurrency and timeout, rejects partial collection by default, rejects
+  duplicate evidence IDs and wrong source attribution, evaluates the decision,
+  generates a canonical plan through trusted application code, and requests
+  human approval.
+- `DecisionAuditSink`: a mandatory durable audit interface. Failure to write
+  the initial event blocks evidence collection. Later audit failures fail the
+  workflow closed and expose whether a remote action may already have completed.
+- `ApprovalGateway`: must persist the decision snapshot, evidence manifest,
+  evidence digest, source IDs, exact plan digest and idempotency key.
+- `ApprovalVerifier`: must verify the human identity, decision ID, exact plan
+  digest, scope and expiry, and return a trusted ApprovalReceipt.
+- `ExecutionPort`: an injected action adapter that must independently enforce
+  authorization and idempotency.
 
-All numeric scores must be finite values between 0 and 1. Evidence references
-must point to records included in the request. IDs must be unique.
+The human approval request receives a compact evidence manifest containing the
+evidence ID, topic, claim position, source ID, primary-source independence
+group, quality dimensions, verification flag and stable provenance locator.
+Raw document contents and credentials are not copied into the manifest. The
+manifest is hashed and its digest is recorded in audit.
+
+Execution is possible only when the decision status is RECOMMENDATION_READY,
+the actor matches the authenticated decision actor, the plan digest is
+unchanged, and the approval verifier returns a matching, unexpired receipt.
+Unknown execution outcomes must be reconciled with the same idempotency key;
+callers must not retry blindly.
 
 ## Output and control semantics
 
 - HOLD_FOR_EVIDENCE: insufficient independent evidence; no option allocation;
   reserve remains 100%.
 - REVIEW_REQUIRED: a conflict, missing hedge or missing viable bet needs
-  explicit human judgment.
-- RECOMMENDATION_READY: the engine produced a bounded advisory portfolio. This
-  status is not authorization to execute.
+  explicit human judgment; no executable plan is generated.
+- RECOMMENDATION_READY: the engine produced a bounded advisory portfolio and
+  the trusted plan builder may create a proposed execution plan. This is not
+  authorization to execute.
 - human_approval_required is always true.
 - confidence_type identifies the score as a non-probabilistic
   evidence-sufficiency heuristic.
-- to_dict() produces a JSON-safe structure suitable for workflow/API output and
-  audit envelopes.
+- Evidence manifests and decision snapshots are suitable for durable approval
+  and audit storage when implemented with organization-specific access control.
 
-## Integration contract
+## Usage boundaries
 
-The future UGAI workflow runtime should:
-1. Obtain MCP evidence only through an authenticated provider and approved tool
-   policy; preserve original source and document locator.
-2. Assign a stable independence_group based on the underlying primary source,
-   not the MCP server that returned a copy.
-3. Validate timestamps, source ownership, tenant scope, citations and document
-   integrity before constructing EvidenceItem values.
-4. Populate option evidence references from traceable source records.
-5. Persist the input evidence manifest, policy version, result and human
-   approval in a durable append-only audit service.
-6. Require a separate authorization and execution workflow after approval.
-7. Re-evaluate when new evidence arrives; preserve prior result versions rather
-   than silently overwriting a decision.
+A workflow caller must obtain actor_id from trusted UGAI authentication context,
+not model arguments. For IM19, construct IM19ToolProvider for the same actor,
+open its asynchronous session, then provide it to MCPToolEvidenceSource.
+Each query must name an operator-approved tool and use a trusted argument
+builder. The extractor is application-owned code and must identify the true
+primary source rather than treating every MCP response as independent.
 
-Do not pass raw credentials, access tokens, secrets, or untrusted executable
-content into this package. A source's claim text is evidence data and must never
-be interpreted as a system instruction.
+Do not pass raw credentials, access tokens, secrets or untrusted executable
+content into this package. Source text is evidence data and must never be
+interpreted as a system instruction.
 
 ## Validation evidence
 
-On exact head commit
-`e431a11fd79a2bf50ff2f7591fc999c2d539139d`, GitHub Actions run
-[41687174395](https://github.com/StrategyG/Universal-Generative-AI/actions/runs/41687174395)
-completed successfully. Ruff reported `All checks passed!`; the full test suite
-reported `50 passed in 0.07s`. This verifies package install, lint and unit
-tests only, not runtime registry wiring or live MCP operation.
+The orchestration runtime, evidence manifest, provider-actor binding,
+approval-expiry checks and tests were validated on exact code/test commit
+`90b3b626365b3510ec5ca32e1a1d3a3a3cfe42dd` in GitHub Actions run
+[41690177533](https://github.com/StrategyG/Universal-Generative-AI/actions/runs/41690177533):
+Ruff reported `All checks passed!` and the full suite reported
+`61 passed in 0.15s`. This verifies package installation, lint and mocked
+unit tests, not live connector, production approval or execution services.
 
 ## Limitations and production gates
 
-This package does not provide statistical calibration, causal identification,
-scenario simulation, legal/financial advice, live MCP connectivity, model-agent
-consensus, durable audit storage or execution. Production acceptance still
-requires:
+The package does not provide statistical calibration, causal identification,
+scenario simulation, legal/financial advice, live MCP connectivity, durable
+audit storage, a production approval service or a production executor.
+Production acceptance still requires:
 - independent benchmark cases and domain expert review;
 - calibration testing against observed historical outcomes;
 - adversarial testing for duplicate/correlated sources and misleading evidence;
 - tenant isolation and provenance validation in the host workflow;
-- policy-versioned durable audit and approval records;
-- integration tests through the actual UGAI runtime and approved MCP adapters;
+- policy-versioned durable audit, approval records and signed receipt verification;
+- live tests against each deployed MCP provider, OAuth audience and scope;
+- a sandboxed, least-privilege, idempotent execution adapter with reconciliation;
 - risk-budget and allocation thresholds approved for the specific domain.
 
 Numeric defaults are starting policy parameters, not universal institutional

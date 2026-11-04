@@ -12,7 +12,7 @@ dependencies = []
 
 [project.optional-dependencies]
 mcp = ["mcp>=2.3.0,<3.0.0"]
-dev = ["pytest>=8,<10", "pytest-asyncio>=0.24,<2", "ruff>=0.9,<1"]
+dev = ["asyncpg>=0.29,<1", "pytest>=8,<10", "pytest-asyncio>=0.24,<2", "ruff>=0.9,<1"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
