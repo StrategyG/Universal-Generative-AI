@@ -27,6 +27,7 @@ class Principal:
     project_ids: frozenset[str]
     auth_mode: str
     scopes: frozenset[str] = frozenset()
+    workspace_ids: frozenset[str] = frozenset()
 
     @property
     def is_tenant_admin(self) -> bool:
@@ -164,6 +165,10 @@ def principal_from_claims(claims: dict[str, Any]) -> Principal:
         claims.get(settings.oidc_scopes_claim),
         settings.oidc_scopes_claim,
     )
+    workspaces = _string_set(
+        claims.get(settings.oidc_workspaces_claim),
+        settings.oidc_workspaces_claim,
+    )
     return Principal(
         subject=subject.strip(),
         tenant_id=tenant_id.strip(),
@@ -171,6 +176,7 @@ def principal_from_claims(claims: dict[str, Any]) -> Principal:
         project_ids=projects,
         auth_mode="oidc",
         scopes=scopes,
+        workspace_ids=workspaces,
     )
 
 
