@@ -4,9 +4,9 @@
   "task_id": "task-01",
   "tenant_id": "tenant-01",
   "sequence": 1,
-  "event_type": "task.created",
+  "event_type": "task.received",
   "from_state": null,
-  "to_state": "queued",
+  "to_state": "received",
   "actor": {
     "actor_type": "user",
     "actor_id": "usr-01"
