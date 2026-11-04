@@ -463,7 +463,7 @@ async def test_uncertain_external_outcome_requires_unleased_evidence_reconciliat
     assert uncertain.state is TaskState.OUTCOME_UNKNOWN
     assert uncertain.lease_token is None
 
-    with pytest.raises(PermissionError, match="reconciliation_evidence_required"):
+    with pytest.raises(ValueError, match="reconciliation_requires_unleased_verified_evidence"):
         await store.transition(
             task_id=task.task_id,
             tenant_id=tenant,
