@@ -32,10 +32,11 @@ This directory is a reviewable, machine-readable proposal. Runtime repositories 
 ## Identity rules
 
 1. `issuer` plus opaque `subject` identify an external principal; `subject` alone is not globally unique.
-2. Tenant and project context must be derived and verified server-side. Client-supplied tenant/project IDs are selectors only and must be authorized against the verified principal.
-3. Never cast an OIDC subject to a Supabase UUID, infer identity from email, or accept JWT role claims as authoritative membership.
-4. Role values are namespaced. Unknown namespaces/roles deny by default.
-5. Mapping to Supabase `auth.users.id` is a separately provisioned identity link with provenance, lifecycle and revocation; no implicit linking is permitted.
+2. Every configured issuer in a production identity context must be an absolute HTTPS URI; insecure HTTP issuers are rejected.
+3. Tenant and project context must be derived and verified server-side. Client-supplied tenant/project IDs are selectors only and must be authorized against the verified principal.
+4. Never cast an OIDC subject to a Supabase UUID, infer identity from email, or accept JWT role claims as authoritative membership.
+5. Role values are namespaced. Unknown namespaces/roles deny by default.
+6. Mapping to Supabase `auth.users.id` is a separately provisioned identity link with provenance, lifecycle and revocation; no implicit linking is permitted.
 
 ## Task and idempotency rules
 
