@@ -157,7 +157,7 @@ async def test_catalog_rejects_duplicate_route_ids(set_catalog):
 
 
 @pytest.mark.asyncio
-async def test_catalog_requires_primary_route(set_catalog):
+async def test_catalog_requires_primary_route(monkeypatch, set_catalog):
     set_catalog([entry("fallback", "reasoning_fallback", "provider-b", "family-b")])
 
     async def approved(model_id, revision):
@@ -170,8 +170,9 @@ async def test_catalog_requires_primary_route(set_catalog):
             validation_status="passed",
         )
 
-    import app.services.external_gpu_queue
-
-    app.services.external_gpu_queue.assert_model_approved = approved
+    monkeypatch.setattr(
+        "app.services.external_gpu_queue.assert_model_approved",
+        approved,
+    )
     with pytest.raises(ReasoningRouteCatalogError, match="requires_primary"):
         await load_approved_text_routes()
