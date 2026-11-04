@@ -108,6 +108,50 @@ class PlatformEventSchemaTests(unittest.TestCase):
         event["payload"] = ["queued"]
         self.assert_invalid(event)
 
+    def test_credential_like_fields_are_rejected_recursively(self) -> None:
+        forbidden_keys = (
+            "access_token",
+            "Authorization",
+            "refreshToken",
+            "api_key",
+            "clientSecret",
+            "private_key",
+            "password",
+            "cookie",
+            "credential",
+            "secret",
+        )
+        for key in forbidden_keys:
+            with self.subTest(key=key):
+                event = copy.deepcopy(self.fixture)
+                event["payload"] = {
+                    "metadata": [
+                        {
+                            "nested": {
+                                key: "must-never-be-serialized",
+                            }
+                        }
+                    ]
+                }
+                self.assert_invalid(event)
+
+    def test_safe_nested_payload_is_accepted(self) -> None:
+        event = copy.deepcopy(self.fixture)
+        event["payload"] = {
+            "metadata": {
+                "source": "notebook",
+                "attempt": 2,
+                "labels": ["verified", "internal"],
+                "context": None,
+            }
+        }
+        self.assert_valid(event)
+
+    def test_issuer_must_use_https(self) -> None:
+        event = copy.deepcopy(self.fixture)
+        event["principal"]["issuer"] = "http://identity.example.test/"
+        self.assert_invalid(event)
+
     def test_invalid_traceparent_is_rejected(self) -> None:
         event = copy.deepcopy(self.fixture)
         event["trace_context"] = {"traceparent": "not-a-traceparent"}
