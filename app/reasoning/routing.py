@@ -113,6 +113,8 @@ def select_model_routes(
             route for route in eligible
             if route.role == ModelRole.REASONING_FALLBACK
             and route.route_id != primary.route_id
+            and route.provider != primary.provider
+            and route.model_family != primary.model_family
             and _estimated_cost(route, requirements) <= requirements.max_estimated_cost
         ]
         fallback = sorted(
