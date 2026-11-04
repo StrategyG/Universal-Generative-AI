@@ -36,7 +36,7 @@ def get_task_service(request: Request) -> UGAITaskService:
 
 
 def _assert_task_owner(task, principal: Principal) -> None:
-    if task.actor_id != principal.subject and not principal.is_tenant_admin:
+    if task.actor_id != principal.actor_id and not principal.is_tenant_admin:
         # Do not disclose whether a task ID belongs to another subject.
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
 
@@ -76,7 +76,7 @@ async def submit_task(
         task = await service.submit(
             submission,
             tenant_id=principal.tenant_id,
-            actor_id=principal.subject,
+            actor_id=principal.actor_id,
             request_id=request_id,
             idempotency_key=idempotency_key,
         )
