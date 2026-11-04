@@ -42,6 +42,10 @@
     {
       "schema": "schemas/task.schema.json",
       "document": "invalid/task-missing-user-identity.json"
+    },
+    {
+      "schema": "schemas/identity-context.schema.json",
+      "document": "invalid/identity-context-http-issuer.json"
     }
   ]
 }
