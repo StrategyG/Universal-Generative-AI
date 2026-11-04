@@ -76,3 +76,24 @@ def test_unknown_state_is_rejected() -> None:
 def test_retry_budget_is_bounded() -> None:
     with pytest.raises(TransitionDenied, match="max_retries_out_of_bounds"):
         validate_transition(TaskState.FAILED, TaskState.RECEIVED, max_retries=3)
+
+
+
+@pytest.mark.parametrize(
+    ("retry_count", "max_retries", "error"),
+    [
+        (True, 2, "retry_count_invalid"),
+        (0, True, "max_retries_out_of_bounds"),
+    ],
+)
+def test_validate_transition_rejects_boolean_retry_counters(
+    retry_count, max_retries, error
+):
+    with pytest.raises(TransitionDenied, match=error):
+        validate_transition(
+            TaskState.FAILED,
+            TaskState.RECEIVED,
+            retry_count=retry_count,
+            max_retries=max_retries,
+            retryable=True,
+        )
