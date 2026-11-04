@@ -17,6 +17,8 @@ from .auth import IM19_REQUIRED_SCOPES, AccessTokenProvider
 from .config import IM19Config
 from .policy import ToolPolicy
 
+MCP_RESULT_TRUST_CLASSIFICATION = "UNTRUSTED_EXTERNAL_DATA"
+
 
 class MCPIntegrationError(RuntimeError):
     """Base error for safe, fail-closed integration failures."""
@@ -232,6 +234,7 @@ class IM19MCPClient:
                 "tool": name,
                 "request_id": request_id,
                 "status": "success",
+                "trust_classification": MCP_RESULT_TRUST_CLASSIFICATION,
                 "result": payload,
             }
         except (MCPIntegrationError, AuditUnavailable):
