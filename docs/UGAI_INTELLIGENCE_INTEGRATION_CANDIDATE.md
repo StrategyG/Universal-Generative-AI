@@ -7,7 +7,7 @@
 ## Included packages
 
 - `app/`: existing FastAPI application, provider adapters, model router and model registry.
-- `app/reasoning/`: versioned reasoning artifacts, evidence/claim reference validation, model-role routing policy and calibrated-confidence provenance.
+- `app/reasoning/`: versioned reasoning artifacts, evidence/claim reference validation, model-role routing policy, calibrated-confidence provenance, and a policy-routed exact-provider execution service.
 - `src/ugai_decision/`: AEPH/decision workflow, evidence models, MCP evidence source, Supabase and PostgreSQL audit adapters.
 - `src/ugai_mcp/`: bounded remote IM19 Streamable HTTP client, identity/resource scoping, allowlisted tool policy and audit.
 - `src/ugai_workflow/`: task state machine, PostgreSQL store, worker leases, retry scheduler and decision-workflow bridge.
@@ -34,7 +34,7 @@
 ## Explicitly incomplete
 
 - The reasoning policy router is not yet wired into the existing provider inference router/model registry.
-- No full Observe/Analyze/Retrieve/Evaluate/Challenge/Synthesize/Decide/Verify runtime is connected to live provider inference.
+- No full Observe/Analyze/Retrieve/Evaluate/Challenge/Synthesize/Decide/Verify orchestration and authorized RAG_Cerdas retrieval is connected to live provider inference.
 - No live IM19, RAG_Cerdas, Notebook Studio or Cloudbrowser staging E2E has been demonstrated.
 - No production tenant identity/secret resolver injection, real provider execution, RAG gold-set benchmark, PostgreSQL VM provisioning, Google Drive backup/restore, load test or deployment has been verified.
 - The Notebook Studio execution API and user-side isolated runtime remain owned by that repository and are not provided by this candidate.
