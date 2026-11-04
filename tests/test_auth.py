@@ -258,4 +258,4 @@ def test_task_scope_is_required_and_never_inferred_from_role(monkeypatch):
     with pytest.raises(HTTPException) as read_exc:
         auth.require_scope(authorized, "ugai:tasks:read")
     assert read_exc.value.status_code == 403
-\n
+
