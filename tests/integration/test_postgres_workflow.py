@@ -18,6 +18,8 @@ from ugai_workflow import (
     TaskNotFound,
     TaskState,
 )
+from app.workflow_runtime import _assert_restricted_runtime_role
+
 from ugai_workflow.input_vault import (
     WorkflowInputConflict,
     WorkflowInputNotFound,
@@ -110,6 +112,7 @@ def new_task_args(*, tenant_id: str, actor_id: str = "integration-actor", suffix
 @pytest.mark.asyncio
 async def test_database_enforces_tenant_rls_and_idempotency(workflow_database) -> None:
     pool, _admin = workflow_database
+    await _assert_restricted_runtime_role(pool)
     store = PostgresWorkflowStore(pool)
     tenant = f"tenant-{uuid4()}"
     args = new_task_args(tenant_id=tenant, suffix=str(uuid4()))
