@@ -203,6 +203,79 @@ async def test_expired_lease_is_refenced_and_old_worker_is_rejected(workflow_dat
 
 
 @pytest.mark.asyncio
+async def test_expired_execution_lease_is_quarantined_not_reclaimed(workflow_database) -> None:
+    pool, admin = workflow_database
+    store = PostgresWorkflowStore(pool)
+    tenant = f"tenant-{uuid4()}"
+    executing_task = await store.create_task(
+        **new_task_args(tenant_id=tenant, suffix=str(uuid4()))
+    )
+    first_lease = await store.claim_next(
+        tenant_id=tenant,
+        worker_id="worker-side-effect",
+        supported_task_types=("integration_work",),
+        lease_seconds=30,
+    )
+    assert first_lease is not None
+    assert first_lease.task_id == executing_task.task_id
+
+    pending_task = await store.create_task(
+        **new_task_args(tenant_id=tenant, suffix=str(uuid4()))
+    )
+    await admin.execute(
+        """
+        UPDATE ugai_workflow.tasks
+        SET state = 'executing',
+            lease_expires_at = clock_timestamp() - interval '1 second'
+        WHERE task_id = $1
+        """,
+        executing_task.task_id,
+    )
+
+    next_claim = await store.claim_next(
+        tenant_id=tenant,
+        worker_id="worker-next",
+        supported_task_types=("integration_work",),
+        lease_seconds=30,
+    )
+    assert next_claim is not None
+    assert next_claim.task_id == pending_task.task_id
+
+    quarantined = await store.get_task(
+        task_id=executing_task.task_id,
+        tenant_id=tenant,
+    )
+    assert quarantined.state is TaskState.OUTCOME_UNKNOWN
+    assert quarantined.lease_token is None
+    assert quarantined.retryable is False
+    assert quarantined.error_code == "outcome_unknown"
+
+    event = await admin.fetchrow(
+        """
+        SELECT event_type, from_state, to_state, details
+        FROM ugai_workflow.events
+        WHERE task_id = $1
+        ORDER BY event_id DESC
+        LIMIT 1
+        """,
+        executing_task.task_id,
+    )
+    assert event is not None
+    assert event["event_type"] == "execution_lease_expired"
+    assert event["from_state"] == "executing"
+    assert event["to_state"] == "outcome_unknown"
+    assert event["details"]["reason_code"] == "execution_lease_expired"
+
+    with pytest.raises(LeaseLost):
+        await store.heartbeat(
+            task_id=executing_task.task_id,
+            tenant_id=tenant,
+            lease=LeaseIdentity("worker-side-effect", first_lease.lease_token),
+            lease_seconds=30,
+        )
+
+
+@pytest.mark.asyncio
 async def test_retry_scheduler_requeues_only_due_retryable_failures(workflow_database) -> None:
     pool, admin = workflow_database
     store = PostgresWorkflowStore(pool)
