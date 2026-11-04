@@ -9,6 +9,7 @@ on:
       - "tests/test_workflow_*.py"
       - "tests/test_postgres_store_contract.py"
       - "tests/test_hybrid_worker.py"
+      - "tests/test_worker_*.py"
       - "tests/test_im19_mcp_*.py"
       - "tests/test_decision_*.py"
       - "tests/test_supabase_audit.py"
