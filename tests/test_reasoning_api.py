@@ -174,5 +174,7 @@ def test_reasoning_endpoint_rejects_missing_independent_review(monkeypatch):
 def test_reasoning_endpoint_is_mounted_on_fastapi_app():
     from app.main import app
 
-    paths = {route.path for route in app.routes}
+    # FastAPI's newer router implementation may expose lazy IncludedRouter
+    # entries in app.routes; OpenAPI materializes the effective route table.
+    paths = app.openapi()["paths"]
     assert "/api/v1/reasoning/complete" in paths
