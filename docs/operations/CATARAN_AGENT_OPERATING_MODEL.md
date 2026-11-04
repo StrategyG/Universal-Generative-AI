@@ -25,7 +25,7 @@ One hour is a checkpoint cadence, not a work deadline or a worker execution time
 |---|---|---|---|---|
 | 01 | Independent Production Auditor | None; read-only | All seven Cataran repositories and attached CI/evidence | No code/issue/PR/settings writes; cannot approve own work; cannot waive gates |
 | 02 | UGAI Principal AI Engineer | Universal-Generative-AI: reasoning, provider routing, decision runtime, workflow orchestration and UGAI tests | All repos for dependencies | No second MCP gateway; no direct IM19/Notebook implementation without a separate task owner |
-| 03 | Architecture & Governance Principal | Universal-Generative-AI canonical ADRs, schemas/contracts and ownership/compatibility policy | All seven repos | One contract writer at a time; no runtime implementation that bypasses approved contracts; no invented architecture approval |
+| 03 | Architecture & Governance Principal | Universal-Generative-AI canonical ADRs, schemas/contracts and ownership/compatibility policy | All seven repos | One contract writer at a time; breaking changes require explicit Master Architect or named human-owner approval; Agent 03 cannot self-approve a breaking change |
 | 04 | AI Notebook Principal Engineer | ai-notebook-studio-v: client, API, UX, workspace, notebook and app-side execution boundary | All repos for interface dependencies | No backend reasoning engine, no second MCP gateway, no tenant/identity bypass |
 | 05 | Database & Knowledge Principal Engineer | RAG_Cerdas: ingestion/retrieval/evaluation; UGAI: approved database/knowledge adapters and migrations owned by UGAI | All repos for data contracts | No production database writes/cutover, fabricated labels/reviewers, destructive migrations or unapproved RAG publication |
 | 06 | Software Engineering Principal | Only the repository and file/path set explicitly recorded in its assigned task | All repos needed for assigned task | No concurrent ownership of the same paths; no unilateral contract, security-policy or infrastructure changes |
@@ -57,7 +57,7 @@ Every implementation task must carry:
 - test commands, security impact and rollback plan;
 - checkpoint state, latest verified SHA and next action.
 
-No two agents may write the same file or shared contract concurrently. Cross-repository work is a dependency graph of individually owned tasks, not a multi-writer free-for-all.
+No two agents may write the same file or shared contract concurrently. Cross-repository work is a dependency graph of individually owned tasks, not a multi-writer free-for-all. Agent 03 may draft and maintain the canonical contract, but a breaking contract/version change requires explicit approval from the Master Architect or named human owner before consumer implementation or rollout.
 
 ## 4. Status and evidence rules
 
