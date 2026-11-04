@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 
 from app.auth import (
     Principal,
-    ensure_project_access,
+    ensure_workspace_access,
     get_current_principal,
     require_generation_role,
     require_job_read_role,
@@ -40,6 +40,12 @@ def _assert_task_owner(task, principal: Principal) -> None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
 
 
+def _assert_workspace_access(task, principal: Principal) -> None:
+    metadata = task.metadata if isinstance(task.metadata, dict) else {}
+    workspace_id = metadata.get("workspace_id")
+    ensure_workspace_access(principal, workspace_id)
+
+
 def _task_status(task, request_id: UUID) -> TaskStatus:
     metadata = task.metadata if isinstance(task.metadata, dict) else {}
     result_reference = metadata.get("result_reference")
@@ -64,7 +70,7 @@ async def submit_task(
 ) -> TaskReceipt:
     require_generation_role(principal)
     require_scope(principal, "ugai:tasks:write")
-    ensure_project_access(principal, str(submission.workspace_id))
+    ensure_workspace_access(principal, str(submission.workspace_id))
     try:
         task = await service.submit(
             submission,
@@ -112,6 +118,7 @@ async def get_task_status(
             detail={"code": "TASK_STATUS_UNAVAILABLE", "retryable": True},
         ) from exc
     _assert_task_owner(task, principal)
+    _assert_workspace_access(task, principal)
     return _task_status(task, request_id)
 
 
@@ -127,6 +134,7 @@ async def cancel_task(
     try:
         current = await service.status(task_id=task_id, tenant_id=principal.tenant_id)
         _assert_task_owner(current, principal)
+        _assert_workspace_access(current, principal)
         task = await service.cancel(
             task_id=task_id,
             tenant_id=principal.tenant_id,
