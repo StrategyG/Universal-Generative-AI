@@ -21,7 +21,7 @@ _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _IDEMPOTENCY = re.compile(r"^[A-Za-z0-9._:-]{8,128}$")
 _SAFE_CODE = re.compile(r"^[a-z][a-z0-9_:-]{0,79}$")
 _SAFE_METADATA_KEYS = frozenset(
-    {"request_ref", "source_ref", "context_ref", "schema_version", "correlation_id"}
+    {"request_ref", "source_ref", "context_ref", "schema_version", "correlation_id", "workspace_id"}
 )
 _SAFE_EVENT_KEYS = frozenset(
     {
