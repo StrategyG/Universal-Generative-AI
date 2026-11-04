@@ -16,7 +16,7 @@ from app.auth import (
 )
 
 from app.ai_schemas import AICompletionRequest, AICompletionResponse
-from app.config import settings
+from app.config import settings, validate_database_configuration
 from app.observability import RequestObservabilityMiddleware, configure_logging
 from app.providers.router import TextModelRouter
 from app.reasoning.api import router as reasoning_router
@@ -84,6 +84,7 @@ from app.workers.schemas import (
 @contextlib.asynccontextmanager
 async def lifespan(_: FastAPI) -> collections.abc.AsyncIterator[None]:
     validate_auth_configuration()
+    validate_database_configuration()
     await initialize_queue()
     try:
         yield
