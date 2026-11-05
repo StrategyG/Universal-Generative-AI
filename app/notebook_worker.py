@@ -65,56 +65,58 @@ async def run_worker() -> None:
     runtime = await open_workflow_runtime(settings)
     if runtime is None:
         raise RuntimeError("Durable workflow runtime did not initialize")
-    if _NOTEBOOK_TASK_TYPE not in runtime.enabled_task_types:
-        await runtime.close()
-        raise RuntimeError(
-            "UGAI_WORKFLOW_ENABLED_TASK_TYPES must explicitly include notebook_request"
-        )
-
-    registration = WorkerRegistration(
-        worker_id=worker_id,
-        tier=WorkerTier.DEDICATED,
-        tenant_id=tenant_id,
-        task_types=(_NOTEBOOK_TASK_TYPE,),
-        lease_seconds=settings.workflow_worker_lease_seconds,
-        heartbeat_seconds=settings.workflow_worker_heartbeat_seconds,
-    )
-    registration.validate()
-    worker = HybridWorker(
-        store=runtime.store,
-        registration=registration,
-        handlers={
-            _NOTEBOOK_TASK_TYPE: NotebookReasoningTaskHandler(runtime=runtime),
-        },
-    )
+    heartbeat_task: asyncio.Task | None = None
+    registered = False
     stop = asyncio.Event()
-    loop = asyncio.get_running_loop()
-    for name in ("SIGINT", "SIGTERM"):
-        value = getattr(signal, name, None)
-        if value is not None:
-            try:
-                loop.add_signal_handler(value, stop.set)
-            except (NotImplementedError, RuntimeError):
-                logger.warning("worker_signal_handler_unavailable", extra={"signal": name})
-
-    await runtime.store.register_worker(
-        tenant_id=tenant_id,
-        worker_id=worker_id,
-        task_types=(_NOTEBOOK_TASK_TYPE,),
-    )
-    heartbeat_task = asyncio.create_task(
-        _heartbeat_registry(runtime, tenant_id=tenant_id, worker_id=worker_id, stop=stop)
-    )
-    logger.info(
-        "notebook_worker_started",
-        extra={
-            "worker_id": worker_id,
-            "tenant_id": tenant_id,
-            "task_types": [_NOTEBOOK_TASK_TYPE],
-            "lease_seconds": registration.lease_seconds,
-        },
-    )
     try:
+        if _NOTEBOOK_TASK_TYPE not in runtime.enabled_task_types:
+            raise RuntimeError(
+                "UGAI_WORKFLOW_ENABLED_TASK_TYPES must explicitly include notebook_request"
+            )
+
+        registration = WorkerRegistration(
+            worker_id=worker_id,
+            tier=WorkerTier.DEDICATED,
+            tenant_id=tenant_id,
+            task_types=(_NOTEBOOK_TASK_TYPE,),
+            lease_seconds=settings.workflow_worker_lease_seconds,
+            heartbeat_seconds=settings.workflow_worker_heartbeat_seconds,
+        )
+        registration.validate()
+        worker = HybridWorker(
+            store=runtime.store,
+            registration=registration,
+            handlers={
+                _NOTEBOOK_TASK_TYPE: NotebookReasoningTaskHandler(runtime=runtime),
+            },
+        )
+        loop = asyncio.get_running_loop()
+        for name in ("SIGINT", "SIGTERM"):
+            value = getattr(signal, name, None)
+            if value is not None:
+                try:
+                    loop.add_signal_handler(value, stop.set)
+                except (NotImplementedError, RuntimeError):
+                    logger.warning("worker_signal_handler_unavailable", extra={"signal": name})
+
+        await runtime.store.register_worker(
+            tenant_id=tenant_id,
+            worker_id=worker_id,
+            task_types=(_NOTEBOOK_TASK_TYPE,),
+        )
+        registered = True
+        heartbeat_task = asyncio.create_task(
+            _heartbeat_registry(runtime, tenant_id=tenant_id, worker_id=worker_id, stop=stop)
+        )
+        logger.info(
+            "notebook_worker_started",
+            extra={
+                "worker_id": worker_id,
+                "tenant_id": tenant_id,
+                "task_types": [_NOTEBOOK_TASK_TYPE],
+                "lease_seconds": registration.lease_seconds,
+            },
+        )
         while not stop.is_set():
             try:
                 await reconcile_outcome_unknown_once(
@@ -138,12 +140,14 @@ async def run_worker() -> None:
                     pass
     finally:
         stop.set()
-        await heartbeat_task
+        if heartbeat_task is not None:
+            await heartbeat_task
         try:
-            await runtime.store.deregister_worker(
-                tenant_id=tenant_id,
-                worker_id=worker_id,
-            )
+            if registered:
+                await runtime.store.deregister_worker(
+                    tenant_id=tenant_id,
+                    worker_id=worker_id,
+                )
         finally:
             await runtime.close()
         logger.info("notebook_worker_stopped", extra={"worker_id": worker_id})
