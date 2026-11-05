@@ -134,9 +134,13 @@ async def lifespan(application: FastAPI) -> collections.abc.AsyncIterator[None]:
                         "of ugai_workflow_runtime without BYPASSRLS"
                     )
             application.state.workflow_task_store = PostgresWorkflowStore(workflow_pool)
+            previous_payload_keys = json.loads(
+                settings.workflow_payload_previous_keys_json or "{}"
+            )
             application.state.workflow_task_payload_cipher = TaskPayloadCipher(
                 settings.workflow_payload_encryption_key,
                 key_id=settings.workflow_payload_key_id,
+                previous_keys=previous_payload_keys,
             )
 
         await initialize_queue()
