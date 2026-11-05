@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.observability import JsonLogFormatter
+from app.config import settings
 
 
 client = TestClient(app)
@@ -37,3 +38,23 @@ def test_json_formatter_uses_allowlisted_fields_only():
     assert payload["request_id"] == "trace-123"
     assert "api_key" not in payload
     assert "must-not-be-logged" not in json.dumps(payload)
+
+
+
+def test_api_security_headers_are_present():
+    response = client.get("/health")
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.headers["x-frame-options"] == "DENY"
+    assert response.headers["referrer-policy"] == "no-referrer"
+    assert response.headers["permissions-policy"]
+
+
+def test_metrics_endpoint_requires_scrape_credential(monkeypatch):
+    monkeypatch.setattr(settings, "metrics_token", "test-metrics-secret")
+    denied = client.get("/metrics")
+    allowed = client.get("/metrics", headers={"X-Metrics-Token": "test-metrics-secret"})
+    assert denied.status_code == 401
+    assert allowed.status_code == 200
+    assert "ugai_http_requests_total" in allowed.text
+    assert "path=" not in allowed.text
+    assert "tenant_id" not in allowed.text
