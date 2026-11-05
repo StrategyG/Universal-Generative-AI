@@ -272,6 +272,7 @@ async def submit_task(
             metadata={
                 "context_ref": str(payload.input_ref),
                 "project_id": payload.project_id,
+                "workspace_id": str(stored_input.workspace_id),
                 "schema_version": "1.0",
                 "correlation_id": str(request_id),
             },
