@@ -49,6 +49,10 @@ class Settings(BaseSettings):
     external_worker_token: str = ""
     worker_admin_token: str = ""
     database_url: str = ""
+    workflow_task_api_enabled: bool = False
+    workflow_database_url: str = ""
+    workflow_payload_encryption_key: str = ""
+    workflow_payload_key_id: str = "v1"
     model_registry_enforcement: bool = False
     auth_mode: str = "disabled"
     oidc_issuer: str = ""
@@ -86,3 +90,32 @@ def validate_database_configuration(config: Settings = settings) -> None:
         raise RuntimeError(
             "Production DATABASE_URL must use PostgreSQL with exactly one sslmode=verify-full"
         )
+
+
+def validate_workflow_task_configuration(config: Settings = settings) -> None:
+    """Require a dedicated least-privilege PostgreSQL identity and payload key."""
+    environment = config.environment.strip().lower()
+    enabled = config.workflow_task_api_enabled
+    if environment in {"production", "prod"} and not enabled:
+        raise RuntimeError("WORKFLOW_TASK_API_ENABLED=true is required in production")
+    if not enabled:
+        return
+
+    database_url = config.workflow_database_url.strip()
+    if not database_url:
+        raise RuntimeError("WORKFLOW_DATABASE_URL is required when the task API is enabled")
+    if not config.workflow_payload_encryption_key.strip():
+        raise RuntimeError("WORKFLOW_PAYLOAD_ENCRYPTION_KEY is required when the task API is enabled")
+    if not config.workflow_payload_key_id.strip() or len(config.workflow_payload_key_id) > 64:
+        raise RuntimeError("WORKFLOW_PAYLOAD_KEY_ID is invalid")
+    try:
+        parsed = urlsplit(database_url)
+        query = parse_qs(parsed.query, keep_blank_values=True)
+    except ValueError as exc:
+        raise RuntimeError("WORKFLOW_DATABASE_URL is invalid") from exc
+    if parsed.scheme not in {"postgres", "postgresql"} or not parsed.hostname:
+        raise RuntimeError("WORKFLOW_DATABASE_URL must be a PostgreSQL URL")
+    if environment in {"production", "prod"}:
+        modes = query.get("sslmode", [])
+        if len(modes) != 1 or modes[0].strip().lower() != "verify-full":
+            raise RuntimeError("Production WORKFLOW_DATABASE_URL must use sslmode=verify-full")
