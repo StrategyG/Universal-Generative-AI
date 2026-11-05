@@ -20,6 +20,7 @@ from app.config import settings, validate_database_configuration
 from app.observability import RequestObservabilityMiddleware, configure_logging
 from app.providers.router import TextModelRouter
 from app.reasoning.api import router as reasoning_router
+from app.task_api import router as task_router
 from app.providers.text_errors import TextGenerationProviderError
 from app.pipelines.planner import build_pipeline_plan
 from app.pipelines.schemas import PipelinePlan, PipelineRequest
@@ -82,20 +83,70 @@ from app.workers.schemas import (
 
 
 @contextlib.asynccontextmanager
-async def lifespan(_: FastAPI) -> collections.abc.AsyncIterator[None]:
+async def lifespan(application: FastAPI) -> collections.abc.AsyncIterator[None]:
     validate_auth_configuration()
     validate_database_configuration()
-    await initialize_queue()
+    validate_workflow_task_configuration()
+    workflow_pool = None
+    application.state.workflow_task_store = None
+    application.state.workflow_task_payload_cipher = None
     try:
+        if settings.workflow_task_api_enabled:
+            try:
+                import asyncpg
+                from ugai_workflow.payload_cipher import TaskPayloadCipher
+                from ugai_workflow.postgres_store import PostgresWorkflowStore
+            except ImportError as exc:
+                raise RuntimeError("The workflow task API requires the postgres extra") from exc
+
+            workflow_pool = await asyncpg.create_pool(
+                dsn=settings.workflow_database_url,
+                min_size=1,
+                max_size=10,
+                command_timeout=15,
+                server_settings={"application_name": "ugai-workflow-task-api"},
+            )
+            async with workflow_pool.acquire() as connection:
+                role = await connection.fetchrow(
+                    """
+                    SELECT r.rolsuper, r.rolbypassrls,
+                           pg_has_role(current_user, 'ugai_workflow_runtime', 'member') AS runtime_member,
+                           pg_get_userbyid(c.relowner) = current_user AS owns_tasks
+                    FROM pg_roles AS r
+                    CROSS JOIN pg_class AS c
+                    WHERE r.rolname = current_user
+                      AND c.oid = 'ugai_workflow.tasks'::regclass
+                    """
+                )
+                if (
+                    role is None
+                    or role["rolsuper"]
+                    or role["rolbypassrls"]
+                    or not role["runtime_member"]
+                    or role["owns_tasks"]
+                ):
+                    raise RuntimeError(
+                        "Workflow database login must be a non-owner, non-superuser member "
+                        "of ugai_workflow_runtime without BYPASSRLS"
+                    )
+            application.state.workflow_task_store = PostgresWorkflowStore(workflow_pool)
+            application.state.workflow_task_payload_cipher = TaskPayloadCipher(
+                settings.workflow_payload_encryption_key,
+                key_id=settings.workflow_payload_key_id,
+            )
+
+        await initialize_queue()
         yield
     finally:
+        if workflow_pool is not None:
+            await workflow_pool.close()
         await close_queue()
-
 
 configure_logging()
 app = FastAPI(title=settings.app_name, version="0.5.0", lifespan=lifespan)
 app.add_middleware(RequestObservabilityMiddleware)
 app.include_router(reasoning_router)
+app.include_router(task_router)
 
 
 def require_worker_token(token: str | None) -> None:
