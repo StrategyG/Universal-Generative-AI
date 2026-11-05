@@ -72,7 +72,7 @@ _ALLOWED: Final[dict[TaskState, frozenset[TaskState]]] = {
         {TaskState.OBSERVING, TaskState.CANCELLED}
     ),
     TaskState.BLOCKED: frozenset({TaskState.OBSERVING, TaskState.CANCELLED}),
-    TaskState.FAILED: frozenset({TaskState.RECEIVED, TaskState.BLOCKED}),
+    TaskState.FAILED: frozenset({TaskState.RECEIVED, TaskState.BLOCKED, TaskState.CANCELLED}),
     TaskState.SUCCEEDED: frozenset(),
     TaskState.CANCELLED: frozenset(),
 }
