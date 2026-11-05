@@ -383,6 +383,26 @@ async def get_task_result(
         {"tenant_admin", "platform_admin"}
     ):
         raise HTTPException(status_code=404, detail={"code": "task_not_found"})
+    workspace_value = task.metadata.get("workspace_id")
+    try:
+        workspace_id = UUID(workspace_value) if isinstance(workspace_value, str) else None
+    except ValueError:
+        workspace_id = None
+    if workspace_id is None:
+        raise HTTPException(status_code=404, detail={"code": "task_not_found"})
+    try:
+        workspace_bound = await runtime.store.workspace_is_bound(
+            tenant_id=principal.tenant_id,
+            workspace_id=workspace_id,
+            project_id=project_id,
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "workspace_registry_unavailable"},
+        ) from exc
+    if not workspace_bound:
+        raise HTTPException(status_code=404, detail={"code": "task_not_found"})
     if task.state is not TaskState.SUCCEEDED:
         raise HTTPException(
             status_code=409,
