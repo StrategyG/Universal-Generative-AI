@@ -378,7 +378,7 @@ async def get_task_result(
         ensure_project_access(principal, project_id)
     except HTTPException as exc:
         raise HTTPException(status_code=404, detail={"code": "task_not_found"}) from exc
-    if task.actor_id != principal.subject and not principal.roles.intersection(
+    if task.actor_id != principal.actor_id and not principal.roles.intersection(
         {"tenant_admin", "platform_admin"}
     ):
         raise HTTPException(status_code=404, detail={"code": "task_not_found"})
