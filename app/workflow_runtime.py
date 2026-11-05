@@ -123,7 +123,10 @@ async def _assert_restricted_runtime_role(pool: object) -> None:
                 ) AS worker_insert,
                 has_table_privilege(
                     current_user, 'ugai_workflow.workers', 'UPDATE'
-                ) AS worker_update
+                ) AS worker_update,
+                has_table_privilege(
+                    current_user, 'ugai_workflow.workspace_bindings', 'SELECT'
+                ) AS workspace_binding_select
             FROM pg_roles AS role
             CROSS JOIN pg_namespace AS namespace
             WHERE role.rolname = current_user
@@ -145,6 +148,7 @@ async def _assert_restricted_runtime_role(pool: object) -> None:
         "worker_select",
         "worker_insert",
         "worker_update",
+        "workspace_binding_select",
     )
     if (
         row is None
