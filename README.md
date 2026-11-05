@@ -207,3 +207,45 @@ Production startup now fails closed unless `DATABASE_URL` is a PostgreSQL URI wi
 `sslmode=verify-full` and verifies both the certificate chain and the server hostname. When using
 a private certificate authority, provide an approved `sslrootcert` path in the DSN. Do not replace
 this with `sslmode=require`, `verify-ca`, or `prefer`.
+
+
+## Durable Notebook task API (integration candidate)
+
+The UGAI task API exposes the following tenant/project-scoped routes for the
+AI Notebook Studio server API:
+
+- `POST /api/v1/tasks` — accept a task with an `Idempotency-Key`, encrypt the
+  complete request payload, persist it with the task row and initial event in
+  one PostgreSQL transaction, and return the canonical task state.
+- `GET /api/v1/tasks/{task_id}` — read a task projection within the verified
+  tenant and project scope.
+- `POST /api/v1/tasks/{task_id}/cancel` — idempotently cancel a queued or
+  approval/clarification/blocked task. A running execution is rejected until
+  its worker implements cooperative cancellation; an unknown external outcome
+  must be reconciled, not cancelled or retried blindly.
+
+The public task-state projection is versioned at `1.0.0`:
+`queued`, `running`, `awaiting_approval`, `awaiting_clarification`,
+`blocked`, `outcome_unknown`, `succeeded`, `failed`, `cancelled`.
+Internal workflow stages remain UGAI-owned and map to this external vocabulary.
+
+To enable the task API in an isolated environment:
+
+1. Apply `postgres/migrations/0003_ugai_workflow_runtime.sql`, then
+   `postgres/migrations/0004_ugai_task_api_contract.sql`, using a reviewed
+   migration identity.
+2. Create a separate application login, grant membership in
+   `ugai_workflow_runtime`, and verify it is not a superuser, does not have
+   `BYPASSRLS`, and does not own the workflow tables.
+3. Set `WORKFLOW_TASK_API_ENABLED=true`, `WORKFLOW_DATABASE_URL` with
+   `sslmode=verify-full`, `WORKFLOW_PAYLOAD_ENCRYPTION_KEY`, and
+   `WORKFLOW_PAYLOAD_KEY_ID` through the secret manager.
+4. Deploy the runtime image built with the `postgres` and `mcp` extras.
+5. Run the live staging identity, RLS, encrypted-payload, task restart,
+   idempotency and cancellation acceptance suite.
+
+The ordinary `DATABASE_URL` remains the connection for the existing queue;
+the task API uses its separate least-privilege `WORKFLOW_DATABASE_URL`.
+This is an integration candidate: live migration, key custody/rotation,
+worker-side payload resolution, Notebook-to-UGAI staging execution and
+production deployment are not claimed by this code change.
