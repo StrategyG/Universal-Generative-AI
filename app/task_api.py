@@ -10,7 +10,6 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from enum import StrEnum
-from hashlib import sha256
 from typing import Any
 from uuid import UUID
 
@@ -218,7 +217,7 @@ async def get_task_status(
     principal: Principal = Depends(get_current_principal),
     request_id: UUID = Header(default_factory=uuid.uuid4, alias="X-Request-ID"),
 ):
-    require_job_read_role(principal)
+    require_generation_role(principal)
     store, _cipher = _runtime(http_request)
     try:
         task = await store.get_task(task_id=task_id, tenant_id=principal.tenant_id)
