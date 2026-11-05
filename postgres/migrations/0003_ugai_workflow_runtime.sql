@@ -24,7 +24,7 @@ create table if not exists ugai_workflow.tasks (
     state text not null default 'received'
         check (state = any (array[
             'received','observing','planning','executing','verifying',
-            'awaiting_approval','awaiting_clarification','blocked',
+            'awaiting_approval','awaiting_clarification','blocked','outcome_unknown',
             'failed','succeeded','cancelled'
         ])),
     version bigint not null default 0 check (version >= 0),
