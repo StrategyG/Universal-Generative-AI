@@ -545,6 +545,29 @@ class PostgresWorkflowStore:
                 )
         return bool(healthy)
 
+    async def list_outcome_unknown(
+        self, *, tenant_id: str, limit: int = 50
+    ) -> list[WorkflowTask]:
+        """List quarantined tasks for a trusted outcome/result reconciler only."""
+        _validate_text("tenant_id", tenant_id, 128)
+        if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 100:
+            raise ValueError("outcome_unknown_limit_out_of_bounds")
+        async with self._pool.acquire() as connection:
+            async with connection.transaction():
+                await connection.fetchval(
+                    "SELECT set_config('app.ugai_tenant_id', $1, true)", tenant_id
+                )
+                rows = await connection.fetch(
+                    """
+                    SELECT * FROM ugai_workflow.tasks
+                    WHERE tenant_id = $1 AND state = 'outcome_unknown'
+                    ORDER BY updated_at ASC
+                    LIMIT $2
+                    """,
+                    tenant_id, limit,
+                )
+        return [WorkflowTask.from_record(row) for row in rows]
+
     async def claim_next(
         self,
         *,
