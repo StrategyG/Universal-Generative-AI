@@ -103,7 +103,7 @@ def test_production_rate_limit_configuration_requires_tls_and_metrics_token():
             environment="production",
             rate_limit_enabled=True,
             rate_limit_backend="redis",
-            rate_limit_redis_url="rediss://redis.example:6380/0",
+            rate_limit_redis_url="rediss://ugai:redis-secret@redis.example:6380/0",
             metrics_token="long-random-token",
         )
     )
@@ -113,6 +113,20 @@ def test_production_rate_limit_configuration_requires_tls_and_metrics_token():
                 environment="production",
                 rate_limit_enabled=True,
                 rate_limit_backend="redis",
+                rate_limit_redis_url="rediss://ugai:redis-secret@redis.example:6380/0",
+            )
+        )
+
+
+
+def test_production_rate_limit_requires_redis_acl_password():
+    with pytest.raises(RuntimeError, match="ACL password"):
+        validate_rate_limit_configuration(
+            Settings(
+                environment="production",
+                rate_limit_enabled=True,
+                rate_limit_backend="redis",
                 rate_limit_redis_url="rediss://redis.example:6380/0",
+                metrics_token="long-random-token",
             )
         )
