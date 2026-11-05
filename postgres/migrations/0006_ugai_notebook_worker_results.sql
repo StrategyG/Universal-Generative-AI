@@ -139,7 +139,18 @@ GRANT SELECT, UPDATE (
     decision_digest, plan_digest, error_code, updated_at
 ) ON ugai_workflow.tasks TO ugai_workflow_worker;
 GRANT SELECT, INSERT ON ugai_workflow.events TO ugai_workflow_worker;
-GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA ugai_workflow TO ugai_workflow_worker;
+DO $
+DECLARE event_sequence regclass;
+BEGIN
+    event_sequence := pg_get_serial_sequence('ugai_workflow.events', 'event_id');
+    IF event_sequence IS NOT NULL THEN
+        EXECUTE format(
+            'GRANT USAGE, SELECT ON SEQUENCE %s TO ugai_workflow_worker',
+            event_sequence
+        );
+    END IF;
+END
+$;
 GRANT SELECT ON ugai_workflow.task_payloads TO ugai_workflow_worker;
 
 CREATE POLICY ugai_workflow_tasks_worker
