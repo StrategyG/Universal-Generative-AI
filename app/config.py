@@ -53,6 +53,7 @@ class Settings(BaseSettings):
     workflow_database_url: str = ""
     workflow_payload_encryption_key: str = ""
     workflow_payload_key_id: str = "v1"
+    workflow_payload_previous_keys_json: str = "{}"
     model_registry_enforcement: bool = False
     auth_mode: str = "disabled"
     oidc_issuer: str = ""
@@ -108,6 +109,22 @@ def validate_workflow_task_configuration(config: Settings = settings) -> None:
         raise RuntimeError("WORKFLOW_PAYLOAD_ENCRYPTION_KEY is required when the task API is enabled")
     if not config.workflow_payload_key_id.strip() or len(config.workflow_payload_key_id) > 64:
         raise RuntimeError("WORKFLOW_PAYLOAD_KEY_ID is invalid")
+    try:
+        previous_keys = json.loads(config.workflow_payload_previous_keys_json or "{}")
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError("WORKFLOW_PAYLOAD_PREVIOUS_KEYS_JSON must be valid JSON") from exc
+    if not isinstance(previous_keys, dict):
+        raise RuntimeError("WORKFLOW_PAYLOAD_PREVIOUS_KEYS_JSON must be an object")
+    for previous_id, previous_key in previous_keys.items():
+        if (
+            not isinstance(previous_id, str)
+            or not previous_id.strip()
+            or len(previous_id) > 64
+            or previous_id == config.workflow_payload_key_id
+            or not isinstance(previous_key, str)
+            or not previous_key.strip()
+        ):
+            raise RuntimeError("WORKFLOW_PAYLOAD_PREVIOUS_KEYS_JSON contains an invalid key entry")
     try:
         parsed = urlsplit(database_url)
         query = parse_qs(parsed.query, keep_blank_values=True)
