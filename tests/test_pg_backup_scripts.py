@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import stat
 import subprocess
 from pathlib import Path
@@ -53,7 +52,7 @@ def test_service_file_reads_mounted_dsn_and_is_private(tmp_path):
     )
     assert written == output
     assert stat.S_IMODE(output.stat().st_mode) == 0o600
-    assert "pass" in output.read_text(encoding="utf-8")
+    assert 'password="pass"' in output.read_text(encoding="utf-8")
     assert str(dsn_file) not in output.read_text(encoding="utf-8")
 
 
