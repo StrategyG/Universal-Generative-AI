@@ -33,3 +33,37 @@ jobs:
       - run: pip install -e ".[dev,mcp,postgres,worker]"
       - run: ruff check app src tests
       - run: pytest -q
+      - name: Build and smoke-test production container
+        run: |
+          docker build --tag ugai-ci:${{ github.sha }} .
+          docker run --rm --entrypoint python ugai-ci:${{ github.sha }} -c "import os; assert os.getuid() != 0; import app.main; import ugai_workflow"
+      - name: Validate production Compose topology
+        run: |
+          secret_dir="$RUNNER_TEMP/ugai-compose-secrets"
+          mkdir -m 700 -p "$secret_dir"
+          printf '%s' 'postgresql://test:placeholder@db.example.invalid:5432/ugai?sslmode=verify-full' > "$secret_dir/database_url"
+          printf '%s' 'postgresql://workflow:placeholder@db.example.invalid:5432/ugai?sslmode=verify-full' > "$secret_dir/workflow_database_url"
+          printf '%s' 'ZmFrZS1rZXktZm9yLWNvbXBvc2UtdmFsaWRhdGlvbi1vbmx5' > "$secret_dir/workflow_payload_key"
+          printf '%s' '{}' > "$secret_dir/workflow_previous_keys"
+          printf '%s' 'placeholder-worker-admin-token' > "$secret_dir/worker_admin_token"
+          printf '%s' 'rediss://ugai:placeholder@redis.example.invalid:6380/0' > "$secret_dir/rate_limit_redis_url"
+          printf '%s' 'placeholder-metrics-token' > "$secret_dir/metrics_token"
+          chmod 600 "$secret_dir"/*
+          cat > "$RUNNER_TEMP/ugai-compose.env" <<EOF
+          API_IMAGE=example.invalid/ugai@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+          CADDY_IMAGE=example.invalid/caddy@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+          DOMAIN=ugai.example.invalid
+          ACME_EMAIL=ops@example.invalid
+          OIDC_ISSUER=https://id.example.invalid
+          OIDC_AUDIENCE=ugai-api
+          OIDC_JWKS_URL=https://id.example.invalid/.well-known/jwks.json
+          WORKFLOW_PAYLOAD_KEY_ID=v1
+          DATABASE_URL_SECRET_FILE=$secret_dir/database_url
+          WORKFLOW_DATABASE_URL_SECRET_FILE=$secret_dir/workflow_database_url
+          WORKFLOW_PAYLOAD_KEY_SECRET_FILE=$secret_dir/workflow_payload_key
+          WORKFLOW_PREVIOUS_KEYS_SECRET_FILE=$secret_dir/workflow_previous_keys
+          WORKER_ADMIN_TOKEN_SECRET_FILE=$secret_dir/worker_admin_token
+          RATE_LIMIT_REDIS_URL_SECRET_FILE=$secret_dir/rate_limit_redis_url
+          METRICS_TOKEN_SECRET_FILE=$secret_dir/metrics_token
+          EOF
+          docker compose --env-file "$RUNNER_TEMP/ugai-compose.env" -f compose.production.yaml config --quiet

@@ -4,7 +4,7 @@ import hmac
 import json
 
 from fastapi import Depends, FastAPI, Header, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 
 from app.auth import (
     Principal,
@@ -19,9 +19,16 @@ from app.ai_schemas import AICompletionRequest, AICompletionResponse
 from app.config import (
     settings,
     validate_database_configuration,
+    validate_rate_limit_configuration,
     validate_workflow_task_configuration,
 )
-from app.observability import RequestObservabilityMiddleware, configure_logging
+from app.observability import (
+    RequestObservabilityMiddleware,
+    SecurityHeadersMiddleware,
+    configure_logging,
+    render_prometheus_metrics,
+)
+from app.rate_limit import RateLimitMiddleware, RateLimiter
 from app.providers.router import TextModelRouter
 from app.reasoning.api import router as reasoning_router
 from app.task_api import router as task_router
@@ -86,11 +93,22 @@ from app.workers.schemas import (
 )
 
 
+rate_limiter = RateLimiter(
+    enabled=settings.rate_limit_enabled,
+    backend=settings.rate_limit_backend,
+    redis_url=settings.rate_limit_redis_url,
+    requests_per_window=settings.rate_limit_requests_per_minute,
+    window_seconds=settings.rate_limit_window_seconds,
+    environment=settings.environment,
+)
+
+
 @contextlib.asynccontextmanager
 async def lifespan(application: FastAPI) -> collections.abc.AsyncIterator[None]:
     validate_auth_configuration()
     validate_database_configuration()
     validate_workflow_task_configuration()
+    validate_rate_limit_configuration()
     workflow_pool = None
     application.state.workflow_task_store = None
     application.state.workflow_task_payload_cipher = None
@@ -143,15 +161,24 @@ async def lifespan(application: FastAPI) -> collections.abc.AsyncIterator[None]:
                 previous_keys=previous_payload_keys,
             )
 
+        await rate_limiter.start()
         await initialize_queue()
         yield
     finally:
         if workflow_pool is not None:
             await workflow_pool.close()
         await close_queue()
+        await rate_limiter.close()
 
 configure_logging()
 app = FastAPI(title=settings.app_name, version="0.5.0", lifespan=lifespan)
+# Middleware is added inside-out: observability sees rate-limit responses,
+# security headers wrap both normal and rejected responses.
+app.add_middleware(RateLimitMiddleware, limiter=rate_limiter)
+app.add_middleware(
+    SecurityHeadersMiddleware,
+    enable_hsts=settings.environment.strip().lower() in {"production", "prod"},
+)
 app.add_middleware(RequestObservabilityMiddleware)
 app.include_router(reasoning_router)
 app.include_router(task_router)
@@ -205,7 +232,39 @@ async def health():
         "worker_administration_enabled": bool(settings.worker_admin_token),
         "queue_backend": backend,
         "queue_persistent": backend == "postgresql",
+        "rate_limit_enabled": settings.rate_limit_enabled,
+        "rate_limit_backend": settings.rate_limit_backend if settings.rate_limit_enabled else None,
+        "rate_limit_ready": rate_limiter.ready,
     }
+
+
+@app.get("/readyz")
+async def readiness():
+    production = settings.environment.strip().lower() in {"production", "prod"}
+    checks = {
+        "authentication": settings.auth_mode.strip().lower() == "oidc" if production else True,
+        "database": queue_backend_name() == "postgresql" if production else True,
+        "rate_limit": await rate_limiter.health_check() if production and settings.rate_limit_enabled else True,
+    }
+    ready = all(checks.values())
+    return Response(
+        content=json.dumps({"status": "ready" if ready else "not_ready", "checks": checks}),
+        status_code=200 if ready else 503,
+        media_type="application/json",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@app.get("/metrics")
+async def metrics(x_metrics_token: str | None = Header(default=None)):
+    expected = settings.metrics_token
+    if not expected or x_metrics_token is None or not hmac.compare_digest(x_metrics_token, expected):
+        raise HTTPException(status_code=401, detail="Metrics credentials are required")
+    return Response(
+        content=render_prometheus_metrics(),
+        media_type="text/plain; version=0.0.4; charset=utf-8",
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @app.post(f"{settings.api_prefix}/generate", response_model=JobResponse)

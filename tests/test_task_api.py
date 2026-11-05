@@ -355,31 +355,38 @@ def test_task_result_is_decrypted_only_after_success_and_keeps_human_review_requ
 def test_task_result_does_not_cross_project_scope(runtime):
     store, cipher = runtime
     client = TestClient(app)
-    created = client.post(
-        "/api/v1/tasks",
-        headers={"Idempotency-Key": "notebook-task-0011"},
-        json=payload(),
-    )
-    task_id = __import__("uuid").UUID(created.json()["task_id"])
-    key = store.by_id[task_id]
-    task = store.tasks[key]
-    task.state = TaskState.SUCCEEDED
-    result = {
-        "task_id": str(task_id),
-        "project_id": "project-a",
-        "candidate_answer": "answer",
-        "independent_review": "review",
-        "verification_status": "needs_human_review",
-        "human_review_required": True,
-        "tool_execution_performed": False,
-    }
-    encrypted, digest = cipher.encrypt(result)
-    store.results[task_id] = (cipher.key_id, encrypted, digest)
-    app.dependency_overrides[get_current_principal] = lambda: Principal(
-        subject="user-a", tenant_id="tenant-a", roles=frozenset({"read_only"}),
-        project_ids=frozenset({"different-project"}), auth_mode="oidc",
+    # Create the task under tenant-a first; otherwise the tenant boundary
+    # correctly hides the local-development task with a 404 before project
+    # authorization is evaluated.
+    app.dependency_overrides[get_current_principal] = lambda: principal(
+        tenant="tenant-a", roles={"developer"}
     )
     try:
+        created = client.post(
+            "/api/v1/tasks",
+            headers={"Idempotency-Key": "notebook-task-0011"},
+            json=payload(),
+        )
+        assert created.status_code == 202, created.text
+        task_id = __import__("uuid").UUID(created.json()["task_id"])
+        key = store.by_id[task_id]
+        task = store.tasks[key]
+        task.state = TaskState.SUCCEEDED
+        result = {
+            "task_id": str(task_id),
+            "project_id": "project-a",
+            "candidate_answer": "answer",
+            "independent_review": "review",
+            "verification_status": "needs_human_review",
+            "human_review_required": True,
+            "tool_execution_performed": False,
+        }
+        encrypted, digest = cipher.encrypt(result)
+        store.results[task_id] = (cipher.key_id, encrypted, digest)
+        app.dependency_overrides[get_current_principal] = lambda: Principal(
+            subject="user-a", tenant_id="tenant-a", roles=frozenset({"read_only"}),
+            project_ids=frozenset({"different-project"}), auth_mode="oidc",
+        )
         response = client.get(f"/api/v1/tasks/{task_id}/result")
     finally:
         app.dependency_overrides.clear()
