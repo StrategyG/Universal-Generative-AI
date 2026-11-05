@@ -55,6 +55,14 @@ class Settings(BaseSettings):
     workflow_payload_encryption_key: str = ""
     workflow_payload_key_id: str = "v1"
     workflow_payload_previous_keys_json: str = "{}"
+    workflow_worker_enabled: bool = False
+    workflow_worker_database_url: str = ""
+    workflow_worker_tenant_id: str = ""
+    workflow_worker_id: str = ""
+    workflow_worker_poll_seconds: float = Field(default=2.0, ge=0.5, le=30.0)
+    workflow_worker_lease_seconds: int = Field(default=60, ge=10, le=900)
+    workflow_worker_heartbeat_seconds: int = Field(default=10, ge=1, le=300)
+    workflow_worker_health_window_seconds: int = Field(default=60, ge=5, le=900)
     model_registry_enforcement: bool = False
     auth_mode: str = "disabled"
     oidc_issuer: str = ""
@@ -137,3 +145,36 @@ def validate_workflow_task_configuration(config: Settings = settings) -> None:
         modes = query.get("sslmode", [])
         if len(modes) != 1 or modes[0].strip().lower() != "verify-full":
             raise RuntimeError("Production WORKFLOW_DATABASE_URL must use sslmode=verify-full")
+
+
+
+def validate_workflow_worker_configuration(config: Settings = settings) -> None:
+    """Fail closed for the separately credentialed Notebook reasoning worker."""
+    if not config.workflow_worker_enabled:
+        return
+    if not config.workflow_task_api_enabled:
+        raise RuntimeError("WORKFLOW_TASK_API_ENABLED=true is required for the worker")
+    if not config.workflow_worker_tenant_id.strip() or len(config.workflow_worker_tenant_id) > 128:
+        raise RuntimeError("WORKFLOW_WORKER_TENANT_ID is required and must be at most 128 characters")
+    if not config.workflow_worker_id.strip() or len(config.workflow_worker_id) > 128:
+        raise RuntimeError("WORKFLOW_WORKER_ID is required and must be at most 128 characters")
+    if config.workflow_worker_heartbeat_seconds * 2 >= config.workflow_worker_lease_seconds:
+        raise RuntimeError("WORKFLOW_WORKER_HEARTBEAT_SECONDS must be less than half the lease")
+
+    raw = config.workflow_worker_database_url.strip()
+    if not raw:
+        raise RuntimeError("WORKFLOW_WORKER_DATABASE_URL is required when the worker is enabled")
+    try:
+        parsed = urlsplit(raw)
+        api_parsed = urlsplit(config.workflow_database_url.strip())
+        query = parse_qs(parsed.query, keep_blank_values=True)
+    except ValueError as exc:
+        raise RuntimeError("WORKFLOW_WORKER_DATABASE_URL is invalid") from exc
+    if parsed.scheme not in {"postgres", "postgresql"} or not parsed.hostname:
+        raise RuntimeError("WORKFLOW_WORKER_DATABASE_URL must be a PostgreSQL URL")
+    if parsed.username == api_parsed.username:
+        raise RuntimeError("Worker and API database logins must be distinct")
+    if config.environment.strip().lower() in {"production", "prod"}:
+        modes = query.get("sslmode", [])
+        if len(modes) != 1 or modes[0].strip().lower() != "verify-full":
+            raise RuntimeError("Production WORKFLOW_WORKER_DATABASE_URL must use sslmode=verify-full")
