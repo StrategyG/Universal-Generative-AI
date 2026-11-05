@@ -16,7 +16,11 @@ from app.auth import (
 )
 
 from app.ai_schemas import AICompletionRequest, AICompletionResponse
-from app.config import settings, validate_database_configuration
+from app.config import (
+    settings,
+    validate_database_configuration,
+    validate_workflow_task_configuration,
+)
 from app.observability import RequestObservabilityMiddleware, configure_logging
 from app.providers.router import TextModelRouter
 from app.reasoning.api import router as reasoning_router
