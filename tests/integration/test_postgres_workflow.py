@@ -365,6 +365,16 @@ async def test_expired_execution_lease_is_quarantined_not_replayed(workflow_data
     await advance(TaskState.OBSERVING, "quarantine-1")
     await advance(TaskState.PLANNING, "quarantine-2")
     await advance(TaskState.EXECUTING, "quarantine-3")
+    # The transition into EXECUTING releases the planning lease. Claim once
+    # more so the test expires a genuine in-flight execution lease.
+    executing = await store.claim_next(
+        tenant_id=tenant,
+        worker_id="quarantine-execution-worker",
+        supported_task_types=("integration_work",),
+        lease_seconds=30,
+    )
+    assert executing is not None
+    assert executing.state is TaskState.EXECUTING
     await admin.execute(
         """
         UPDATE ugai_workflow.tasks
