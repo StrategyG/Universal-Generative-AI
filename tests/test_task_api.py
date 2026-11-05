@@ -268,3 +268,25 @@ def test_read_only_member_can_read_but_cannot_cancel_task(runtime):
         app.dependency_overrides.clear()
     assert read.status_code == 200
     assert cancel.status_code == 403
+
+
+def test_unknown_external_outcome_is_visible_and_cannot_be_cancelled(runtime):
+    store, _cipher = runtime
+    client = TestClient(app)
+    created = client.post(
+        "/api/v1/tasks",
+        headers={"Idempotency-Key": "notebook-task-0008"},
+        json=payload(),
+    )
+    task_id = __import__("uuid").UUID(created.json()["task_id"])
+    task = store.tasks[("local-development", "notebook-task-0008")]
+    task.state = TaskState.OUTCOME_UNKNOWN
+    task.error_code = "outcome_unknown"
+
+    status_response = client.get(f"/api/v1/tasks/{task_id}")
+    cancel_response = client.post(f"/api/v1/tasks/{task_id}/cancel")
+
+    assert status_response.status_code == 200
+    assert status_response.json()["state"] == "outcome_unknown"
+    assert cancel_response.status_code == 409
+    assert cancel_response.json()["detail"]["code"] == "task_outcome_requires_reconciliation"

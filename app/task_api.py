@@ -56,6 +56,7 @@ _INTERNAL_TO_PUBLIC = {
     TaskState.AWAITING_APPROVAL: PublicTaskState.AWAITING_APPROVAL,
     TaskState.AWAITING_CLARIFICATION: PublicTaskState.AWAITING_CLARIFICATION,
     TaskState.BLOCKED: PublicTaskState.BLOCKED,
+    TaskState.OUTCOME_UNKNOWN: PublicTaskState.OUTCOME_UNKNOWN,
     TaskState.SUCCEEDED: PublicTaskState.SUCCEEDED,
     TaskState.FAILED: PublicTaskState.FAILED,
     TaskState.CANCELLED: PublicTaskState.CANCELLED,
@@ -121,8 +122,6 @@ def _runtime(request: Request) -> tuple[PostgresWorkflowStore, TaskPayloadCipher
 
 
 def _public_state(task: Any) -> PublicTaskState:
-    if task.state is TaskState.BLOCKED and task.error_code == "outcome_unknown":
-        return PublicTaskState.OUTCOME_UNKNOWN
     return _INTERNAL_TO_PUBLIC[TaskState(task.state)]
 
 
@@ -251,7 +250,7 @@ async def cancel_task(
         return _status(task, request_id)
     if task.state in {TaskState.SUCCEEDED}:
         raise HTTPException(status_code=409, detail={"code": "task_already_terminal"})
-    if task.state is TaskState.BLOCKED and task.error_code == "outcome_unknown":
+    if task.state is TaskState.OUTCOME_UNKNOWN:
         raise HTTPException(status_code=409, detail={"code": "task_outcome_requires_reconciliation"})
     if task.state not in _CANCELABLE_STATES:
         raise HTTPException(

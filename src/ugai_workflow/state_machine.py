@@ -15,6 +15,7 @@ class TaskState(StrEnum):
     OBSERVING = "observing"
     PLANNING = "planning"
     EXECUTING = "executing"
+    OUTCOME_UNKNOWN = "outcome_unknown"
     VERIFYING = "verifying"
     AWAITING_APPROVAL = "awaiting_approval"
     AWAITING_CLARIFICATION = "awaiting_clarification"
@@ -60,8 +61,11 @@ _ALLOWED: Final[dict[TaskState, frozenset[TaskState]]] = {
         }
     ),
     TaskState.EXECUTING: frozenset(
-        {TaskState.VERIFYING, TaskState.AWAITING_APPROVAL, TaskState.BLOCKED, TaskState.FAILED}
+        {TaskState.VERIFYING, TaskState.OUTCOME_UNKNOWN, TaskState.AWAITING_APPROVAL, TaskState.BLOCKED, TaskState.FAILED}
     ),
+    # The only exit from an uncertain external outcome is evidence-backed
+    # reconciliation. It is intentionally not a claimable/retryable state.
+    TaskState.OUTCOME_UNKNOWN: frozenset({TaskState.VERIFYING}),
     TaskState.VERIFYING: frozenset(
         {TaskState.SUCCEEDED, TaskState.FAILED, TaskState.BLOCKED}
     ),
@@ -92,6 +96,7 @@ def validate_transition(
     approval_verified: bool = False,
     clarification_received: bool = False,
     operator_override: bool = False,
+    reconciliation_verified: bool = False,
 ) -> tuple[TaskState, TaskState]:
     """Validate one transition without changing state or performing side effects."""
     try:
@@ -102,6 +107,13 @@ def validate_transition(
 
     if destination not in _ALLOWED[source]:
         raise TransitionDenied(f"transition_not_allowed:{source.value}->{destination.value}")
+    if not isinstance(reconciliation_verified, bool):
+        raise TransitionDenied("reconciliation_flag_invalid")
+    if source is TaskState.OUTCOME_UNKNOWN and destination is TaskState.VERIFYING:
+        if reconciliation_verified is not True:
+            raise TransitionDenied("reconciliation_evidence_required")
+    elif reconciliation_verified:
+        raise TransitionDenied("reconciliation_flag_not_applicable")
 
     if not isinstance(retry_count, int) or retry_count < 0:
         raise TransitionDenied("retry_count_invalid")

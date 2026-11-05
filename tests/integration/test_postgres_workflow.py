@@ -58,6 +58,7 @@ async def workflow_database():
             for migration_name in (
                 "0003_ugai_workflow_runtime.sql",
                 "0004_ugai_task_api_contract.sql",
+                "0005_ugai_workflow_outcome_unknown.sql",
             ):
                 await admin.execute(
                     (migrations / migration_name).read_text(encoding="utf-8")
@@ -332,3 +333,115 @@ async def test_decision_approval_reference_and_digests_are_durable(workflow_data
     assert persisted.approval_reference == approval_reference
     assert persisted.decision_digest == decision_digest
     assert persisted.plan_digest == plan_digest
+
+
+@pytest.mark.asyncio
+async def test_expired_execution_lease_is_quarantined_not_replayed(workflow_database) -> None:
+    pool, admin = workflow_database
+    store = PostgresWorkflowStore(pool)
+    tenant = f"tenant-{uuid4()}"
+    task = await store.create_task(
+        **new_task_args(tenant_id=tenant, suffix=str(uuid4()))
+    )
+
+    async def advance(target: TaskState, worker_id: str) -> None:
+        claimed = await store.claim_next(
+            tenant_id=tenant,
+            worker_id=worker_id,
+            supported_task_types=("integration_work",),
+            lease_seconds=30,
+        )
+        assert claimed is not None
+        await store.transition(
+            task_id=task.task_id,
+            tenant_id=tenant,
+            expected_version=claimed.version,
+            target=target,
+            actor_id=claimed.actor_id,
+            reason_code=f"advance_{target.value}",
+            lease=LeaseIdentity(worker_id, claimed.lease_token),
+        )
+
+    await advance(TaskState.OBSERVING, "quarantine-1")
+    await advance(TaskState.PLANNING, "quarantine-2")
+    await advance(TaskState.EXECUTING, "quarantine-3")
+    # The transition into EXECUTING releases the planning lease. Claim once
+    # more so the test expires a genuine in-flight execution lease.
+    executing = await store.claim_next(
+        tenant_id=tenant,
+        worker_id="quarantine-execution-worker",
+        supported_task_types=("integration_work",),
+        lease_seconds=30,
+    )
+    assert executing is not None
+    assert executing.state is TaskState.EXECUTING
+    await admin.execute(
+        """
+        UPDATE ugai_workflow.tasks
+        SET lease_expires_at = clock_timestamp() - interval '1 second'
+        WHERE task_id = $1
+        """,
+        task.task_id,
+    )
+
+    replay = await store.claim_next(
+        tenant_id=tenant,
+        worker_id="quarantine-replay-attempt",
+        supported_task_types=("integration_work",),
+        lease_seconds=30,
+    )
+    quarantined = await store.get_task(task_id=task.task_id, tenant_id=tenant)
+    assert replay is None
+    assert quarantined.state is TaskState.OUTCOME_UNKNOWN
+    assert quarantined.retryable is False
+
+    events = await admin.fetch(
+        """
+        SELECT event_type, from_state, to_state
+        FROM ugai_workflow.events
+        WHERE task_id = $1
+        ORDER BY event_id
+        """,
+        task.task_id,
+    )
+    assert any(
+        event["event_type"] == "execution_lease_expired"
+        and event["from_state"] == "executing"
+        and event["to_state"] == "outcome_unknown"
+        for event in events
+    )
+
+    with pytest.raises(PermissionError, match="reconciliation_evidence_required"):
+        await store.transition(
+            task_id=task.task_id,
+            tenant_id=tenant,
+            expected_version=quarantined.version,
+            target=TaskState.VERIFYING,
+            actor_id="system:result-reconciler",
+            reason_code="result_reconciliation",
+            require_lease=False,
+        )
+    with pytest.raises(Exception):
+        await store.transition(
+            task_id=task.task_id,
+            tenant_id=tenant,
+            expected_version=quarantined.version,
+            target=TaskState.OBSERVING,
+            actor_id="operator-1",
+            reason_code="operator_override",
+            require_lease=False,
+            operator_override=True,
+        )
+
+    reconciled = await store.transition(
+        task_id=task.task_id,
+        tenant_id=tenant,
+        expected_version=quarantined.version,
+        target=TaskState.VERIFYING,
+        actor_id="system:result-reconciler",
+        reason_code="result_reconciled",
+        require_lease=False,
+        reconciliation_verified=True,
+        metadata={"evidence_digest": "e" * 64},
+    )
+    assert reconciled.state is TaskState.VERIFYING
