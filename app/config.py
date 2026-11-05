@@ -222,6 +222,10 @@ def validate_rate_limit_configuration(config: Settings = settings) -> None:
         parsed = urlsplit(config.rate_limit_redis_url.strip())
         if parsed.scheme != "rediss" or not parsed.hostname:
             raise RuntimeError("Production RATE_LIMIT_REDIS_URL must use rediss://")
+        if not parsed.password:
+            raise RuntimeError("Production RATE_LIMIT_REDIS_URL must include an ACL password")
+        if config.rate_limit_window_seconds != 60:
+            raise RuntimeError("Production RATE_LIMIT_WINDOW_SECONDS must remain 60 for per-minute limits")
         if not config.metrics_token.strip():
             raise RuntimeError("METRICS_TOKEN is required in production")
 
