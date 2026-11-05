@@ -167,13 +167,11 @@ def test_idempotent_replay_returns_same_task_and_changed_payload_conflicts(runti
     client = TestClient(app)
     headers = {"Idempotency-Key": "notebook-task-0002"}
 
-    first = client.post("/api/v1/tasks", headers=headers, json=payload())
-    replay = client.post("/api/v1/tasks", headers=headers, json=payload())
-    changed = client.post(
-        "/api/v1/tasks",
-        headers=headers,
-        json=payload(intent="A different request must not reuse the old task"),
-    )
+    request_body = payload()
+    first = client.post("/api/v1/tasks", headers=headers, json=request_body)
+    replay = client.post("/api/v1/tasks", headers=headers, json=request_body)
+    changed_body = {**request_body, "intent": "A different request must not reuse the old task"}
+    changed = client.post("/api/v1/tasks", headers=headers, json=changed_body)
 
     assert first.status_code == 202
     assert replay.status_code == 202
@@ -262,7 +260,7 @@ def test_read_only_member_can_read_but_cannot_cancel_task(runtime):
         json=payload(),
     )
     task_id = created.json()["task_id"]
-    app.dependency_overrides[get_current_principal] = lambda: principal(roles={"read_only"})
+    app.dependency_overrides[get_current_principal] = lambda: principal(tenant="local-development", roles={"read_only"})
     try:
         read = client.get(f"/api/v1/tasks/{task_id}")
         cancel = client.post(f"/api/v1/tasks/{task_id}/cancel")
