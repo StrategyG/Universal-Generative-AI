@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import hashlib
+import json
 from types import SimpleNamespace
 from uuid import UUID, uuid4
 
@@ -11,6 +13,15 @@ from app.auth import Principal, get_current_principal
 from app.workflow_tasks import _runtime, router
 from ugai_workflow.input_vault import StoredWorkflowInput
 from ugai_workflow.state_machine import TaskState
+
+
+_TEST_ACTOR_ID = "principal:" + hashlib.sha256(
+    json.dumps(
+        ["https://identity.example/", "actor-1"],
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+).hexdigest()
 
 
 class FakeInputVault:
@@ -32,7 +43,7 @@ class FakeInputVault:
         return record
 
     async def get_metadata(self, *, input_ref: UUID, tenant_id: str, actor_id: str):
-        if actor_id != "actor-1" or input_ref not in self.items:
+        if actor_id != _TEST_ACTOR_ID or input_ref not in self.items:
             from ugai_workflow.input_vault import WorkflowInputNotFound
             raise WorkflowInputNotFound("workflow_input_not_found")
         return self.items[input_ref]
@@ -62,6 +73,12 @@ class FakeWorkflowStore:
 
     async def get_task(self, *, task_id: UUID, tenant_id: str):
         return self.tasks[task_id]
+
+    async def workspace_is_bound(self, **kwargs):
+        return True
+
+    async def has_active_worker(self, **kwargs):
+        return True
 
     async def transition(self, *, task_id: UUID, target: TaskState, **kwargs):
         task = self.tasks[task_id]
@@ -260,6 +277,63 @@ def test_task_submission_requires_fresh_registered_worker() -> None:
 
 async def _async_false():
     return False
+
+
+def test_task_input_rejected_when_workspace_is_not_bound_to_project() -> None:
+    runtime = FakeWorkflowRuntime()
+    async def unbound_workspace(**kwargs):
+        return False
+    runtime.store.workspace_is_bound = unbound_workspace
+
+    with _client(runtime) as client:
+        response = client.post(
+            "/api/v1/task-inputs",
+            headers={"Idempotency-Key": "input-workspace-unbound-01"},
+            json={
+                "project_id": "project-1",
+                "workspace_id": str(uuid4()),
+                "intent": "must be rejected",
+            },
+        )
+
+    assert response.status_code == 403
+    assert response.json()["detail"]["code"] == "workspace_project_binding_required"
+
+
+def test_verified_task_result_is_returned_only_after_success() -> None:
+    runtime = FakeWorkflowRuntime()
+    with _client(runtime) as client:
+        input_response = client.post(
+            "/api/v1/task-inputs",
+            headers={"Idempotency-Key": "input-result-check-01"},
+            json={
+                "project_id": "project-1",
+                "workspace_id": str(uuid4()),
+                "intent": "human-reviewed candidate",
+            },
+        )
+        body = input_response.json()
+        submission = client.post(
+            "/api/v1/tasks",
+            headers={
+                "X-Request-ID": str(uuid4()),
+                "Idempotency-Key": "notebook-result-check-01",
+            },
+            json={
+                "project_id": "project-1",
+                "input_ref": body["input_ref"],
+                "input_digest": body["input_digest"],
+                "task_type": "notebook_request",
+            },
+        )
+        task_id = UUID(submission.json()["task_id"])
+        not_ready = client.get(f"/api/v1/tasks/{task_id}/result")
+        runtime.store.tasks[task_id].state = TaskState.SUCCEEDED
+        ready = client.get(f"/api/v1/tasks/{task_id}/result")
+
+    assert not_ready.status_code == 409
+    assert ready.status_code == 200
+    assert ready.json()["result"]["human_review_required"] is True
 
 
 def test_task_api_is_fail_closed_when_acceptance_is_disabled() -> None:
