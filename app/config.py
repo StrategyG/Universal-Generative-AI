@@ -1,8 +1,55 @@
 import json
+import os
+from collections.abc import MutableMapping
+from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+_SECRET_ENV_NAMES = (
+    "TEXT_GENERATION_API_KEY",
+    "TEXT_GENERATION_FALLBACK_API_KEY",
+    "ANTHROPIC_API_KEY",
+    "GEMINI_API_KEY",
+    "WORKER_ADMIN_TOKEN",
+    "EXTERNAL_WORKER_TOKEN",
+    "DATABASE_URL",
+    "WORKFLOW_DATABASE_URL",
+    "WORKFLOW_WORKER_DATABASE_URL",
+    "WORKFLOW_PAYLOAD_ENCRYPTION_KEY",
+    "WORKFLOW_PAYLOAD_PREVIOUS_KEYS_JSON",
+    "RATE_LIMIT_REDIS_URL",
+    "METRICS_TOKEN",
+)
+
+
+def apply_secret_file_environment(
+    environ: MutableMapping[str, str] | None = None,
+) -> None:
+    """Load supported NAME_FILE mounts without exposing secret contents in logs.
+
+    Direct environment values and *_FILE are mutually exclusive to avoid
+    silently selecting one secret source over another.
+    """
+    source = os.environ if environ is None else environ
+    for name in _SECRET_ENV_NAMES:
+        file_value = source.get(f"{name}_FILE", "").strip()
+        if not file_value:
+            continue
+        if source.get(name, "").strip():
+            raise RuntimeError(f"{name} and {name}_FILE cannot both be configured")
+        try:
+            value = Path(file_value).read_text(encoding="utf-8").rstrip("\\r\\n")
+        except (OSError, UnicodeError) as exc:
+            raise RuntimeError(f"{name}_FILE could not be read") from exc
+        if not value:
+            raise RuntimeError(f"{name}_FILE is empty")
+        source[name] = value
+
+
+apply_secret_file_environment()
 
 
 class Settings(BaseSettings):
@@ -64,6 +111,12 @@ class Settings(BaseSettings):
     workflow_worker_heartbeat_seconds: int = Field(default=10, ge=1, le=300)
     workflow_worker_health_window_seconds: int = Field(default=60, ge=5, le=900)
     model_registry_enforcement: bool = False
+    rate_limit_enabled: bool = False
+    rate_limit_backend: str = "memory"
+    rate_limit_redis_url: str = ""
+    rate_limit_requests_per_minute: int = Field(default=120, ge=1, le=100_000)
+    rate_limit_window_seconds: int = Field(default=60, ge=1, le=3_600)
+    metrics_token: str = ""
     auth_mode: str = "disabled"
     oidc_issuer: str = ""
     oidc_audience: str = ""
@@ -146,6 +199,31 @@ def validate_workflow_task_configuration(config: Settings = settings) -> None:
         if len(modes) != 1 or modes[0].strip().lower() != "verify-full":
             raise RuntimeError("Production WORKFLOW_DATABASE_URL must use sslmode=verify-full")
 
+
+
+def validate_rate_limit_configuration(config: Settings = settings) -> None:
+    """Require a shared TLS-protected limiter and scrape credential in production."""
+    environment = config.environment.strip().lower()
+    backend = config.rate_limit_backend.strip().lower()
+    if backend not in {"memory", "redis"}:
+        raise RuntimeError("RATE_LIMIT_BACKEND must be 'memory' or 'redis'")
+    if config.rate_limit_enabled and backend == "redis":
+        try:
+            parsed = urlsplit(config.rate_limit_redis_url.strip())
+        except ValueError as exc:
+            raise RuntimeError("RATE_LIMIT_REDIS_URL is invalid") from exc
+        if parsed.scheme not in {"redis", "rediss"} or not parsed.hostname:
+            raise RuntimeError("RATE_LIMIT_REDIS_URL must be a Redis URL")
+    if environment in {"production", "prod"}:
+        if not config.rate_limit_enabled:
+            raise RuntimeError("RATE_LIMIT_ENABLED=true is required in production")
+        if backend != "redis":
+            raise RuntimeError("RATE_LIMIT_BACKEND=redis is required in production")
+        parsed = urlsplit(config.rate_limit_redis_url.strip())
+        if parsed.scheme != "rediss" or not parsed.hostname:
+            raise RuntimeError("Production RATE_LIMIT_REDIS_URL must use rediss://")
+        if not config.metrics_token.strip():
+            raise RuntimeError("METRICS_TOKEN is required in production")
 
 
 def validate_workflow_worker_configuration(config: Settings = settings) -> None:
