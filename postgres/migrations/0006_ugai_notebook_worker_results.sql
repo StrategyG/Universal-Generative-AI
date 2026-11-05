@@ -139,7 +139,7 @@ GRANT SELECT, UPDATE (
     decision_digest, plan_digest, error_code, updated_at
 ) ON ugai_workflow.tasks TO ugai_workflow_worker;
 GRANT SELECT, INSERT ON ugai_workflow.events TO ugai_workflow_worker;
-DO $
+DO $$
 DECLARE event_sequence regclass;
 BEGIN
     event_sequence := pg_get_serial_sequence('ugai_workflow.events', 'event_id');
