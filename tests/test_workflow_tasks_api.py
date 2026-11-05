@@ -46,6 +46,8 @@ class FakeWorkflowStore:
         task_id = uuid4()
         task = SimpleNamespace(
             task_id=task_id,
+            tenant_id=kwargs["tenant_id"],
+            actor_id=kwargs["actor_id"],
             state=TaskState.RECEIVED,
             version=1,
             metadata=dict(kwargs["metadata"]),
@@ -137,6 +139,77 @@ def test_task_input_and_lifecycle_api_never_returns_raw_input() -> None:
         cancel_response = client.post(f"/api/v1/tasks/{task_id}/cancel")
         assert cancel_response.status_code == 200
         assert cancel_response.json()["state"] == "CANCELLED"
+
+
+def test_unknown_outcome_is_projected_without_server_error() -> None:
+    runtime = FakeWorkflowRuntime()
+    with _client(runtime) as client:
+        response = client.post(
+            "/api/v1/task-inputs",
+            headers={"Idempotency-Key": "input-unknown-state-01"},
+            json={
+                "project_id": "project-1",
+                "workspace_id": str(uuid4()),
+                "intent": "uncertain external operation",
+            },
+        )
+        assert response.status_code == 201
+        body = response.json()
+        submitted = client.post(
+            "/api/v1/tasks",
+            headers={
+                "X-Request-ID": str(uuid4()),
+                "Idempotency-Key": "notebook-unknown-state-01",
+            },
+            json={
+                "project_id": "project-1",
+                "input_ref": body["input_ref"],
+                "input_digest": body["input_digest"],
+                "task_type": "notebook_request",
+            },
+        )
+        task_id = UUID(submitted.json()["task_id"])
+        runtime.store.tasks[task_id].state = TaskState.OUTCOME_UNKNOWN
+
+        status_response = client.get(f"/api/v1/tasks/{task_id}")
+
+    assert status_response.status_code == 200
+    assert status_response.json()["state"] == "OUTCOME_UNKNOWN"
+
+
+def test_non_owner_cannot_cancel_another_users_task() -> None:
+    runtime = FakeWorkflowRuntime()
+    with _client(runtime) as client:
+        input_response = client.post(
+            "/api/v1/task-inputs",
+            headers={"Idempotency-Key": "input-owner-check-01"},
+            json={
+                "project_id": "project-1",
+                "workspace_id": str(uuid4()),
+                "intent": "task owned by another user",
+            },
+        )
+        input_body = input_response.json()
+        submission = client.post(
+            "/api/v1/tasks",
+            headers={
+                "X-Request-ID": str(uuid4()),
+                "Idempotency-Key": "notebook-owner-check-01",
+            },
+            json={
+                "project_id": "project-1",
+                "input_ref": input_body["input_ref"],
+                "input_digest": input_body["input_digest"],
+                "task_type": "notebook_request",
+            },
+        )
+        task_id = UUID(submission.json()["task_id"])
+        runtime.store.tasks[task_id].actor_id = "different-owner"
+
+        response = client.post(f"/api/v1/tasks/{task_id}/cancel")
+
+    assert response.status_code == 404
+    assert runtime.store.tasks[task_id].state is TaskState.RECEIVED
 
 
 def test_task_api_is_fail_closed_when_acceptance_is_disabled() -> None:
