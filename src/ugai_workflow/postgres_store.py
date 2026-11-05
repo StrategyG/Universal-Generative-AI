@@ -53,6 +53,10 @@ class StaleWorkflowVersion(WorkflowStoreError):
     """The caller attempted to transition an outdated task snapshot."""
 
 
+class TaskResultConflict(WorkflowStoreError):
+    """A task already has a different immutable result."""
+
+
 class LeaseLost(WorkflowStoreError):
     """The worker no longer owns a live lease for the task."""
 
@@ -367,6 +371,179 @@ class PostgresWorkflowStore:
         if row is None:
             return None
         return row["key_id"], bytes(row["ciphertext"]), row["payload_sha256"]
+
+    async def put_encrypted_result(
+        self,
+        *,
+        tenant_id: str,
+        actor_id: str,
+        project_id: str,
+        task_id: UUID,
+        key_id: str,
+        ciphertext: bytes,
+        payload_sha256: str,
+    ) -> str:
+        """Persist an immutable encrypted task result in the exact task scope."""
+        _validate_text("tenant_id", tenant_id, 128)
+        _validate_text("actor_id", actor_id, 255)
+        _validate_text("project_id", project_id, 128)
+        _validate_text("result_key_id", key_id, 64)
+        if not isinstance(task_id, UUID):
+            raise ValueError("task_id_invalid")
+        if not isinstance(ciphertext, bytes) or not 1 <= len(ciphertext) <= 256 * 1024:
+            raise ValueError("result_ciphertext_size_invalid")
+        if not _SHA256.fullmatch(payload_sha256 or ""):
+            raise ValueError("result_payload_sha256_invalid")
+
+        async with self._pool.acquire() as connection:
+            async with connection.transaction():
+                await connection.fetchval(
+                    "SELECT set_config('app.ugai_tenant_id', $1, true)", tenant_id
+                )
+                row = await connection.fetchrow(
+                    """
+                    INSERT INTO ugai_workflow.task_results (
+                        task_id, tenant_id, actor_id, project_id,
+                        key_id, ciphertext, payload_sha256
+                    )
+                    VALUES ($1,$2,$3,$4,$5,$6,$7)
+                    ON CONFLICT (tenant_id, task_id) DO NOTHING
+                    RETURNING payload_sha256
+                    """,
+                    task_id, tenant_id, actor_id, project_id,
+                    key_id, ciphertext, payload_sha256,
+                )
+                if row is not None:
+                    return row["payload_sha256"]
+                existing = await connection.fetchrow(
+                    """
+                    SELECT actor_id, project_id, payload_sha256
+                    FROM ugai_workflow.task_results
+                    WHERE tenant_id = $1 AND task_id = $2
+                    """,
+                    tenant_id, task_id,
+                )
+                if (
+                    existing is None
+                    or existing["actor_id"] != actor_id
+                    or existing["project_id"] != project_id
+                    or existing["payload_sha256"] != payload_sha256
+                ):
+                    raise TaskResultConflict("immutable_task_result_conflict")
+                return existing["payload_sha256"]
+
+    async def get_encrypted_result(
+        self, *, tenant_id: str, task_id: UUID
+    ) -> tuple[str, bytes, str] | None:
+        """Read one encrypted task result within the tenant database context."""
+        _validate_text("tenant_id", tenant_id, 128)
+        if not isinstance(task_id, UUID):
+            raise ValueError("task_id_invalid")
+        async with self._pool.acquire() as connection:
+            async with connection.transaction():
+                await connection.fetchval(
+                    "SELECT set_config('app.ugai_tenant_id', $1, true)", tenant_id
+                )
+                row = await connection.fetchrow(
+                    """
+                    SELECT key_id, ciphertext, payload_sha256
+                    FROM ugai_workflow.task_results
+                    WHERE task_id = $1 AND tenant_id = $2
+                    """,
+                    task_id, tenant_id,
+                )
+        if row is None:
+            return None
+        return row["key_id"], bytes(row["ciphertext"]), row["payload_sha256"]
+
+    async def heartbeat_worker(
+        self,
+        *,
+        tenant_id: str,
+        worker_id: str,
+        task_types: Sequence[str],
+    ) -> None:
+        """Register or refresh a worker using the worker-only database role."""
+        _validate_text("tenant_id", tenant_id, 128)
+        _validate_text("worker_id", worker_id, 128)
+        if not task_types or any(
+            not isinstance(item, str) or not item.strip() or len(item) > 128
+            for item in task_types
+        ):
+            raise ValueError("worker_task_types_required")
+        normalized = sorted(set(task_types))
+        if len(normalized) != len(task_types):
+            raise ValueError("worker_task_types_must_be_unique")
+        async with self._pool.acquire() as connection:
+            async with connection.transaction():
+                await connection.fetchval(
+                    "SELECT set_config('app.ugai_tenant_id', $1, true)", tenant_id
+                )
+                await connection.execute(
+                    """
+                    INSERT INTO ugai_workflow.workers (
+                        tenant_id, worker_id, task_types, active, last_heartbeat_at
+                    )
+                    VALUES ($1,$2,$3,true,clock_timestamp())
+                    ON CONFLICT (tenant_id, worker_id) DO UPDATE
+                    SET task_types = EXCLUDED.task_types,
+                        active = true,
+                        last_heartbeat_at = clock_timestamp(),
+                        updated_at = clock_timestamp()
+                    """,
+                    tenant_id, worker_id, normalized,
+                )
+
+    async def deregister_worker(self, *, tenant_id: str, worker_id: str) -> None:
+        """Mark a worker inactive on graceful shutdown."""
+        _validate_text("tenant_id", tenant_id, 128)
+        _validate_text("worker_id", worker_id, 128)
+        async with self._pool.acquire() as connection:
+            async with connection.transaction():
+                await connection.fetchval(
+                    "SELECT set_config('app.ugai_tenant_id', $1, true)", tenant_id
+                )
+                await connection.execute(
+                    """
+                    UPDATE ugai_workflow.workers
+                    SET active = false, updated_at = clock_timestamp()
+                    WHERE tenant_id = $1 AND worker_id = $2
+                    """,
+                    tenant_id, worker_id,
+                )
+
+    async def has_healthy_worker(
+        self, *, tenant_id: str, task_type: str, max_age_seconds: int = 60
+    ) -> bool:
+        """Check an independently authenticated worker heartbeat for one tenant/type."""
+        _validate_text("tenant_id", tenant_id, 128)
+        _validate_text("task_type", task_type, 128)
+        if (
+            not isinstance(max_age_seconds, int)
+            or isinstance(max_age_seconds, bool)
+            or not 5 <= max_age_seconds <= 900
+        ):
+            raise ValueError("worker_health_window_out_of_bounds")
+        async with self._pool.acquire() as connection:
+            async with connection.transaction():
+                await connection.fetchval(
+                    "SELECT set_config('app.ugai_tenant_id', $1, true)", tenant_id
+                )
+                healthy = await connection.fetchval(
+                    """
+                    SELECT EXISTS (
+                        SELECT 1
+                        FROM ugai_workflow.workers
+                        WHERE tenant_id = $1
+                          AND active = true
+                          AND task_types @> ARRAY[$2]::text[]
+                          AND last_heartbeat_at > clock_timestamp()
+                              - make_interval(secs => $3)
+                    )
+                    """,
+                    tenant_id, task_type, max_age_seconds,
+                )
+        return bool(healthy)
 
     async def claim_next(
         self,
