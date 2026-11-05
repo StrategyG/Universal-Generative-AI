@@ -12,6 +12,7 @@ import signal
 
 from app.config import (
     settings,
+    validate_database_configuration,
     validate_workflow_task_configuration,
     validate_workflow_worker_configuration,
 )
@@ -20,6 +21,7 @@ from app.notebook_task_worker import (
     reconcile_outcome_unknown_once,
 )
 from app.observability import configure_logging
+from app.services.external_gpu_queue import close_queue, initialize_queue
 from ugai_workflow.payload_cipher import TaskPayloadCipher
 from ugai_workflow.postgres_store import PostgresWorkflowStore
 from ugai_workflow.worker import HybridWorker, WorkerRegistration, WorkerTier
@@ -98,6 +100,7 @@ async def _assert_worker_database_role(pool: object) -> None:
 async def run_worker() -> None:
     if not settings.workflow_worker_enabled:
         raise RuntimeError("WORKFLOW_WORKER_ENABLED=true is required")
+    validate_database_configuration()
     validate_workflow_task_configuration()
     validate_workflow_worker_configuration()
 
@@ -122,9 +125,14 @@ async def run_worker() -> None:
     stop = asyncio.Event()
     heartbeat_task: asyncio.Task | None = None
     registered = False
+    queue_initialized = False
 
     try:
         await _assert_worker_database_role(pool)
+        # The reasoning route catalog is approved against the canonical model
+        # registry initialized by the same queue bootstrap used by the API.
+        await initialize_queue()
+        queue_initialized = True
         registration = WorkerRegistration(
             worker_id=worker_id,
             tier=WorkerTier.DEDICATED,
@@ -227,6 +235,8 @@ async def run_worker() -> None:
             except Exception:
                 logger.exception("worker_registry_deregister_failed")
         await pool.close()
+        if queue_initialized:
+            await close_queue()
         logger.info("notebook_reasoning_worker_stopped", extra={"worker_id": worker_id})
 
 
