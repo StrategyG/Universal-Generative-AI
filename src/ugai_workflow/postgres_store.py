@@ -332,6 +332,38 @@ class PostgresWorkflowStore:
                 await connection.fetchval(
                     "SELECT set_config('app.ugai_tenant_id', $1, true)", tenant_id
                 )
+                # An expired execution lease is quarantined, never replayed:
+                # the remote provider may have completed a side effect before
+                # the worker lost its connection.
+                await connection.execute(
+                    """
+                    WITH expired AS (
+                        UPDATE ugai_workflow.tasks
+                        SET state = 'outcome_unknown',
+                            version = version + 1,
+                            retryable = false,
+                            error_code = 'outcome_unknown',
+                            lease_owner = NULL,
+                            lease_token = NULL,
+                            lease_expires_at = NULL,
+                            updated_at = clock_timestamp()
+                        WHERE tenant_id = $1
+                          AND state = 'executing'
+                          AND lease_token IS NOT NULL
+                          AND lease_expires_at <= clock_timestamp()
+                        RETURNING task_id, version, lease_owner
+                    )
+                    INSERT INTO ugai_workflow.events (
+                        task_id, task_version, actor_id, worker_id,
+                        event_type, from_state, to_state, details
+                    )
+                    SELECT task_id, version, 'system:lease-reaper', lease_owner,
+                           'execution_lease_expired', 'executing', 'outcome_unknown',
+                           jsonb_build_object('reason_code', 'execution_lease_expired')
+                    FROM expired
+                    """,
+                    tenant_id,
+                )
                 row = await connection.fetchrow(
                     """
                     WITH candidate AS (
@@ -426,6 +458,7 @@ class PostgresWorkflowStore:
         approval_verified: bool = False,
         clarification_received: bool = False,
         operator_override: bool = False,
+        reconciliation_verified: bool = False,
         retry_delay_seconds: int = 0,
         error_code: str | None = None,
         approval_reference: str | None = None,
@@ -454,6 +487,8 @@ class PostgresWorkflowStore:
         if plan_digest is not None and not _SHA256.fullmatch(plan_digest):
             raise ValueError("plan_digest_must_be_sha256")
 
+        if not isinstance(reconciliation_verified, bool):
+            raise TypeError("reconciliation_verified_must_be_boolean")
         event_details = _safe_event_details(metadata)
         event_details["reason_code"] = reason_code
         if error_code is not None:
@@ -507,6 +542,22 @@ class PostgresWorkflowStore:
                     if current.lease_token is not None:
                         raise LeaseLost("unleased_transition_has_worker_lease")
 
+                if reconciliation_verified and not (
+                    current.state is TaskState.OUTCOME_UNKNOWN
+                    and target is TaskState.VERIFYING
+                ):
+                    raise ValueError("reconciliation_flag_not_applicable")
+                if current.state is TaskState.OUTCOME_UNKNOWN and target is TaskState.VERIFYING:
+                    evidence_digest = event_details.get("evidence_digest")
+                    if (
+                        reconciliation_verified is not True
+                        or require_lease
+                        or lease is not None
+                        or not isinstance(evidence_digest, str)
+                        or not _SHA256.fullmatch(evidence_digest)
+                    ):
+                        raise PermissionError("reconciliation_evidence_required")
+
                 validate_transition(
                     current.state,
                     target,
@@ -516,6 +567,7 @@ class PostgresWorkflowStore:
                     approval_verified=approval_verified,
                     clarification_received=clarification_received,
                     operator_override=operator_override,
+                    reconciliation_verified=reconciliation_verified,
                 )
 
                 retry_count = current.retry_count
@@ -533,7 +585,7 @@ class PostgresWorkflowStore:
                         version = version + 1,
                         retry_count = $4,
                         retryable = $5,
-                        error_code = CASE WHEN $3 = 'failed' THEN $6 ELSE NULL END,
+                        error_code = CASE WHEN $3 IN ('failed', 'outcome_unknown') THEN $6 ELSE NULL END,
                         approval_reference = CASE
                             WHEN $3 = 'received' THEN NULL
                             ELSE COALESCE($9, approval_reference)
