@@ -227,7 +227,7 @@ class HybridWorker:
                 )
             except ExternalOutcomeUnknown:
                 outcome = WorkerOutcome(
-                    next_state=TaskState.BLOCKED,
+                    next_state=TaskState.OUTCOME_UNKNOWN,
                     reason_code="external_outcome_unknown",
                     retryable=False,
                     error_code="outcome_unknown",
