@@ -209,6 +209,140 @@ class PostgresWorkflowStore:
             raise ValueError("async_postgres_pool_required")
         self._pool = pool
 
+    @staticmethod
+    def _validate_worker_registration(
+        *, tenant_id: str, worker_id: str, task_types: Sequence[str]
+    ) -> tuple[str, ...]:
+        _validate_text("tenant_id", tenant_id, 128)
+        _validate_text("worker_id", worker_id, 128)
+        if (
+            not isinstance(task_types, Sequence)
+            or isinstance(task_types, (str, bytes))
+            or not 1 <= len(task_types) <= 32
+            or any(not isinstance(item, str) or not item.strip() or len(item) > 128 for item in task_types)
+        ):
+            raise ValueError("worker_task_types_invalid")
+        normalized = tuple(sorted(set(task_types)))
+        if len(normalized) != len(task_types):
+            raise ValueError("worker_task_types_must_be_unique")
+        return normalized
+
+    async def register_worker(
+        self, *, tenant_id: str, worker_id: str, task_types: Sequence[str]
+    ) -> None:
+        normalized = self._validate_worker_registration(
+            tenant_id=tenant_id, worker_id=worker_id, task_types=task_types
+        )
+        async with self._pool.acquire() as connection:
+            async with connection.transaction():
+                await connection.fetchval(
+                    "SELECT set_config('app.ugai_tenant_id', $1, true)", tenant_id
+                )
+                await connection.execute(
+                    """
+                    INSERT INTO ugai_workflow.workers (
+                        tenant_id, worker_id, task_types, status, heartbeat_at, updated_at
+                    )
+                    VALUES ($1, $2, $3::text[], 'active', clock_timestamp(), clock_timestamp())
+                    ON CONFLICT (tenant_id, worker_id) DO UPDATE
+                    SET task_types = EXCLUDED.task_types,
+                        status = 'active',
+                        heartbeat_at = clock_timestamp(),
+                        updated_at = clock_timestamp()
+                    """,
+                    tenant_id, worker_id, list(normalized),
+                )
+
+    async def heartbeat_worker(self, *, tenant_id: str, worker_id: str) -> bool:
+        _validate_text("tenant_id", tenant_id, 128)
+        _validate_text("worker_id", worker_id, 128)
+        async with self._pool.acquire() as connection:
+            async with connection.transaction():
+                await connection.fetchval(
+                    "SELECT set_config('app.ugai_tenant_id', $1, true)", tenant_id
+                )
+                result = await connection.execute(
+                    """
+                    UPDATE ugai_workflow.workers
+                    SET heartbeat_at = clock_timestamp(), updated_at = clock_timestamp()
+                    WHERE tenant_id = $1 AND worker_id = $2 AND status = 'active'
+                    """,
+                    tenant_id, worker_id,
+                )
+        return result.endswith(" 1")
+
+    async def deregister_worker(self, *, tenant_id: str, worker_id: str) -> None:
+        _validate_text("tenant_id", tenant_id, 128)
+        _validate_text("worker_id", worker_id, 128)
+        async with self._pool.acquire() as connection:
+            async with connection.transaction():
+                await connection.fetchval(
+                    "SELECT set_config('app.ugai_tenant_id', $1, true)", tenant_id
+                )
+                await connection.execute(
+                    """
+                    UPDATE ugai_workflow.workers
+                    SET status = 'stopped', updated_at = clock_timestamp()
+                    WHERE tenant_id = $1 AND worker_id = $2
+                    """,
+                    tenant_id, worker_id,
+                )
+
+    async def has_active_worker(
+        self, *, tenant_id: str, task_type: str, max_age_seconds: int = 60
+    ) -> bool:
+        _validate_text("tenant_id", tenant_id, 128)
+        _validate_text("task_type", task_type, 128)
+        if (
+            not isinstance(max_age_seconds, int)
+            or isinstance(max_age_seconds, bool)
+            or not 5 <= max_age_seconds <= 300
+        ):
+            raise ValueError("worker_heartbeat_max_age_out_of_bounds")
+        async with self._pool.acquire() as connection:
+            async with connection.transaction():
+                await connection.fetchval(
+                    "SELECT set_config('app.ugai_tenant_id', $1, true)", tenant_id
+                )
+                return bool(await connection.fetchval(
+                    """
+                    SELECT EXISTS (
+                        SELECT 1
+                        FROM ugai_workflow.workers
+                        WHERE tenant_id = $1
+                          AND status = 'active'
+                          AND task_types @> ARRAY[$2]::text[]
+                          AND heartbeat_at >= clock_timestamp()
+                              - make_interval(secs => $3)
+                    )
+                    """,
+                    tenant_id, task_type, max_age_seconds,
+                ))
+
+    async def list_outcome_unknown(
+        self, *, tenant_id: str, limit: int = 50
+    ) -> list[WorkflowTask]:
+        _validate_text("tenant_id", tenant_id, 128)
+        if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 200:
+            raise ValueError("outcome_unknown_batch_size_out_of_bounds")
+        async with self._pool.acquire() as connection:
+            async with connection.transaction():
+                await connection.fetchval(
+                    "SELECT set_config('app.ugai_tenant_id', $1, true)", tenant_id
+                )
+                rows = await connection.fetch(
+                    """
+                    SELECT * FROM ugai_workflow.tasks
+                    WHERE tenant_id = $1
+                      AND state = 'outcome_unknown'
+                      AND lease_token IS NULL
+                    ORDER BY updated_at ASC, created_at ASC
+                    LIMIT $2
+                    """,
+                    tenant_id, limit,
+                )
+        return [WorkflowTask.from_record(row) for row in rows]
+
     async def create_task(
         self,
         *,
