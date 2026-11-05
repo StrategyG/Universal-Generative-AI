@@ -13,7 +13,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from .state_machine import CLAIMABLE_STATES, TaskState, validate_transition
 
@@ -86,6 +86,10 @@ class WorkflowTask:
     plan_digest: str | None
     error_code: str | None
     metadata: Mapping[str, Any]
+    project_id: str | None = None
+    correlation_id: UUID | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
 
     @classmethod
     def from_record(cls, row: Mapping[str, Any]) -> WorkflowTask:
@@ -114,6 +118,10 @@ class WorkflowTask:
             plan_digest=row["plan_digest"],
             error_code=row["error_code"],
             metadata=raw_metadata or {},
+            project_id=row.get("project_id"),
+            correlation_id=row.get("correlation_id"),
+            created_at=row.get("created_at"),
+            updated_at=row.get("updated_at"),
         )
 
 
@@ -218,24 +226,44 @@ class PostgresWorkflowStore:
         priority: int = 0,
         max_retries: int = 2,
         metadata: Mapping[str, Any] | None = None,
+        task_id: UUID | None = None,
+        project_id: str | None = None,
+        correlation_id: UUID | None = None,
+        encrypted_payload: bytes | None = None,
+        payload_key_id: str | None = None,
+        payload_sha256: str | None = None,
     ) -> WorkflowTask:
+        """Create a tenant-scoped task and its encrypted input atomically."""
         _validate_text("tenant_id", tenant_id, 128)
         _validate_text("actor_id", actor_id, 255)
         _validate_text("task_type", task_type, 128)
+        if project_id is not None:
+            _validate_text("project_id", project_id, 128)
         if not _IDEMPOTENCY.fullmatch(idempotency_key or ""):
             raise ValueError("idempotency_key_invalid")
         if not _SHA256.fullmatch(input_digest or ""):
             raise ValueError("input_digest_must_be_sha256")
-        if not isinstance(priority, int) or not -100 <= priority <= 100:
+        if isinstance(priority, bool) or not isinstance(priority, int) or not -100 <= priority <= 100:
             raise ValueError("priority_out_of_bounds")
-        if not isinstance(max_retries, int) or not 0 <= max_retries <= 2:
+        if isinstance(max_retries, bool) or not isinstance(max_retries, int) or not 0 <= max_retries <= 2:
             raise ValueError("max_retries_must_be_between_0_and_2")
+        if encrypted_payload is not None:
+            if not isinstance(encrypted_payload, bytes) or not 1 <= len(encrypted_payload) <= 256 * 1024:
+                raise ValueError("encrypted_payload_size_invalid")
+            _validate_text("payload_key_id", payload_key_id or "", 64)
+            if not _SHA256.fullmatch(payload_sha256 or ""):
+                raise ValueError("payload_sha256_must_be_sha256")
+            if payload_sha256 != input_digest:
+                raise ValueError("payload_digest_must_match_task_input_digest")
+        elif payload_key_id is not None or payload_sha256 is not None:
+            raise ValueError("payload_metadata_requires_encrypted_payload")
 
         safe_metadata = _safe_metadata(metadata)
         canonical_json_digest(safe_metadata)
         encoded_metadata = json.dumps(
             safe_metadata, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
         )
+        task_id = task_id or uuid4()
 
         async with self._pool.acquire() as connection:  # noqa: SIM117
             async with connection.transaction():
@@ -245,16 +273,18 @@ class PostgresWorkflowStore:
                 row = await connection.fetchrow(
                     """
                     INSERT INTO ugai_workflow.tasks (
-                        tenant_id, actor_id, task_type, state, retry_count,
+                        task_id, tenant_id, project_id, correlation_id,
+                        actor_id, task_type, state, retry_count,
                         max_retries, retryable, idempotency_key, input_digest,
                         priority, metadata
                     )
-                    VALUES ($1, $2, $3, 'received', 0, $4, false, $5, $6, $7, $8::jsonb)
+                    VALUES ($1, $2, $3, $4, $5, $6, 'received', 0, $7, false, $8, $9, $10, $11::jsonb)
                     ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
                     RETURNING *
                     """,
-                    tenant_id, actor_id, task_type, max_retries,
-                    idempotency_key, input_digest, priority, encoded_metadata,
+                    task_id, tenant_id, project_id, correlation_id,
+                    actor_id, task_type, max_retries, idempotency_key,
+                    input_digest, priority, encoded_metadata,
                 )
                 if row is None:
                     row = await connection.fetchrow(
@@ -272,12 +302,23 @@ class PostgresWorkflowStore:
                         existing.input_digest != input_digest
                         or existing.task_type != task_type
                         or existing.actor_id != actor_id
+                        or existing.project_id != project_id
                         or existing.metadata != safe_metadata
                     ):
                         raise IdempotencyConflict("idempotency_key_payload_mismatch")
                     return existing
 
                 task = WorkflowTask.from_record(row)
+                if encrypted_payload is not None:
+                    await connection.execute(
+                        """
+                        INSERT INTO ugai_workflow.task_payloads (
+                            task_id, tenant_id, key_id, ciphertext, payload_sha256
+                        )
+                        VALUES ($1, $2, $3, $4, $5)
+                        """,
+                        task.task_id, tenant_id, payload_key_id, encrypted_payload, payload_sha256,
+                    )
                 await connection.execute(
                     """
                     INSERT INTO ugai_workflow.events (
@@ -305,6 +346,28 @@ class PostgresWorkflowStore:
         if row is None:
             raise TaskNotFound(str(task_id))
         return WorkflowTask.from_record(row)
+
+    async def get_encrypted_payload(
+        self, *, task_id: UUID, tenant_id: str
+    ) -> tuple[str, bytes, str] | None:
+        """Return encrypted task input only within the authorized tenant context."""
+        _validate_text("tenant_id", tenant_id, 128)
+        async with self._pool.acquire() as connection:  # noqa: SIM117
+            async with connection.transaction():
+                await connection.fetchval(
+                    "SELECT set_config('app.ugai_tenant_id', $1, true)", tenant_id
+                )
+                row = await connection.fetchrow(
+                    """
+                    SELECT key_id, ciphertext, payload_sha256
+                    FROM ugai_workflow.task_payloads
+                    WHERE task_id = $1 AND tenant_id = $2
+                    """,
+                    task_id, tenant_id,
+                )
+        if row is None:
+            return None
+        return row["key_id"], bytes(row["ciphertext"]), row["payload_sha256"]
 
     async def claim_next(
         self,
