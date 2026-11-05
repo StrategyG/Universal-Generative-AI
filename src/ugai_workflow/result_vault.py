@@ -59,9 +59,18 @@ class WorkflowResultVault:
         task_id: UUID,
         key_id: str,
     ) -> bytes:
-        return (
-            "ugai-workflow-result:v1:"
-            f"{tenant_id}:{actor_id}:{project_id}:{task_id}:{key_id}"
+        # Canonical JSON preserves scope boundaries for AES-GCM authentication.
+        return json.dumps(
+            [
+                "ugai-workflow-result:v1",
+                tenant_id,
+                actor_id,
+                project_id,
+                str(task_id),
+                key_id,
+            ],
+            ensure_ascii=False,
+            separators=(",", ":"),
         ).encode("utf-8")
 
     @staticmethod
