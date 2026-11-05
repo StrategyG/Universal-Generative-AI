@@ -15,6 +15,7 @@ class TaskState(StrEnum):
     OBSERVING = "observing"
     PLANNING = "planning"
     EXECUTING = "executing"
+    OUTCOME_UNKNOWN = "outcome_unknown"
     VERIFYING = "verifying"
     AWAITING_APPROVAL = "awaiting_approval"
     AWAITING_CLARIFICATION = "awaiting_clarification"
@@ -60,8 +61,17 @@ _ALLOWED: Final[dict[TaskState, frozenset[TaskState]]] = {
         }
     ),
     TaskState.EXECUTING: frozenset(
-        {TaskState.VERIFYING, TaskState.AWAITING_APPROVAL, TaskState.BLOCKED, TaskState.FAILED}
+        {
+            TaskState.VERIFYING,
+            TaskState.OUTCOME_UNKNOWN,
+            TaskState.AWAITING_APPROVAL,
+            TaskState.BLOCKED,
+            TaskState.FAILED,
+        }
     ),
+    # A remote side effect may already have happened; do not retry it until
+    # a trusted reconciler supplies evidence and advances it to verification.
+    TaskState.OUTCOME_UNKNOWN: frozenset({TaskState.VERIFYING}),
     TaskState.VERIFYING: frozenset(
         {TaskState.SUCCEEDED, TaskState.FAILED, TaskState.BLOCKED}
     ),
@@ -92,6 +102,7 @@ def validate_transition(
     approval_verified: bool = False,
     clarification_received: bool = False,
     operator_override: bool = False,
+    reconciliation_verified: bool = False,
 ) -> tuple[TaskState, TaskState]:
     """Validate one transition without changing state or performing side effects."""
     try:
@@ -103,9 +114,19 @@ def validate_transition(
     if destination not in _ALLOWED[source]:
         raise TransitionDenied(f"transition_not_allowed:{source.value}->{destination.value}")
 
-    if not isinstance(retry_count, int) or retry_count < 0:
+    if source is TaskState.OUTCOME_UNKNOWN and destination is TaskState.VERIFYING:
+        if reconciliation_verified is not True:
+            raise TransitionDenied("reconciliation_evidence_required")
+    elif reconciliation_verified:
+        raise TransitionDenied("reconciliation_flag_not_applicable")
+
+    if (
+        isinstance(retry_count, bool)
+        or not isinstance(retry_count, int)
+        or retry_count < 0
+    ):
         raise TransitionDenied("retry_count_invalid")
-    if not isinstance(max_retries, int) or not 0 <= max_retries <= 2:
+    if isinstance(max_retries, bool) or not isinstance(max_retries, int) or not 0 <= max_retries <= 2:
         raise TransitionDenied("max_retries_out_of_bounds")
 
     if (
