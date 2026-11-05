@@ -26,6 +26,8 @@ class Principal:
     roles: frozenset[str]
     project_ids: frozenset[str]
     auth_mode: str
+    # Exact verified OIDC issuer. None is reserved for local development auth.
+    issuer: str | None = None
 
     @property
     def is_tenant_admin(self) -> bool:
@@ -119,6 +121,9 @@ def principal_from_claims(claims: dict[str, Any]) -> Principal:
         raise ValueError("OIDC subject is missing")
     if not isinstance(tenant_id, str) or not tenant_id.strip():
         raise ValueError("Required tenant claim is missing")
+    issuer = claims.get("iss")
+    if not isinstance(issuer, str) or not issuer.strip() or issuer != settings.oidc_issuer:
+        raise ValueError("OIDC issuer is missing or does not match the configured issuer")
 
     roles = _string_set(claims.get(settings.oidc_roles_claim), settings.oidc_roles_claim)
     projects = _string_set(
@@ -131,6 +136,7 @@ def principal_from_claims(claims: dict[str, Any]) -> Principal:
         roles=roles,
         project_ids=projects,
         auth_mode="oidc",
+        issuer=issuer,
     )
 
 
