@@ -119,6 +119,9 @@ def _restricted_role_row(**overrides):
         "input_insert": True,
         "result_select": True,
         "result_insert": True,
+        "worker_select": True,
+        "worker_insert": True,
+        "worker_update": True,
     }
     row.update(overrides)
     return row
@@ -140,6 +143,9 @@ async def test_runtime_database_role_requires_non_owner_runtime_membership() -> 
         {"input_select": False},
         {"result_select": False},
         {"result_insert": False},
+        {"worker_select": False},
+        {"worker_insert": False},
+        {"worker_update": False},
     ],
 )
 @pytest.mark.asyncio
