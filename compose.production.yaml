@@ -1,0 +1,106 @@
+name: ugai-production
+
+services:
+  caddy:
+    image: ${CADDY_IMAGE:?set CADDY_IMAGE to an immutable image digest}
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${DOMAIN:?set the production DNS name}
+      ACME_EMAIL: ${ACME_EMAIL:?set the certificate contact email}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      private:
+        ipv4_address: 172.30.0.2
+
+  api:
+    image: ${API_IMAGE:?set API_IMAGE to an immutable image digest}
+    restart: unless-stopped
+    environment:
+      ENVIRONMENT: production
+      AUTH_MODE: oidc
+      OIDC_ISSUER: ${OIDC_ISSUER:?set OIDC_ISSUER}
+      OIDC_AUDIENCE: ${OIDC_AUDIENCE:?set OIDC_AUDIENCE}
+      OIDC_JWKS_URL: ${OIDC_JWKS_URL:?set OIDC_JWKS_URL}
+      OIDC_TENANT_CLAIM: ${OIDC_TENANT_CLAIM:-tenant_id}
+      OIDC_ROLES_CLAIM: ${OIDC_ROLES_CLAIM:-roles}
+      OIDC_PROJECTS_CLAIM: ${OIDC_PROJECTS_CLAIM:-project_ids}
+      DATABASE_URL_FILE: /run/secrets/database_url
+      WORKFLOW_TASK_API_ENABLED: "true"
+      WORKFLOW_DATABASE_URL_FILE: /run/secrets/workflow_database_url
+      WORKFLOW_PAYLOAD_ENCRYPTION_KEY_FILE: /run/secrets/workflow_payload_key
+      WORKFLOW_PAYLOAD_KEY_ID: ${WORKFLOW_PAYLOAD_KEY_ID:?set active encryption key ID}
+      WORKFLOW_PAYLOAD_PREVIOUS_KEYS_JSON_FILE: /run/secrets/workflow_previous_keys
+      WORKER_ADMIN_TOKEN_FILE: /run/secrets/worker_admin_token
+      RATE_LIMIT_ENABLED: "true"
+      RATE_LIMIT_BACKEND: redis
+      RATE_LIMIT_REDIS_URL_FILE: /run/secrets/rate_limit_redis_url
+      RATE_LIMIT_REQUESTS_PER_MINUTE: ${RATE_LIMIT_REQUESTS_PER_MINUTE:-120}
+      RATE_LIMIT_WINDOW_SECONDS: ${RATE_LIMIT_WINDOW_SECONDS:-60}
+      METRICS_TOKEN_FILE: /run/secrets/metrics_token
+      MODEL_REGISTRY_ENFORCEMENT: "true"
+      FORWARDED_ALLOW_IPS: 172.30.0.2
+      PYTHONUNBUFFERED: "1"
+    secrets:
+      - database_url
+      - workflow_database_url
+      - workflow_payload_key
+      - workflow_previous_keys
+      - worker_admin_token
+      - rate_limit_redis_url
+      - metrics_token
+    expose:
+      - "8000"
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    networks:
+      private:
+        ipv4_address: 172.30.0.3
+
+secrets:
+  database_url:
+    file: ${DATABASE_URL_SECRET_FILE:?provide a root-owned PostgreSQL DSN secret file}
+  workflow_database_url:
+    file: ${WORKFLOW_DATABASE_URL_SECRET_FILE:?provide a separate least-privilege workflow DSN secret file}
+  workflow_payload_key:
+    file: ${WORKFLOW_PAYLOAD_KEY_SECRET_FILE:?provide the Fernet key secret file}
+  workflow_previous_keys:
+    file: ${WORKFLOW_PREVIOUS_KEYS_SECRET_FILE:?provide a JSON object of retained old key IDs; use {} when none}
+  worker_admin_token:
+    file: ${WORKER_ADMIN_TOKEN_SECRET_FILE:?provide a high-entropy operator token file}
+  rate_limit_redis_url:
+    file: ${RATE_LIMIT_REDIS_URL_SECRET_FILE:?provide an external rediss:// URL secret file}
+  metrics_token:
+    file: ${METRICS_TOKEN_SECRET_FILE:?provide a high-entropy metrics scrape token file}
+
+volumes:
+  caddy_data:
+  caddy_config:
+
+networks:
+  private:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
