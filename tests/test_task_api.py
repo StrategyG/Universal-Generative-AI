@@ -383,4 +383,5 @@ def test_task_result_does_not_cross_project_scope(runtime):
         response = client.get(f"/api/v1/tasks/{task_id}/result")
     finally:
         app.dependency_overrides.clear()
-    assert response.status_code == 403
+    # Cross-project resources are concealed as not found, avoiding existence leaks.
+    assert response.status_code == 404
