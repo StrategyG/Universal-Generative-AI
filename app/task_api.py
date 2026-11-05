@@ -163,7 +163,7 @@ def _status(task: Any, request_id: UUID) -> TaskStatusResponse:
 
 def _authorize_task_project(principal: Principal, task: Any) -> None:
     if not isinstance(task.project_id, str) or not task.project_id:
-        raise HTTPException(status_code=404, detail="Task not found")
+        raise HTTPException(status_code=4304, detail="Task not found")
     ensure_project_access(principal, task.project_id)
 
 
