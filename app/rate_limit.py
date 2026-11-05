@@ -8,7 +8,6 @@ from __future__ import annotations
 import hashlib
 import json
 import time
-from collections.abc import Awaitable, Callable
 from typing import Any, Protocol
 
 
@@ -25,9 +24,17 @@ class InMemoryRateLimitBackend:
 
     def __init__(self) -> None:
         self._values: dict[str, tuple[int, float]] = {}
+        self._operations = 0
 
     async def increment(self, key: str, window_seconds: int) -> tuple[int, int]:
         now = time.monotonic()
+        self._operations += 1
+        if self._operations % 256 == 0:
+            self._values = {
+                item_key: item
+                for item_key, item in self._values.items()
+                if item[1] > now
+            }
         count, expires_at = self._values.get(key, (0, now + window_seconds))
         if expires_at <= now:
             count, expires_at = 0, now + window_seconds
