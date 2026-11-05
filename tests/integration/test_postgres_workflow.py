@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 from pathlib import Path
+from urllib.parse import quote, urlsplit, urlunsplit
 from uuid import uuid4
 
 import asyncpg
@@ -16,6 +17,7 @@ from ugai_workflow import (
     RetryScheduler,
     RetrySchedulerRegistration,
     TaskNotFound,
+    TaskResultConflict,
     TaskState,
 )
 
@@ -59,6 +61,7 @@ async def workflow_database():
                 "0003_ugai_workflow_runtime.sql",
                 "0004_ugai_task_api_contract.sql",
                 "0005_ugai_workflow_outcome_unknown.sql",
+                "0006_ugai_notebook_worker_results.sql",
             ):
                 await admin.execute(
                     (migrations / migration_name).read_text(encoding="utf-8")
@@ -79,6 +82,37 @@ async def workflow_database():
         if runtime_pool is not None:
             await runtime_pool.close()
         await admin.close()
+
+
+@pytest.fixture(scope="function")
+async def workflow_worker_pool(workflow_database):
+    """Create a distinct login that can assume only the worker group role."""
+    _runtime_pool, admin = workflow_database
+    login = "ugai_workflow_worker_test"
+    password = "worker-test-only"
+    exists = await admin.fetchval(
+        "SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = $1)", login
+    )
+    if not exists:
+        await admin.execute(
+            f"CREATE ROLE {login} LOGIN PASSWORD '{password}' NOBYPASSRLS"
+        )
+    else:
+        await admin.execute(
+            f"ALTER ROLE {login} WITH LOGIN PASSWORD '{password}' NOBYPASSRLS"
+        )
+    await admin.execute(f"GRANT ugai_workflow_worker TO {login}")
+    parts = urlsplit(RUNTIME_DSN)
+    host = parts.hostname or "localhost"
+    if parts.port:
+        host = f"{host}:{parts.port}"
+    netloc = f"{quote(login)}:{quote(password)}@{host}"
+    worker_dsn = urlunsplit((parts.scheme, netloc, parts.path, parts.query, parts.fragment))
+    pool = await asyncpg.create_pool(worker_dsn, min_size=1, max_size=4, command_timeout=10)
+    try:
+        yield pool
+    finally:
+        await pool.close()
 
 
 def new_task_args(*, tenant_id: str, actor_id: str = "integration-actor", suffix: str):
@@ -445,3 +479,99 @@ async def test_expired_execution_lease_is_quarantined_not_replayed(workflow_data
         metadata={"evidence_digest": "e" * 64},
     )
     assert reconciled.state is TaskState.VERIFYING
+
+
+@pytest.mark.asyncio
+async def test_worker_role_is_separate_and_results_are_immutable_and_tenant_scoped(
+    workflow_database, workflow_worker_pool
+) -> None:
+    api_pool, _admin = workflow_database
+    api_store = PostgresWorkflowStore(api_pool)
+    worker_store = PostgresWorkflowStore(workflow_worker_pool)
+    tenant = f"tenant-{uuid4()}"
+    task = await api_store.create_task(
+        **{
+            **new_task_args(tenant_id=tenant, suffix=str(uuid4())),
+            "project_id": "project-a",
+        }
+    )
+
+    identity = await workflow_worker_pool.fetchrow(
+        """
+        SELECT current_user AS login,
+               pg_has_role(current_user, 'ugai_workflow_worker', 'member') AS worker_member,
+               pg_has_role(current_user, 'ugai_workflow_runtime', 'member') AS api_member,
+               rolsuper, rolbypassrls
+        FROM pg_roles WHERE rolname = current_user
+        """
+    )
+    assert identity["login"] == "ugai_workflow_worker_test"
+    assert identity["worker_member"] is True
+    assert identity["api_member"] is False
+    assert identity["rolsuper"] is False
+    assert identity["rolbypassrls"] is False
+
+    assert await api_store.has_healthy_worker(
+        tenant_id=tenant, task_type="notebook_task"
+    ) is False
+    await worker_store.heartbeat_worker(
+        tenant_id=tenant,
+        worker_id="notebook-worker-integration",
+        task_types=("notebook_task",),
+    )
+    assert await api_store.has_healthy_worker(
+        tenant_id=tenant, task_type="notebook_task"
+    ) is True
+
+    with pytest.raises(asyncpg.InsufficientPrivilegeError):
+        await api_store.heartbeat_worker(
+            tenant_id=tenant,
+            worker_id="api-must-not-register-worker",
+            task_types=("notebook_task",),
+        )
+
+    ciphertext = b"encrypted-result-ciphertext"
+    digest = "a" * 64
+    assert await worker_store.put_encrypted_result(
+        tenant_id=tenant,
+        actor_id=task.actor_id,
+        project_id="project-a",
+        task_id=task.task_id,
+        key_id="test-v1",
+        ciphertext=ciphertext,
+        payload_sha256=digest,
+    ) == digest
+    assert await worker_store.put_encrypted_result(
+        tenant_id=tenant,
+        actor_id=task.actor_id,
+        project_id="project-a",
+        task_id=task.task_id,
+        key_id="test-v1",
+        ciphertext=ciphertext,
+        payload_sha256=digest,
+    ) == digest
+    with pytest.raises(TaskResultConflict):
+        await worker_store.put_encrypted_result(
+            tenant_id=tenant,
+            actor_id=task.actor_id,
+            project_id="project-a",
+            task_id=task.task_id,
+            key_id="test-v1",
+            ciphertext=ciphertext,
+            payload_sha256="b" * 64,
+        )
+
+    stored = await api_store.get_encrypted_result(
+        tenant_id=tenant, task_id=task.task_id
+    )
+    assert stored == ("test-v1", ciphertext, digest)
+    assert await api_store.get_encrypted_result(
+        tenant_id=f"other-{uuid4()}", task_id=task.task_id
+    ) is None
+
+    await worker_store.deregister_worker(
+        tenant_id=tenant, worker_id="notebook-worker-integration"
+    )
+    assert await api_store.has_healthy_worker(
+        tenant_id=tenant, task_type="notebook_task"
+    ) is False
