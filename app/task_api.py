@@ -87,6 +87,7 @@ class TaskSubmission(BaseModel):
     notebook_id: UUID | None = None
     cell_revision: str | None = Field(default=None, max_length=128)
     intent: str = Field(min_length=1, max_length=12_000)
+    context: str = Field(default="", max_length=20_000)
     artifacts: tuple[ArtifactReference, ...] = Field(default=(), max_length=32)
     requested_capabilities: tuple[str, ...] = Field(default=(), max_length=32)
 
