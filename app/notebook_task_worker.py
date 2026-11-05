@@ -394,11 +394,23 @@ async def reconcile_outcome_unknown_once(runtime, *, tenant_id: str, limit: int 
         project_id = task.metadata.get("project_id")
         if not isinstance(project_id, str):
             continue
-        if not await runtime.store.workspace_is_bound(
-            tenant_id=task.tenant_id,
-            workspace_id=UUID(task.metadata.get("workspace_id", "")),
-            project_id=project_id,
-        ):
+        workspace_value = task.metadata.get("workspace_id")
+        if not isinstance(workspace_value, str):
+            continue
+        try:
+            workspace_id = UUID(workspace_value)
+        except ValueError:
+            continue
+        try:
+            workspace_bound = await runtime.store.workspace_is_bound(
+                tenant_id=task.tenant_id,
+                workspace_id=workspace_id,
+                project_id=project_id,
+            )
+        except Exception:
+            # A workspace registry outage must leave the task quarantined.
+            continue
+        if not workspace_bound:
             continue
         try:
             result = await runtime.results.get(
