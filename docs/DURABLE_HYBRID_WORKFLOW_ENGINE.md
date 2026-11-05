@@ -64,3 +64,33 @@ The transition policy is deterministic and separate from model output. Every tra
 - Uncertain external writes are not automatically retried.
 - RLS and grants deny public client roles while the dedicated worker role has least privilege.
 - The release gate cannot report success without test evidence tied to the current task version and plan digest.
+
+
+## Notebook task API and encrypted request persistence
+
+The platform API exposes submit/status/cancel routes that map internal UGAI
+workflow stages onto the versioned external task vocabulary. The initial
+Notebook request body is encrypted with a deployment-provided Fernet key
+before being inserted into `ugai_workflow.task_payloads`. The encrypted input
+row, task row and first append-only task event are committed atomically.
+The database stores the key ID, ciphertext and plaintext SHA-256 only; it
+never stores the raw notebook intent or the encryption key.
+
+The task payload table has forced row-level security and the same transaction-
+local tenant context as task rows. The database login is a dedicated non-owner
+member of `ugai_workflow_runtime`, without superuser or `BYPASSRLS`.
+
+Ordered migration:
+1. `postgres/migrations/0003_ugai_workflow_runtime.sql`
+2. `postgres/migrations/0004_ugai_task_api_contract.sql`
+
+The API rejects ambiguous idempotency reuse (same key, different request
+digest), scopes reads and cancellation to the verified principal tenant and
+project, and refuses cancellation while an execution stage is active until
+the worker implements cooperative cancellation. Tasks marked
+`outcome_unknown` require reconciliation.
+
+This API does not yet establish that a Notebook task is actually executed by
+a registered worker, that encrypted payloads are resolved into a decision
+input by a deployed worker, or that the service is connected to the production
+identity provider. Key rotation and recovery must be proven before production.
