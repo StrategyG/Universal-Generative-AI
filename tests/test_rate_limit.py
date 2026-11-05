@@ -121,3 +121,18 @@ def test_disabled_rate_limiter_does_not_reject_requests():
     client = TestClient(app)
     assert client.get("/resource").status_code == 200
     assert client.get("/resource").status_code == 200
+
+
+
+@pytest.mark.asyncio
+async def test_rate_limiter_readiness_fails_closed_when_backend_is_not_ready():
+    limiter = RateLimiter(
+        enabled=True,
+        backend="memory",
+        redis_url="",
+        requests_per_window=10,
+        window_seconds=60,
+        environment="test",
+    )
+    limiter._ready = False
+    assert await limiter.health_check() is False
