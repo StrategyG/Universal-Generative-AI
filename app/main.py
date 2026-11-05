@@ -244,7 +244,7 @@ async def readiness():
     checks = {
         "authentication": settings.auth_mode.strip().lower() == "oidc" if production else True,
         "database": queue_backend_name() == "postgresql" if production else True,
-        "rate_limit": rate_limiter.ready if production and settings.rate_limit_enabled else True,
+        "rate_limit": await rate_limiter.health_check() if production and settings.rate_limit_enabled else True,
     }
     ready = all(checks.values())
     return Response(
