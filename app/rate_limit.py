@@ -15,6 +15,9 @@ class RateLimitBackend(Protocol):
     async def increment(self, key: str, window_seconds: int) -> tuple[int, int]:
         """Atomically increment a fixed-window counter and return count, TTL."""
 
+    async def health_check(self) -> bool:
+        """Return whether the shared counter backend is reachable."""
+
     async def close(self) -> None:
         """Release backend resources."""
 
@@ -43,6 +46,9 @@ class InMemoryRateLimitBackend:
         ttl = max(1, int(expires_at - now + 0.999))
         return count, ttl
 
+    async def health_check(self) -> bool:
+        return True
+
     async def close(self) -> None:
         self._values.clear()
 
@@ -67,6 +73,10 @@ class RedisRateLimitBackend:
             self._SCRIPT, 1, key, str(window_seconds)
         )
         return int(count), max(1, int(ttl))
+
+    async def health_check(self) -> bool:
+        await self._client.ping()
+        return True
 
     async def close(self) -> None:
         await self._client.aclose()
@@ -114,6 +124,8 @@ class RateLimiter:
                 socket_connect_timeout=3,
                 socket_timeout=3,
                 health_check_interval=30,
+                ssl_cert_reqs="required",
+                ssl_check_hostname=True,
             )
             await client.ping()
         except Exception as exc:
@@ -125,6 +137,16 @@ class RateLimiter:
         if self._backend is not None:
             await self._backend.close()
         self._ready = self.backend_name == "memory" or not self.enabled
+
+    async def health_check(self) -> bool:
+        if not self.enabled:
+            return True
+        if not self._ready or self._backend is None:
+            return False
+        try:
+            return await self._backend.health_check()
+        except Exception:
+            return False
 
     async def check(self, identity: str) -> tuple[bool, int, int]:
         if not self.enabled:
