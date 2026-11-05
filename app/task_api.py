@@ -110,6 +110,18 @@ class TaskStatusResponse(BaseModel):
     updated_at: datetime | None = None
 
 
+class TaskResultResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    contract_version: str = "1.0.0"
+    task_id: UUID
+    project_id: str
+    result_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    verification_status: str = "needs_human_review"
+    human_review_required: bool = True
+    result: dict[str, Any]
+
+
 def _runtime(request: Request) -> tuple[PostgresWorkflowStore, TaskPayloadCipher]:
     store = getattr(request.app.state, "workflow_task_store", None)
     cipher = getattr(request.app.state, "workflow_task_payload_cipher", None)
@@ -169,6 +181,22 @@ async def submit_task(
     require_generation_role(principal)
     ensure_project_access(principal, request.project_id)
     store, cipher = _runtime(http_request)
+    try:
+        worker_ready = await store.has_healthy_worker(
+            tenant_id=principal.tenant_id,
+            task_type="notebook_task",
+            max_age_seconds=60,
+        )
+    except Exception as exc:  # noqa: BLE001 - fail closed when registry is unavailable
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "notebook_worker_registry_unavailable"},
+        ) from exc
+    if not worker_ready:
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "notebook_worker_unavailable"},
+        )
 
     payload = request.model_dump(mode="json")
     encrypted_payload, payload_digest = cipher.encrypt(payload)
@@ -227,6 +255,78 @@ async def get_task_status(
         raise HTTPException(status_code=503, detail={"code": "workflow_task_read_unavailable"}) from exc
     _authorize_task_project(principal, task)
     return _status(task, request_id)
+
+
+@router.get("/{task_id}/result", response_model=TaskResultResponse)
+async def get_task_result(
+    task_id: UUID,
+    http_request: Request,
+    principal: Principal = Depends(get_current_principal),
+):
+    """Return a verified encrypted result only to an authorized project member."""
+    require_job_read_role(principal)
+    store, cipher = _runtime(http_request)
+    try:
+        task = await store.get_task(task_id=task_id, tenant_id=principal.tenant_id)
+    except TaskNotFound as exc:
+        raise HTTPException(status_code=404, detail="Task not found") from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "workflow_task_read_unavailable"},
+        ) from exc
+    _authorize_task_project(principal, task)
+    if task.state is not TaskState.SUCCEEDED:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "notebook_task_result_not_ready", "state": _public_state(task).value},
+        )
+    try:
+        encrypted = await store.get_encrypted_result(
+            tenant_id=principal.tenant_id,
+            task_id=task_id,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "notebook_task_result_read_unavailable"},
+        ) from exc
+    if encrypted is None:
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "notebook_task_result_missing"},
+        )
+    key_id, ciphertext, digest = encrypted
+    try:
+        result = cipher.decrypt(
+            ciphertext,
+            expected_sha256=digest,
+            key_id=key_id,
+        )
+    except Exception as exc:  # noqa: BLE001 - do not disclose ciphertext or key details
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "notebook_task_result_integrity_failure"},
+        ) from exc
+    if (
+        result.get("task_id") != str(task_id)
+        or result.get("project_id") != task.project_id
+        or result.get("verification_status") != "needs_human_review"
+        or result.get("human_review_required") is not True
+        or result.get("tool_execution_performed") is not False
+    ):
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "notebook_task_result_contract_invalid"},
+        )
+    return TaskResultResponse(
+        task_id=task_id,
+        project_id=task.project_id,
+        result_sha256=digest,
+        verification_status="needs_human_review",
+        human_review_required=True,
+        result=result,
+    )
 
 
 @router.post("/{task_id}/cancel", response_model=TaskStatusResponse)
