@@ -52,10 +52,16 @@ async def workflow_database():
         )
         if not schema_exists:
             root = Path(__file__).resolve().parents[2]
-            migration = (
-                root / "postgres" / "migrations" / "0003_ugai_workflow_runtime.sql"
-            ).read_text(encoding="utf-8")
-            await admin.execute(migration)
+            migrations = root / "postgres" / "migrations"
+            # Use the exact ordered workflow runtime migrations used for deployment.
+            # A blueprint is not executable migration evidence.
+            for migration_name in (
+                "0003_ugai_workflow_runtime.sql",
+                "0004_ugai_task_api_contract.sql",
+            ):
+                await admin.execute(
+                    (migrations / migration_name).read_text(encoding="utf-8")
+                )
 
         await ensure_role(
             "ugai_workflow_test",
