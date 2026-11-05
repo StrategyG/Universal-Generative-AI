@@ -51,6 +51,7 @@ def test_oidc_token_signature_issuer_and_audience_are_verified(monkeypatch):
     principal = principal_from_claims(claims)
 
     assert principal.subject == "user-1"
+    assert principal.issuer == settings.oidc_issuer
     assert principal.tenant_id == "tenant-1"
     assert principal.roles == frozenset({"developer"})
     assert principal.project_ids == frozenset({"project-1"})
@@ -88,6 +89,21 @@ def test_principal_requires_tenant_claim(monkeypatch):
         principal_from_claims({"sub": "user-1", "roles": ["developer"]})
 
 
+def test_principal_rejects_missing_or_mismatched_issuer(monkeypatch):
+    _oidc_settings(monkeypatch)
+    with pytest.raises(ValueError, match="issuer"):
+        principal_from_claims({
+            "iss": "https://attacker.example/",
+            "sub": "user-1",
+            "tenant_id": "tenant-1",
+        })
+    with pytest.raises(ValueError, match="issuer"):
+        principal_from_claims({
+            "sub": "user-1",
+            "tenant_id": "tenant-1",
+        })
+
+
 def test_generation_requires_authorized_role():
     principal = Principal(
         subject="reader-1",
@@ -95,6 +111,7 @@ def test_generation_requires_authorized_role():
         roles=frozenset({"read_only"}),
         project_ids=frozenset({"project-1"}),
         auth_mode="oidc",
+        issuer="https://identity.example.test/",
     )
     with pytest.raises(HTTPException) as exc:
         require_generation_role(principal)
@@ -108,6 +125,7 @@ def test_job_read_requires_an_explicit_read_role():
         roles=frozenset(),
         project_ids=frozenset({"project-1"}),
         auth_mode="oidc",
+        issuer="https://identity.example.test/",
     )
     with pytest.raises(HTTPException) as exc:
         auth.require_job_read_role(principal)
@@ -121,6 +139,7 @@ def test_project_membership_is_enforced():
         roles=frozenset({"developer"}),
         project_ids=frozenset({"project-1"}),
         auth_mode="oidc",
+        issuer="https://identity.example.test/",
     )
     ensure_project_access(principal, "project-1")
     with pytest.raises(HTTPException) as exc:
@@ -145,6 +164,7 @@ def test_generation_jobs_are_scoped_to_tenant_owner_and_project(monkeypatch):
             roles=frozenset({"developer"}),
             project_ids=frozenset({"project-1"}),
             auth_mode="oidc",
+        issuer="https://identity.example.test/",
         )
     }
     app.dependency_overrides[auth.get_current_principal] = lambda: principal_state["value"]
@@ -168,6 +188,7 @@ def test_generation_jobs_are_scoped_to_tenant_owner_and_project(monkeypatch):
                 roles=frozenset({"read_only"}),
                 project_ids=frozenset({"project-1"}),
                 auth_mode="oidc",
+        issuer="https://identity.example.test/",
             )
             project_member_read = client.get(f"/api/v1/jobs/{job_id}")
             assert project_member_read.status_code == 200
@@ -178,6 +199,7 @@ def test_generation_jobs_are_scoped_to_tenant_owner_and_project(monkeypatch):
                 roles=frozenset({"read_only"}),
                 project_ids=frozenset({"project-2"}),
                 auth_mode="oidc",
+        issuer="https://identity.example.test/",
             )
             cross_project_read = client.get(f"/api/v1/jobs/{job_id}")
             assert cross_project_read.status_code == 404
@@ -188,6 +210,7 @@ def test_generation_jobs_are_scoped_to_tenant_owner_and_project(monkeypatch):
                 roles=frozenset({"tenant_admin"}),
                 project_ids=frozenset({"project-1"}),
                 auth_mode="oidc",
+        issuer="https://identity.example.test/",
             )
             cross_tenant_read = client.get(f"/api/v1/jobs/{job_id}")
             assert cross_tenant_read.status_code == 404
