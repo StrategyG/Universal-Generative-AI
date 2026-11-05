@@ -303,7 +303,6 @@ class PostgresWorkflowStore:
                         or existing.task_type != task_type
                         or existing.actor_id != actor_id
                         or existing.project_id != project_id
-                        or existing.metadata != safe_metadata
                     ):
                         raise IdempotencyConflict("idempotency_key_payload_mismatch")
                     return existing
