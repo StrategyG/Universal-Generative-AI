@@ -1,0 +1,50 @@
+name: Durable workflow PostgreSQL integration
+
+on:
+  pull_request:
+    paths:
+      - "src/ugai_workflow/**"
+      - "tests/integration/test_postgres_workflow.py"
+      - "app/workflow_tasks.py"
+      - "app/workflow_runtime.py"
+      - "postgres/migrations/0003_ugai_workflow_runtime.sql"
+      - "postgres/migrations/0004_ugai_workflow_encrypted_inputs.sql"
+      - "src/ugai_workflow/input_vault.py"
+      - "docs/architecture/ugai-workflow-schema-blueprint.sql"
+      - "pyproject.toml"
+      - ".github/workflows/durable-workflow-postgres.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  postgres-workflow:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: workflow_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d workflow_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      UGAI_WORKFLOW_TEST_ADMIN_URL: postgresql://postgres:postgres@127.0.0.1:5432/workflow_test
+      UGAI_WORKFLOW_TEST_RUNTIME_URL: postgresql://ugai_workflow_test:workflow-test-only@127.0.0.1:5432/workflow_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install package and test dependencies
+        run: python -m pip install -e ".[postgres,dev]"
+      - name: Exercise tenant RLS, idempotency, concurrent claims, lease fencing and retries
+        run: pytest -q tests/integration/test_postgres_workflow.py

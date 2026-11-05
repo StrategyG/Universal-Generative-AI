@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
+import json
 from functools import lru_cache
 from typing import Any
 
@@ -26,6 +28,19 @@ class Principal:
     roles: frozenset[str]
     project_ids: frozenset[str]
     auth_mode: str
+    issuer: str = ""
+
+    @property
+    def actor_id(self) -> str:
+        """Stable issuer-scoped actor key; raw subjects are never cross-issuer IDs."""
+        if self.auth_mode == "oidc" and not self.issuer.strip():
+            raise ValueError("verified_oidc_issuer_required")
+        canonical = json.dumps(
+            [self.issuer, self.subject],
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return "principal:" + hashlib.sha256(canonical).hexdigest()
 
     @property
     def is_tenant_admin(self) -> bool:
@@ -120,6 +135,10 @@ def principal_from_claims(claims: dict[str, Any]) -> Principal:
     if not isinstance(tenant_id, str) or not tenant_id.strip():
         raise ValueError("Required tenant claim is missing")
 
+    issuer = claims.get("iss")
+    if not isinstance(issuer, str) or issuer != settings.oidc_issuer:
+        raise ValueError("OIDC issuer is missing or does not match the configured issuer")
+
     roles = _string_set(claims.get(settings.oidc_roles_claim), settings.oidc_roles_claim)
     projects = _string_set(
         claims.get(settings.oidc_projects_claim),
@@ -131,6 +150,7 @@ def principal_from_claims(claims: dict[str, Any]) -> Principal:
         roles=roles,
         project_ids=projects,
         auth_mode="oidc",
+        issuer=issuer,
     )
 
 
@@ -153,6 +173,7 @@ async def get_current_principal(
             roles=frozenset(_GENERATION_ROLES),
             project_ids=frozenset({"*"}),
             auth_mode="disabled",
+            issuer="local-development",
         )
 
     if credentials is None or credentials.scheme.lower() != "bearer":

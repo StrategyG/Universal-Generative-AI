@@ -30,6 +30,6 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: pip install -e ".[dev,postgres,worker]"
-      - run: ruff check app tests
+      - run: pip install -e ".[dev,mcp,postgres,worker]"
+      - run: ruff check app src tests
       - run: pytest -q

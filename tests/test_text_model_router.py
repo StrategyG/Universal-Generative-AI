@@ -129,3 +129,71 @@ def test_router_discovers_models_for_each_route():
     assert len(result["routes"]) == 2
     assert result["routes"][0]["configured_model_available"] is True
     assert result["routes"][1]["status"] == "available"
+
+
+def test_policy_router_invokes_only_the_exact_selected_provider():
+    primary = FakeProvider("primary")
+    fallback = FakeProvider("fallback")
+    router = TextModelRouter([primary, fallback])
+
+    result = asyncio.run(router.generate_with_provider("fallback", request()))
+
+    assert primary.calls == 0
+    assert fallback.calls == 1
+    assert result["routing"]["selected_provider"] == "fallback"
+    assert result["routing"]["policy_selected"] is True
+    assert result["routing"]["fallback_used"] is False
+
+
+def test_policy_router_does_not_silently_fallback_after_selected_provider_failure():
+    selected = FakeProvider(
+        "selected",
+        error=TextGenerationProviderError(
+            "permanent failure", code="model_or_endpoint_not_found", retryable=False
+        ),
+    )
+    other = FakeProvider("other")
+    router = TextModelRouter([selected, other])
+
+    with pytest.raises(TextGenerationProviderError) as caught:
+        asyncio.run(router.generate_with_provider("selected", request()))
+
+    assert caught.value.code == "model_or_endpoint_not_found"
+    assert selected.calls == 1
+    assert other.calls == 0
+
+
+def test_policy_router_checks_immutable_model_identity_before_inference():
+    provider = FakeProvider("selected")
+    provider.model_id = "registered-model"
+    provider.model_revision = "revision-7"
+    router = TextModelRouter([provider])
+
+    with pytest.raises(TextGenerationProviderError) as caught:
+        asyncio.run(
+            router.generate_with_provider(
+                "selected",
+                request(),
+                expected_model_id="registered-model",
+                expected_model_revision="revision-8",
+            )
+        )
+
+    assert caught.value.code == "model_revision_mismatch"
+    assert provider.calls == 0
+
+
+def test_policy_router_rejects_unknown_provider_without_fallback():
+    primary = FakeProvider("primary")
+    router = TextModelRouter([primary])
+
+    with pytest.raises(TextGenerationProviderError) as caught:
+        asyncio.run(router.generate_with_provider("unregistered", request()))
+
+    assert caught.value.code == "provider_not_configured"
+    assert primary.calls == 0
+
+
+def test_text_router_rejects_duplicate_provider_names():
+    with pytest.raises(ValueError, match="names must be unique"):
+        TextModelRouter([FakeProvider("duplicate"), FakeProvider("duplicate")])

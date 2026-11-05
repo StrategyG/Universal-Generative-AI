@@ -1,3 +1,6 @@
+from urllib.parse import parse_qs, urlsplit
+
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -22,6 +25,9 @@ class Settings(BaseSettings):
     text_generation_timeout_seconds: float = 90.0
     text_generation_max_retries: int = 1
     text_generation_retry_backoff_seconds: float = 0.5
+    reasoning_route_catalog_json: str = ""
+    reasoning_permitted_data_regions: str = "ap-southeast-1"
+    reasoning_max_estimated_cost: float = Field(default=1.0, gt=0.0, le=100.0)
     text_generation_provider_order: str = (
         "openai-compatible-chat,openai-compatible-chat-fallback,"
         "anthropic-messages,gemini-generate-content"
@@ -43,6 +49,17 @@ class Settings(BaseSettings):
     external_worker_token: str = ""
     worker_admin_token: str = ""
     database_url: str = ""
+    workflow_database_url: str = ""
+    workflow_input_keyring_json: str = "{}"
+    workflow_input_active_key_id: str = ""
+    workflow_task_acceptance_enabled: bool = False
+    workflow_enabled_task_types: str = ""
+    workflow_worker_enabled: bool = False
+    workflow_worker_id: str = "ugai-notebook-worker"
+    workflow_worker_tenant_id: str = ""
+    workflow_worker_poll_seconds: float = Field(default=2.0, gt=0.1, le=30.0)
+    workflow_worker_lease_seconds: int = Field(default=45, ge=5, le=900)
+    workflow_worker_heartbeat_seconds: int = Field(default=12, ge=1, le=400)
     model_registry_enforcement: bool = False
     auth_mode: str = "disabled"
     oidc_issuer: str = ""
@@ -54,3 +71,29 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+
+def validate_database_configuration(config: Settings = settings) -> None:
+    """Fail closed when production PostgreSQL transport is not fully authenticated."""
+    environment = config.environment.strip().lower()
+    if environment not in {"production", "prod"}:
+        return
+    database_url = config.database_url.strip()
+    if not database_url:
+        raise RuntimeError("DATABASE_URL is required in production")
+    try:
+        parsed = urlsplit(database_url)
+        query = parse_qs(parsed.query, keep_blank_values=True)
+    except ValueError as exc:
+        raise RuntimeError("DATABASE_URL is invalid") from exc
+    modes = query.get("sslmode", [])
+    if (
+        parsed.scheme not in {"postgres", "postgresql"}
+        or not parsed.hostname
+        or len(modes) != 1
+        or modes[0].strip().lower() != "verify-full"
+    ):
+        raise RuntimeError(
+            "Production DATABASE_URL must use PostgreSQL with exactly one sslmode=verify-full"
+        )

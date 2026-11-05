@@ -63,3 +63,13 @@ Production must use a secret manager, verified authentication, PostgreSQL,
 approved immutable model revisions, least-privilege service credentials and
 explicit budget/resource limits. Development memory mode and mock providers are
 not production configurations.
+
+
+## Additional hardening on the current candidate
+
+Production API startup now requires a PostgreSQL DSN with exactly one `sslmode=verify-full`
+parameter before initializing the PostgreSQL-backed queue. CI covers the rejected modes
+(`prefer`, `require`, `verify-ca`, missing/duplicate mode and non-PostgreSQL schemes) and the
+accepted `verify-full` mode. This is a configuration gate; a live connection using the actual
+production CA, hostname and database credential remains required before the database transport
+gate can be marked DEPLOYED or production-verified.

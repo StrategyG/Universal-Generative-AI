@@ -16,9 +16,10 @@ from app.auth import (
 )
 
 from app.ai_schemas import AICompletionRequest, AICompletionResponse
-from app.config import settings
+from app.config import settings, validate_database_configuration
 from app.observability import RequestObservabilityMiddleware, configure_logging
 from app.providers.router import TextModelRouter
+from app.reasoning.api import router as reasoning_router
 from app.providers.text_errors import TextGenerationProviderError
 from app.pipelines.planner import build_pipeline_plan
 from app.pipelines.schemas import PipelinePlan, PipelineRequest
@@ -49,6 +50,8 @@ from app.services.external_gpu_queue import (
     revoke_worker,
 )
 from app.services.jobs import get_job, submit_job
+from app.workflow_runtime import open_workflow_runtime
+from app.workflow_tasks import router as workflow_tasks_router
 from app.services.model_registry_errors import (
     ModelApprovalRequiredError,
     ModelRegistryConflictError,
@@ -81,18 +84,26 @@ from app.workers.schemas import (
 
 
 @contextlib.asynccontextmanager
-async def lifespan(_: FastAPI) -> collections.abc.AsyncIterator[None]:
+async def lifespan(application: FastAPI) -> collections.abc.AsyncIterator[None]:
     validate_auth_configuration()
+    validate_database_configuration()
     await initialize_queue()
+    workflow_runtime = None
     try:
+        workflow_runtime = await open_workflow_runtime()
+        application.state.workflow_runtime = workflow_runtime
         yield
     finally:
+        if workflow_runtime is not None:
+            await workflow_runtime.close()
         await close_queue()
 
 
 configure_logging()
 app = FastAPI(title=settings.app_name, version="0.5.0", lifespan=lifespan)
 app.add_middleware(RequestObservabilityMiddleware)
+app.include_router(reasoning_router)
+app.include_router(workflow_tasks_router)
 
 
 def require_worker_token(token: str | None) -> None:

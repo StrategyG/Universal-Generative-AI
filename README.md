@@ -191,3 +191,19 @@ When PostgreSQL is configured, `/api/v1/generate` writes its running and termina
 ## Status
 
 **Advanced prototype scaffold; not production-ready.** The repository does not contain newly trained foundation-model weights. The Diffusers adapter loads a configured pretrained checkpoint; the mock adapter is for tests only. Pipeline plans are contracts and resource estimates, not proof that a pipeline can execute.
+
+
+## UGAI Intelligence integration candidate
+
+The decision, IM19 client, durable workflow, evidence audit and replication packages are being consolidated with the model platform and reasoning contracts on an isolated Draft integration branch. See [UGAI Intelligence Integration Candidate](docs/UGAI_INTELLIGENCE_INTEGRATION_CANDIDATE.md) for scope, ownership boundaries, tests and outstanding production gates.
+
+This is an integration candidate, not a production release. Live IM19/RAG/Notebook/Cloudbrowser staging, PostgreSQL VM replication, Google Drive restore, and release acceptance remain unverified.
+
+
+## Production PostgreSQL transport
+
+Production startup now fails closed unless `DATABASE_URL` is a PostgreSQL URI with exactly one
+`sslmode=verify-full` parameter. The UGAI PostgreSQL queue uses asyncpg; its DSN parser supports
+`sslmode=verify-full` and verifies both the certificate chain and the server hostname. When using
+a private certificate authority, provide an approved `sslrootcert` path in the DSN. Do not replace
+this with `sslmode=require`, `verify-ca`, or `prefer`.
