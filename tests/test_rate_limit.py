@@ -26,7 +26,7 @@ async def test_in_memory_backend_enforces_fixed_window_limit():
 
 
 @pytest.mark.asyncio
-async def test_memory_backend_reclaims_expired_keys():
+async def test_memory_backend_clears_counters_on_close():
     backend = InMemoryRateLimitBackend()
     await backend.increment("client-a", 60)
     assert "client-a" in backend._values
