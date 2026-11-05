@@ -53,9 +53,6 @@ class FakeWorkflowStore:
     def __init__(self) -> None:
         self.tasks: dict[UUID, SimpleNamespace] = {}
 
-    async def has_active_worker(self, *, tenant_id: str, task_type: str, max_age_seconds: int = 60):
-        return True
-
     async def create_task(self, **kwargs):
         task_id = uuid4()
         task = SimpleNamespace(
