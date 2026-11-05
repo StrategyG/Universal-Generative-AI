@@ -21,7 +21,15 @@ _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _IDEMPOTENCY = re.compile(r"^[A-Za-z0-9._:-]{8,128}$")
 _SAFE_CODE = re.compile(r"^[a-z][a-z0-9_:-]{0,79}$")
 _SAFE_METADATA_KEYS = frozenset(
-    {"request_ref", "source_ref", "context_ref", "schema_version", "correlation_id", "project_id"}
+    {
+        "request_ref",
+        "source_ref",
+        "context_ref",
+        "schema_version",
+        "correlation_id",
+        "project_id",
+        "workspace_id",
+    }
 )
 _SAFE_EVENT_KEYS = frozenset(
     {
@@ -287,6 +295,32 @@ class PostgresWorkflowStore:
                     """,
                     tenant_id, worker_id,
                 )
+
+    async def workspace_is_bound(
+        self, *, tenant_id: str, workspace_id: UUID, project_id: str
+    ) -> bool:
+        _validate_text("tenant_id", tenant_id, 128)
+        _validate_text("project_id", project_id, 128)
+        if not isinstance(workspace_id, UUID):
+            raise ValueError("workspace_id_invalid")
+        async with self._pool.acquire() as connection:
+            async with connection.transaction():
+                await connection.fetchval(
+                    "SELECT set_config('app.ugai_tenant_id', $1, true)", tenant_id
+                )
+                return bool(await connection.fetchval(
+                    """
+                    SELECT EXISTS (
+                        SELECT 1
+                        FROM ugai_workflow.workspace_bindings
+                        WHERE tenant_id = $1
+                          AND workspace_id = $2
+                          AND project_id = $3
+                          AND status = 'active'
+                    )
+                    """,
+                    tenant_id, workspace_id, project_id,
+                ))
 
     async def has_active_worker(
         self, *, tenant_id: str, task_type: str, max_age_seconds: int = 60
