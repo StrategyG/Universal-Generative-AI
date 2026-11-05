@@ -82,6 +82,7 @@ class TaskStateCode(StrEnum):
     APPROVAL = "APPROVAL"
     WAITING = "WAITING"
     BLOCKED = "BLOCKED"
+    OUTCOME_UNKNOWN = "OUTCOME_UNKNOWN"
     FAILED = "FAILED"
     COMPLETED = "COMPLETED"
     CANCELLED = "CANCELLED"
@@ -111,6 +112,7 @@ _STATE_PROJECTION = {
     TaskState.AWAITING_APPROVAL: TaskStateCode.APPROVAL,
     TaskState.AWAITING_CLARIFICATION: TaskStateCode.WAITING,
     TaskState.BLOCKED: TaskStateCode.BLOCKED,
+    TaskState.OUTCOME_UNKNOWN: TaskStateCode.OUTCOME_UNKNOWN,
     TaskState.FAILED: TaskStateCode.FAILED,
     TaskState.SUCCEEDED: TaskStateCode.COMPLETED,
     TaskState.CANCELLED: TaskStateCode.CANCELLED,
@@ -290,6 +292,13 @@ async def cancel_task(
     except HTTPException as exc:
         raise HTTPException(status_code=404, detail={"code": "task_not_found"}) from exc
 
+    # A project member may be allowed to view project metadata, but task
+    # cancellation is an owner/admin operation. Do not let another project
+    # collaborator cancel a task they did not submit.
+    if task.actor_id != principal.subject and not principal.roles.intersection(
+        {"tenant_admin", "platform_admin"}
+    ):
+        raise HTTPException(status_code=404, detail={"code": "task_not_found"})
     if task.state is TaskState.CANCELLED:
         return _status(task)
     try:
