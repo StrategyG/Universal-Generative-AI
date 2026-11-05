@@ -162,12 +162,28 @@ async def create_task_input(
     require_generation_role(principal)
     ensure_project_access(principal, payload.project_id)
     _require_acceptance(runtime)
+    try:
+        workspace_bound = await runtime.store.workspace_is_bound(
+            tenant_id=principal.tenant_id,
+            workspace_id=payload.workspace_id,
+            project_id=payload.project_id,
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "workspace_registry_unavailable"},
+        ) from exc
+    if not workspace_bound:
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "workspace_project_binding_required"},
+        )
 
     protected_payload = payload.model_dump(mode="json", exclude={"project_id"})
     try:
         stored = await runtime.inputs.put(
             tenant_id=principal.tenant_id,
-            actor_id=principal.subject,
+            actor_id=principal.actor_id,
             project_id=payload.project_id,
             workspace_id=payload.workspace_id,
             notebook_id=payload.notebook_id,
@@ -227,7 +243,7 @@ async def submit_task(
         stored_input = await runtime.inputs.get_metadata(
             input_ref=payload.input_ref,
             tenant_id=principal.tenant_id,
-            actor_id=principal.subject,
+            actor_id=principal.actor_id,
         )
     except WorkflowInputNotFound as exc:
         raise HTTPException(status_code=404, detail={"code": "task_input_not_found"}) from exc
@@ -237,13 +253,18 @@ async def submit_task(
     if (
         stored_input.project_id != payload.project_id
         or stored_input.input_digest != payload.input_digest
+        or not await runtime.store.workspace_is_bound(
+            tenant_id=principal.tenant_id,
+            workspace_id=stored_input.workspace_id,
+            project_id=payload.project_id,
+        )
     ):
         raise HTTPException(status_code=409, detail={"code": "task_input_scope_or_digest_mismatch"})
 
     try:
         task = await runtime.store.create_task(
             tenant_id=principal.tenant_id,
-            actor_id=principal.subject,
+            actor_id=principal.actor_id,
             task_type=payload.task_type,
             idempotency_key=idempotency_key,
             input_digest=payload.input_digest,
@@ -311,7 +332,7 @@ async def cancel_task(
     # A project member may be allowed to view project metadata, but task
     # cancellation is an owner/admin operation. Do not let another project
     # collaborator cancel a task they did not submit.
-    if task.actor_id != principal.subject and not principal.roles.intersection(
+    if task.actor_id != principal.actor_id and not principal.roles.intersection(
         {"tenant_admin", "platform_admin"}
     ):
         raise HTTPException(status_code=404, detail={"code": "task_not_found"})
@@ -323,7 +344,7 @@ async def cancel_task(
             tenant_id=principal.tenant_id,
             expected_version=task.version,
             target=TaskState.CANCELLED,
-            actor_id=principal.subject,
+            actor_id=principal.actor_id,
             reason_code="user_requested_cancel",
             require_lease=False,
         )
