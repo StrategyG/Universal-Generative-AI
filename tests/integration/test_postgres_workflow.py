@@ -80,6 +80,27 @@ async def workflow_database():
             ).read_text(encoding="utf-8")
             await admin.execute(migration)
 
+        for table_name, migration_name in (
+            ("results", "0005_ugai_workflow_encrypted_results.sql"),
+            ("workers", "0006_ugai_workflow_worker_registry.sql"),
+        ):
+            table_exists = await admin.fetchval(
+                """
+                SELECT EXISTS (
+                    SELECT 1 FROM pg_class c
+                    JOIN pg_namespace n ON n.oid = c.relnamespace
+                    WHERE n.nspname = 'ugai_workflow' AND c.relname = $1
+                )
+                """,
+                table_name,
+            )
+            if not table_exists:
+                root = Path(__file__).resolve().parents[2]
+                migration = (root / "postgres" / "migrations" / migration_name).read_text(
+                    encoding="utf-8"
+                )
+                await admin.execute(migration)
+
         await ensure_role(
             "ugai_workflow_test",
             "CREATE ROLE ugai_workflow_test LOGIN PASSWORD 'workflow-test-only'",
