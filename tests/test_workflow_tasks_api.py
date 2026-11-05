@@ -42,6 +42,9 @@ class FakeWorkflowStore:
     def __init__(self) -> None:
         self.tasks: dict[UUID, SimpleNamespace] = {}
 
+    async def has_active_worker(self, *, tenant_id: str, task_type: str, max_age_seconds: int = 60):
+        return True
+
     async def create_task(self, **kwargs):
         task_id = uuid4()
         task = SimpleNamespace(
@@ -67,11 +70,22 @@ class FakeWorkflowStore:
         return task
 
 
+class FakeResultVault:
+    async def get(self, **kwargs):
+        return {
+            "task_id": str(kwargs["task_id"]),
+            "verification_status": "needs_human_review",
+            "human_review_required": True,
+            "candidate_answer": "candidate",
+        }
+
+
 class FakeWorkflowRuntime:
     def __init__(self, *, enabled: bool = True, task_types: frozenset[str] = frozenset({"notebook_request"})):
         self.pool = object()
         self.inputs = FakeInputVault()
         self.store = FakeWorkflowStore()
+        self.results = FakeResultVault()
         self.task_acceptance_enabled = enabled
         self.enabled_task_types = task_types
 
@@ -210,6 +224,42 @@ def test_non_owner_cannot_cancel_another_users_task() -> None:
 
     assert response.status_code == 404
     assert runtime.store.tasks[task_id].state is TaskState.RECEIVED
+
+
+def test_task_submission_requires_fresh_registered_worker() -> None:
+    runtime = FakeWorkflowRuntime()
+    runtime.store.has_active_worker = lambda **kwargs: _async_false()
+    with _client(runtime) as client:
+        input_response = client.post(
+            "/api/v1/task-inputs",
+            headers={"Idempotency-Key": "input-no-worker-0001"},
+            json={
+                "project_id": "project-1",
+                "workspace_id": str(uuid4()),
+                "intent": "must not queue without worker",
+            },
+        )
+        body = input_response.json()
+        response = client.post(
+            "/api/v1/tasks",
+            headers={
+                "X-Request-ID": str(uuid4()),
+                "Idempotency-Key": "notebook-no-worker-0001",
+            },
+            json={
+                "project_id": "project-1",
+                "input_ref": body["input_ref"],
+                "input_digest": body["input_digest"],
+                "task_type": "notebook_request",
+            },
+        )
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "task_worker_unavailable"
+    assert runtime.store.tasks == {}
+
+
+async def _async_false():
+    return False
 
 
 def test_task_api_is_fail_closed_when_acceptance_is_disabled() -> None:
