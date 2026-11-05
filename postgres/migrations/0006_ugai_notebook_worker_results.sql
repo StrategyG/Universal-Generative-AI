@@ -150,7 +150,7 @@ BEGIN
         );
     END IF;
 END
-$;
+$$;
 GRANT SELECT ON ugai_workflow.task_payloads TO ugai_workflow_worker;
 
 CREATE POLICY ugai_workflow_tasks_worker
