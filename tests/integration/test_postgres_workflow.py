@@ -227,6 +227,173 @@ async def test_expired_lease_is_refenced_and_old_worker_is_rejected(workflow_dat
 
 
 @pytest.mark.asyncio
+async def test_expired_execution_lease_is_quarantined_not_reclaimed(workflow_database) -> None:
+    pool, admin = workflow_database
+    store = PostgresWorkflowStore(pool)
+    tenant = f"tenant-{uuid4()}"
+    executing_task = await store.create_task(
+        **new_task_args(tenant_id=tenant, suffix=str(uuid4()))
+    )
+    first_lease = await store.claim_next(
+        tenant_id=tenant,
+        worker_id="worker-side-effect",
+        supported_task_types=("integration_work",),
+        lease_seconds=30,
+    )
+    assert first_lease is not None
+    assert first_lease.task_id == executing_task.task_id
+
+    pending_task = await store.create_task(
+        **new_task_args(tenant_id=tenant, suffix=str(uuid4()))
+    )
+    await admin.execute(
+        """
+        UPDATE ugai_workflow.tasks
+        SET state = 'executing',
+            lease_expires_at = clock_timestamp() - interval '1 second'
+        WHERE task_id = $1
+        """,
+        executing_task.task_id,
+    )
+
+    next_claim = await store.claim_next(
+        tenant_id=tenant,
+        worker_id="worker-next",
+        supported_task_types=("integration_work",),
+        lease_seconds=30,
+    )
+    assert next_claim is not None
+    assert next_claim.task_id == pending_task.task_id
+
+    quarantined = await store.get_task(task_id=executing_task.task_id, tenant_id=tenant)
+    assert quarantined.state is TaskState.OUTCOME_UNKNOWN
+    assert quarantined.lease_token is None
+    assert quarantined.retryable is False
+    assert quarantined.error_code == "outcome_unknown"
+
+    event = await admin.fetchrow(
+        """
+        SELECT event_type, from_state, to_state, details
+        FROM ugai_workflow.events
+        WHERE task_id = $1
+        ORDER BY event_id DESC
+        LIMIT 1
+        """,
+        executing_task.task_id,
+    )
+    assert event is not None
+    assert event["event_type"] == "execution_lease_expired"
+    assert event["from_state"] == "executing"
+    assert event["to_state"] == "outcome_unknown"
+
+    with pytest.raises(LeaseLost):
+        await store.heartbeat(
+            task_id=executing_task.task_id,
+            tenant_id=tenant,
+            lease=LeaseIdentity("worker-side-effect", first_lease.lease_token),
+            lease_seconds=30,
+        )
+
+
+@pytest.mark.asyncio
+async def test_unknown_outcome_requires_verified_evidence_for_reconciliation(workflow_database) -> None:
+    pool, _admin = workflow_database
+    store = PostgresWorkflowStore(pool)
+    tenant = f"tenant-{uuid4()}"
+    task = await store.create_task(**new_task_args(tenant_id=tenant, suffix=str(uuid4())))
+    # Move through the same initial state transition used by the worker.
+    claimed = await store.claim_next(
+        tenant_id=tenant,
+        worker_id="worker-uncertain",
+        supported_task_types=("integration_work",),
+        lease_seconds=30,
+    )
+    assert claimed is not None
+    claimed = await store.transition(
+        task_id=task.task_id,
+        tenant_id=tenant,
+        expected_version=claimed.version,
+        target=TaskState.OBSERVING,
+        actor_id=claimed.actor_id,
+        reason_code="observed",
+        lease=LeaseIdentity("worker-uncertain", claimed.lease_token),
+    )
+    claimed = await store.claim_next(
+        tenant_id=tenant,
+        worker_id="worker-uncertain",
+        supported_task_types=("integration_work",),
+        lease_seconds=30,
+    )
+    assert claimed is not None
+    claimed = await store.transition(
+        task_id=task.task_id,
+        tenant_id=tenant,
+        expected_version=claimed.version,
+        target=TaskState.PLANNING,
+        actor_id=claimed.actor_id,
+        reason_code="planned",
+        lease=LeaseIdentity("worker-uncertain", claimed.lease_token),
+    )
+    claimed = await store.claim_next(
+        tenant_id=tenant,
+        worker_id="worker-uncertain",
+        supported_task_types=("integration_work",),
+        lease_seconds=30,
+    )
+    assert claimed is not None
+    claimed = await store.transition(
+        task_id=task.task_id,
+        tenant_id=tenant,
+        expected_version=claimed.version,
+        target=TaskState.EXECUTING,
+        actor_id=claimed.actor_id,
+        reason_code="execution_started",
+        lease=LeaseIdentity("worker-uncertain", claimed.lease_token),
+    )
+    claimed = await store.claim_next(
+        tenant_id=tenant,
+        worker_id="worker-uncertain",
+        supported_task_types=("integration_work",),
+        lease_seconds=30,
+    )
+    assert claimed is not None
+    uncertain = await store.transition(
+        task_id=task.task_id,
+        tenant_id=tenant,
+        expected_version=claimed.version,
+        target=TaskState.OUTCOME_UNKNOWN,
+        actor_id=claimed.actor_id,
+        reason_code="external_outcome_unknown",
+        lease=LeaseIdentity("worker-uncertain", claimed.lease_token),
+        error_code="outcome_unknown",
+    )
+    with pytest.raises(PermissionError, match="reconciliation_evidence_required"):
+        await store.transition(
+            task_id=task.task_id,
+            tenant_id=tenant,
+            expected_version=uncertain.version,
+            target=TaskState.VERIFYING,
+            actor_id="trusted-reconciler",
+            reason_code="external_outcome_reconciled",
+            require_lease=False,
+            metadata={},
+        )
+
+    reconciled = await store.transition(
+        task_id=task.task_id,
+        tenant_id=tenant,
+        expected_version=uncertain.version,
+        target=TaskState.VERIFYING,
+        actor_id="trusted-reconciler",
+        reason_code="external_outcome_reconciled",
+        require_lease=False,
+        reconciliation_verified=True,
+        metadata={"evidence_digest": "e" * 64},
+    )
+    assert reconciled.state is TaskState.VERIFYING
+
+
+@pytest.mark.asyncio
 async def test_retry_scheduler_requeues_only_due_retryable_failures(workflow_database) -> None:
     pool, admin = workflow_database
     store = PostgresWorkflowStore(pool)
