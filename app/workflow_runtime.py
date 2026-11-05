@@ -89,7 +89,7 @@ async def _assert_restricted_runtime_role(pool: object) -> None:
                     JOIN pg_namespace AS relation_namespace
                       ON relation_namespace.oid = relation.relnamespace
                     WHERE relation_namespace.nspname = 'ugai_workflow'
-                      AND relation.relname IN ('tasks', 'events', 'artifacts', 'inputs')
+                      AND relation.relname IN ('tasks', 'events', 'artifacts', 'inputs', 'results', 'workers', 'workspace_bindings')
                       AND pg_has_role(current_user, relation.relowner, 'member')
                 ) AS not_table_owner,
                 has_schema_privilege(current_user, 'ugai_workflow', 'USAGE')
