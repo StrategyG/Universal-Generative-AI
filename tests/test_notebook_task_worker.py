@@ -76,6 +76,7 @@ def make_task(state: TaskState):
         actor_id="principal:" + "a" * 64,
         task_type="notebook_request",
         state=state,
+        version=5,
         metadata={
             "context_ref": str(uuid4()),
             "project_id": project_id,
