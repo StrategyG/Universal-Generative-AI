@@ -22,6 +22,8 @@ class MemoryWorkflowStore:
         self.tasks: dict[tuple[str, object], SimpleNamespace] = {}
         self.by_id: dict[object, tuple[str, object]] = {}
         self.payloads: dict[object, tuple[str, bytes, str]] = {}
+        self.results: dict[object, tuple[str, bytes, str]] = {}
+        self.healthy_worker = True
         self.transition_calls = 0
 
     async def create_task(self, **values):
@@ -79,6 +81,15 @@ class MemoryWorkflowStore:
         if key is None or key[0] != tenant_id:
             raise TaskNotFound(str(task_id))
         return self.tasks[key]
+
+    async def has_healthy_worker(self, **_kwargs):
+        return self.healthy_worker
+
+    async def get_encrypted_result(self, *, tenant_id, task_id):
+        key = self.by_id.get(task_id)
+        if key is None or key[0] != tenant_id:
+            return None
+        return self.results.get(task_id)
 
     async def transition(
         self, *, task_id, tenant_id, expected_version, target, actor_id,
@@ -290,3 +301,86 @@ def test_unknown_external_outcome_is_visible_and_cannot_be_cancelled(runtime):
     assert status_response.json()["state"] == "outcome_unknown"
     assert cancel_response.status_code == 409
     assert cancel_response.json()["detail"]["code"] == "task_outcome_requires_reconciliation"
+
+
+def test_submit_task_fails_closed_when_dedicated_worker_is_unhealthy(runtime):
+    store, _cipher = runtime
+    store.healthy_worker = False
+    client = TestClient(app)
+    response = client.post(
+        "/api/v1/tasks",
+        headers={"Idempotency-Key": "notebook-task-0009"},
+        json=payload(),
+    )
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "notebook_worker_unavailable"
+    assert store.tasks == {}
+
+
+def test_task_result_is_decrypted_only_after_success_and_keeps_human_review_required(runtime):
+    store, cipher = runtime
+    client = TestClient(app)
+    created = client.post(
+        "/api/v1/tasks",
+        headers={"Idempotency-Key": "notebook-task-0010"},
+        json=payload(),
+    )
+    assert created.status_code == 202
+    task_id = __import__("uuid").UUID(created.json()["task_id"])
+    key = store.by_id[task_id]
+    task = store.tasks[key]
+    result = {
+        "task_id": str(task_id),
+        "project_id": "project-a",
+        "candidate_answer": "A candidate answer",
+        "independent_review": "A separate critique",
+        "verification_status": "needs_human_review",
+        "human_review_required": True,
+        "tool_execution_performed": False,
+    }
+    encrypted, digest = cipher.encrypt(result)
+    store.results[task_id] = (cipher.key_id, encrypted, digest)
+
+    not_ready = client.get(f"/api/v1/tasks/{task_id}/result")
+    assert not_ready.status_code == 409
+    task.state = TaskState.SUCCEEDED
+    ready = client.get(f"/api/v1/tasks/{task_id}/result")
+    assert ready.status_code == 200, ready.text
+    assert ready.json()["result_sha256"] == digest
+    assert ready.json()["result"]["candidate_answer"] == "A candidate answer"
+    assert ready.json()["verification_status"] == "needs_human_review"
+    assert ready.json()["human_review_required"] is True
+
+
+def test_task_result_does_not_cross_project_scope(runtime):
+    store, cipher = runtime
+    client = TestClient(app)
+    created = client.post(
+        "/api/v1/tasks",
+        headers={"Idempotency-Key": "notebook-task-0011"},
+        json=payload(),
+    )
+    task_id = __import__("uuid").UUID(created.json()["task_id"])
+    key = store.by_id[task_id]
+    task = store.tasks[key]
+    task.state = TaskState.SUCCEEDED
+    result = {
+        "task_id": str(task_id),
+        "project_id": "project-a",
+        "candidate_answer": "answer",
+        "independent_review": "review",
+        "verification_status": "needs_human_review",
+        "human_review_required": True,
+        "tool_execution_performed": False,
+    }
+    encrypted, digest = cipher.encrypt(result)
+    store.results[task_id] = (cipher.key_id, encrypted, digest)
+    app.dependency_overrides[get_current_principal] = lambda: Principal(
+        subject="user-a", tenant_id="tenant-a", roles=frozenset({"read_only"}),
+        project_ids=frozenset({"different-project"}), auth_mode="oidc",
+    )
+    try:
+        response = client.get(f"/api/v1/tasks/{task_id}/result")
+    finally:
+        app.dependency_overrides.clear()
+    assert response.status_code == 403
