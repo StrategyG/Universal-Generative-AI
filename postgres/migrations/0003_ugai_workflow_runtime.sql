@@ -24,7 +24,7 @@ create table if not exists ugai_workflow.tasks (
     state text not null default 'received'
         check (state = any (array[
             'received','observing','planning','executing','verifying',
-            'awaiting_approval','awaiting_clarification','blocked',
+            'awaiting_approval','awaiting_clarification','blocked','outcome_unknown',
             'failed','succeeded','cancelled'
         ])),
     version bigint not null default 0 check (version >= 0),
@@ -46,6 +46,7 @@ create table if not exists ugai_workflow.tasks (
     created_at timestamptz not null default now(),
     updated_at timestamptz not null default now(),
     constraint uq_ugai_workflow_task_idempotency unique (tenant_id, idempotency_key),
+    constraint uq_ugai_workflow_task_tenant_id unique (tenant_id, task_id),
     constraint ck_ugai_workflow_lease_consistency check (
         (lease_owner is null and lease_token is null and lease_expires_at is null)
         or

@@ -18,6 +18,14 @@ from ugai_workflow import (
     TaskNotFound,
     TaskState,
 )
+from app.workflow_runtime import _assert_restricted_runtime_role
+
+from ugai_workflow.input_vault import (
+    WorkflowInputConflict,
+    WorkflowInputNotFound,
+    WorkflowInputVault,
+)
+from ugai_workflow.result_vault import WorkflowResultConflict, WorkflowResultVault
 
 ADMIN_DSN = os.getenv("UGAI_WORKFLOW_TEST_ADMIN_URL")
 RUNTIME_DSN = os.getenv("UGAI_WORKFLOW_TEST_RUNTIME_URL")
@@ -57,6 +65,44 @@ async def workflow_database():
             ).read_text(encoding="utf-8")
             await admin.execute(migration)
 
+        input_table_exists = await admin.fetchval(
+            """
+            SELECT EXISTS (
+                SELECT 1 FROM pg_class c
+                JOIN pg_namespace n ON n.oid = c.relnamespace
+                WHERE n.nspname = 'ugai_workflow' AND c.relname = 'inputs'
+            )
+            """
+        )
+        if not input_table_exists:
+            root = Path(__file__).resolve().parents[2]
+            migration = (
+                root / "postgres" / "migrations" / "0004_ugai_workflow_encrypted_inputs.sql"
+            ).read_text(encoding="utf-8")
+            await admin.execute(migration)
+
+        for table_name, migration_name in (
+            ("results", "0005_ugai_workflow_encrypted_results.sql"),
+            ("workers", "0006_ugai_workflow_worker_registry.sql"),
+            ("workspace_bindings", "0007_ugai_workflow_workspace_bindings.sql"),
+        ):
+            table_exists = await admin.fetchval(
+                """
+                SELECT EXISTS (
+                    SELECT 1 FROM pg_class c
+                    JOIN pg_namespace n ON n.oid = c.relnamespace
+                    WHERE n.nspname = 'ugai_workflow' AND c.relname = $1
+                )
+                """,
+                table_name,
+            )
+            if not table_exists:
+                root = Path(__file__).resolve().parents[2]
+                migration = (root / "postgres" / "migrations" / migration_name).read_text(
+                    encoding="utf-8"
+                )
+                await admin.execute(migration)
+
         await ensure_role(
             "ugai_workflow_test",
             "CREATE ROLE ugai_workflow_test LOGIN PASSWORD 'workflow-test-only'",
@@ -89,6 +135,7 @@ def new_task_args(*, tenant_id: str, actor_id: str = "integration-actor", suffix
 @pytest.mark.asyncio
 async def test_database_enforces_tenant_rls_and_idempotency(workflow_database) -> None:
     pool, _admin = workflow_database
+    await _assert_restricted_runtime_role(pool)
     store = PostgresWorkflowStore(pool)
     tenant = f"tenant-{uuid4()}"
     args = new_task_args(tenant_id=tenant, suffix=str(uuid4()))
@@ -200,6 +247,173 @@ async def test_expired_lease_is_refenced_and_old_worker_is_rejected(workflow_dat
             lease=LeaseIdentity("worker-old", first.lease_token),
             lease_seconds=30,
         )
+
+
+@pytest.mark.asyncio
+async def test_expired_execution_lease_is_quarantined_not_reclaimed(workflow_database) -> None:
+    pool, admin = workflow_database
+    store = PostgresWorkflowStore(pool)
+    tenant = f"tenant-{uuid4()}"
+    executing_task = await store.create_task(
+        **new_task_args(tenant_id=tenant, suffix=str(uuid4()))
+    )
+    first_lease = await store.claim_next(
+        tenant_id=tenant,
+        worker_id="worker-side-effect",
+        supported_task_types=("integration_work",),
+        lease_seconds=30,
+    )
+    assert first_lease is not None
+    assert first_lease.task_id == executing_task.task_id
+
+    pending_task = await store.create_task(
+        **new_task_args(tenant_id=tenant, suffix=str(uuid4()))
+    )
+    await admin.execute(
+        """
+        UPDATE ugai_workflow.tasks
+        SET state = 'executing',
+            lease_expires_at = clock_timestamp() - interval '1 second'
+        WHERE task_id = $1
+        """,
+        executing_task.task_id,
+    )
+
+    next_claim = await store.claim_next(
+        tenant_id=tenant,
+        worker_id="worker-next",
+        supported_task_types=("integration_work",),
+        lease_seconds=30,
+    )
+    assert next_claim is not None
+    assert next_claim.task_id == pending_task.task_id
+
+    quarantined = await store.get_task(task_id=executing_task.task_id, tenant_id=tenant)
+    assert quarantined.state is TaskState.OUTCOME_UNKNOWN
+    assert quarantined.lease_token is None
+    assert quarantined.retryable is False
+    assert quarantined.error_code == "outcome_unknown"
+
+    event = await admin.fetchrow(
+        """
+        SELECT event_type, from_state, to_state, details
+        FROM ugai_workflow.events
+        WHERE task_id = $1
+        ORDER BY event_id DESC
+        LIMIT 1
+        """,
+        executing_task.task_id,
+    )
+    assert event is not None
+    assert event["event_type"] == "execution_lease_expired"
+    assert event["from_state"] == "executing"
+    assert event["to_state"] == "outcome_unknown"
+
+    with pytest.raises(LeaseLost):
+        await store.heartbeat(
+            task_id=executing_task.task_id,
+            tenant_id=tenant,
+            lease=LeaseIdentity("worker-side-effect", first_lease.lease_token),
+            lease_seconds=30,
+        )
+
+
+@pytest.mark.asyncio
+async def test_unknown_outcome_requires_verified_evidence_for_reconciliation(workflow_database) -> None:
+    pool, _admin = workflow_database
+    store = PostgresWorkflowStore(pool)
+    tenant = f"tenant-{uuid4()}"
+    task = await store.create_task(**new_task_args(tenant_id=tenant, suffix=str(uuid4())))
+    # Move through the same initial state transition used by the worker.
+    claimed = await store.claim_next(
+        tenant_id=tenant,
+        worker_id="worker-uncertain",
+        supported_task_types=("integration_work",),
+        lease_seconds=30,
+    )
+    assert claimed is not None
+    claimed = await store.transition(
+        task_id=task.task_id,
+        tenant_id=tenant,
+        expected_version=claimed.version,
+        target=TaskState.OBSERVING,
+        actor_id=claimed.actor_id,
+        reason_code="observed",
+        lease=LeaseIdentity("worker-uncertain", claimed.lease_token),
+    )
+    claimed = await store.claim_next(
+        tenant_id=tenant,
+        worker_id="worker-uncertain",
+        supported_task_types=("integration_work",),
+        lease_seconds=30,
+    )
+    assert claimed is not None
+    claimed = await store.transition(
+        task_id=task.task_id,
+        tenant_id=tenant,
+        expected_version=claimed.version,
+        target=TaskState.PLANNING,
+        actor_id=claimed.actor_id,
+        reason_code="planned",
+        lease=LeaseIdentity("worker-uncertain", claimed.lease_token),
+    )
+    claimed = await store.claim_next(
+        tenant_id=tenant,
+        worker_id="worker-uncertain",
+        supported_task_types=("integration_work",),
+        lease_seconds=30,
+    )
+    assert claimed is not None
+    claimed = await store.transition(
+        task_id=task.task_id,
+        tenant_id=tenant,
+        expected_version=claimed.version,
+        target=TaskState.EXECUTING,
+        actor_id=claimed.actor_id,
+        reason_code="execution_started",
+        lease=LeaseIdentity("worker-uncertain", claimed.lease_token),
+    )
+    claimed = await store.claim_next(
+        tenant_id=tenant,
+        worker_id="worker-uncertain",
+        supported_task_types=("integration_work",),
+        lease_seconds=30,
+    )
+    assert claimed is not None
+    uncertain = await store.transition(
+        task_id=task.task_id,
+        tenant_id=tenant,
+        expected_version=claimed.version,
+        target=TaskState.OUTCOME_UNKNOWN,
+        actor_id=claimed.actor_id,
+        reason_code="external_outcome_unknown",
+        lease=LeaseIdentity("worker-uncertain", claimed.lease_token),
+        error_code="outcome_unknown",
+    )
+    with pytest.raises(PermissionError, match="reconciliation_evidence_required"):
+        await store.transition(
+            task_id=task.task_id,
+            tenant_id=tenant,
+            expected_version=uncertain.version,
+            target=TaskState.VERIFYING,
+            actor_id="trusted-reconciler",
+            reason_code="external_outcome_reconciled",
+            require_lease=False,
+            metadata={},
+        )
+
+    reconciled = await store.transition(
+        task_id=task.task_id,
+        tenant_id=tenant,
+        expected_version=uncertain.version,
+        target=TaskState.VERIFYING,
+        actor_id="trusted-reconciler",
+        reason_code="external_outcome_reconciled",
+        require_lease=False,
+        reconciliation_verified=True,
+        metadata={"evidence_digest": "e" * 64},
+    )
+    assert reconciled.state is TaskState.VERIFYING
 
 
 @pytest.mark.asyncio
@@ -326,3 +540,266 @@ async def test_decision_approval_reference_and_digests_are_durable(workflow_data
     assert persisted.approval_reference == approval_reference
     assert persisted.decision_digest == decision_digest
     assert persisted.plan_digest == plan_digest
+
+@pytest.mark.asyncio
+async def test_encrypted_result_vault_is_immutable_and_actor_scoped(workflow_database) -> None:
+    pool, _admin = workflow_database
+    store = PostgresWorkflowStore(pool)
+    tenant = f"tenant-{uuid4()}"
+    actor = "principal:" + "a" * 64
+    task = await store.create_task(**new_task_args(
+        tenant_id=tenant,
+        actor_id=actor,
+        suffix=str(uuid4()),
+    ))
+    key = bytes(range(32))
+    vault = WorkflowResultVault(
+        pool=pool,
+        active_key_id="test-result-v1",
+        keyring={"test-result-v1": key},
+    )
+    payload = {
+        "task_id": str(task.task_id),
+        "candidate_answer": "reviewable answer",
+        "human_review_required": True,
+    }
+    digest = await vault.put(
+        tenant_id=tenant,
+        actor_id=actor,
+        project_id="project-1",
+        task_id=task.task_id,
+        payload=payload,
+    )
+    repeated = await vault.put(
+        tenant_id=tenant,
+        actor_id=actor,
+        project_id="project-1",
+        task_id=task.task_id,
+        payload=payload,
+    )
+    assert repeated == digest
+    assert await vault.get(
+        tenant_id=tenant,
+        actor_id=actor,
+        project_id="project-1",
+        task_id=task.task_id,
+    ) == payload
+
+    with pytest.raises(WorkflowInputNotFound):
+        await vault.get(
+            tenant_id=tenant,
+            actor_id="principal:" + "b" * 64,
+            project_id="project-1",
+            task_id=task.task_id,
+        )
+    with pytest.raises(WorkflowResultConflict):
+        await vault.put(
+            tenant_id=tenant,
+            actor_id=actor,
+            project_id="project-1",
+            task_id=task.task_id,
+            payload={**payload, "candidate_answer": "different answer"},
+        )
+
+
+@pytest.mark.asyncio
+async def test_worker_registry_requires_fresh_tenant_scoped_heartbeat(workflow_database) -> None:
+    pool, _admin = workflow_database
+    store = PostgresWorkflowStore(pool)
+    tenant = f"tenant-{uuid4()}"
+    worker_id = f"notebook-worker-{uuid4()}"
+    assert not await store.has_active_worker(
+        tenant_id=tenant,
+        task_type="notebook_request",
+    )
+    await store.register_worker(
+        tenant_id=tenant,
+        worker_id=worker_id,
+        task_types=("notebook_request",),
+    )
+    assert await store.has_active_worker(
+        tenant_id=tenant,
+        task_type="notebook_request",
+    )
+    assert not await store.has_active_worker(
+        tenant_id=tenant,
+        task_type="decision_evaluation",
+    )
+    assert await store.heartbeat_worker(tenant_id=tenant, worker_id=worker_id)
+    await store.deregister_worker(tenant_id=tenant, worker_id=worker_id)
+    assert not await store.has_active_worker(
+        tenant_id=tenant,
+        task_type="notebook_request",
+    )
+
+
+@pytest.mark.asyncio
+async def test_workspace_binding_is_tenant_project_scoped(workflow_database) -> None:
+    pool, admin = workflow_database
+    store = PostgresWorkflowStore(pool)
+    tenant = f"tenant-{uuid4()}"
+    workspace = uuid4()
+    await admin.execute(
+        """
+        INSERT INTO ugai_workflow.workspace_bindings (
+            tenant_id, workspace_id, project_id, status
+        )
+        VALUES ($1, $2, $3, 'active')
+        """,
+        tenant,
+        workspace,
+        "project-1",
+    )
+    assert await store.workspace_is_bound(
+        tenant_id=tenant,
+        workspace_id=workspace,
+        project_id="project-1",
+    )
+    assert not await store.workspace_is_bound(
+        tenant_id=tenant,
+        workspace_id=workspace,
+        project_id="project-2",
+    )
+    assert not await store.workspace_is_bound(
+        tenant_id=f"other-{tenant}",
+        workspace_id=workspace,
+        project_id="project-1",
+    )
+
+
+@pytest.mark.asyncio
+async def test_encrypted_input_vault_is_actor_scoped_and_idempotent(workflow_database) -> None:
+    pool, admin = workflow_database
+    tenant = f"tenant-{uuid4()}"
+    actor = f"actor-{uuid4()}"
+    project = f"project-{uuid4()}"
+    workspace_id = uuid4()
+    notebook_id = uuid4()
+    vault = WorkflowInputVault(
+        pool=pool,
+        active_key_id="integration-key-v1",
+        keyring={"integration-key-v1": bytes(range(32))},
+    )
+    payload = {
+        "intent": "private notebook content must never be stored as plaintext",
+        "workspace_id": str(workspace_id),
+        "notebook_id": str(notebook_id),
+        "requested_capabilities": ["reasoning.read"],
+    }
+    first = await vault.put(
+        tenant_id=tenant,
+        actor_id=actor,
+        project_id=project,
+        workspace_id=workspace_id,
+        notebook_id=notebook_id,
+        idempotency_key="input-idempotency-0001",
+        payload=payload,
+    )
+    repeated = await vault.put(
+        tenant_id=tenant,
+        actor_id=actor,
+        project_id=project,
+        workspace_id=workspace_id,
+        notebook_id=notebook_id,
+        idempotency_key="input-idempotency-0001",
+        payload=payload,
+    )
+    assert repeated.input_ref == first.input_ref
+    assert repeated.input_digest == first.input_digest
+
+    stored = await admin.fetchrow(
+        """
+        SELECT ciphertext, nonce, key_id, payload_digest
+        FROM ugai_workflow.inputs WHERE input_ref = $1
+        """,
+        first.input_ref,
+    )
+    assert stored is not None
+    assert stored["key_id"] == "integration-key-v1"
+    assert stored["payload_digest"] == first.input_digest
+    assert payload["intent"].encode("utf-8") not in stored["ciphertext"]
+
+    resolved = await vault.resolve(
+        input_ref=first.input_ref,
+        tenant_id=tenant,
+        actor_id=actor,
+        expected_project_id=project,
+    )
+    assert resolved == payload
+
+    with pytest.raises(WorkflowInputConflict):
+        await vault.put(
+            tenant_id=tenant,
+            actor_id=actor,
+            project_id=project,
+            workspace_id=workspace_id,
+            notebook_id=notebook_id,
+            idempotency_key="input-idempotency-0001",
+            payload={**payload, "intent": "different payload"},
+        )
+
+    with pytest.raises(WorkflowInputNotFound):
+        await vault.get_metadata(
+            input_ref=first.input_ref,
+            tenant_id=tenant,
+            actor_id="different-actor",
+        )
+
+    # PostgreSQL RLS itself hides the input from another actor in the same tenant.
+    async with pool.acquire() as connection:
+        async with connection.transaction():
+            await connection.fetchval(
+                "SELECT set_config('app.ugai_tenant_id', $1, true)", tenant
+            )
+            await connection.fetchval(
+                "SELECT set_config('app.ugai_actor_id', $1, true)", "different-actor"
+            )
+            visible = await connection.fetchval(
+                "SELECT count(*) FROM ugai_workflow.inputs WHERE input_ref = $1",
+                first.input_ref,
+            )
+            assert visible == 0
+
+
+@pytest.mark.asyncio
+async def test_user_cannot_cancel_task_while_any_worker_lease_exists(workflow_database) -> None:
+    pool, _admin = workflow_database
+    store = PostgresWorkflowStore(pool)
+    tenant = f"tenant-{uuid4()}"
+    task = await store.create_task(
+        **new_task_args(tenant_id=tenant, suffix=str(uuid4()))
+    )
+    claimed = await store.claim_next(
+        tenant_id=tenant,
+        worker_id="worker-cancellation-race",
+        supported_task_types=("integration_work",),
+        lease_seconds=30,
+    )
+    assert claimed is not None
+
+    with pytest.raises(LeaseLost, match="worker_lease"):
+        await store.transition(
+            task_id=task.task_id,
+            tenant_id=tenant,
+            expected_version=claimed.version,
+            target=TaskState.CANCELLED,
+            actor_id=task.actor_id,
+            reason_code="user_requested_cancel",
+            require_lease=False,
+        )
+
+    # A queued task without a worker lease can still be cancelled safely.
+    queued = await store.create_task(
+        **new_task_args(tenant_id=tenant, suffix=str(uuid4()))
+    )
+    cancelled = await store.transition(
+        task_id=queued.task_id,
+        tenant_id=tenant,
+        expected_version=queued.version,
+        target=TaskState.CANCELLED,
+        actor_id=queued.actor_id,
+        reason_code="user_requested_cancel",
+        require_lease=False,
+    )
+    assert cancelled.state is TaskState.CANCELLED
+

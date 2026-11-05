@@ -21,7 +21,15 @@ _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _IDEMPOTENCY = re.compile(r"^[A-Za-z0-9._:-]{8,128}$")
 _SAFE_CODE = re.compile(r"^[a-z][a-z0-9_:-]{0,79}$")
 _SAFE_METADATA_KEYS = frozenset(
-    {"request_ref", "source_ref", "context_ref", "schema_version", "correlation_id"}
+    {
+        "request_ref",
+        "source_ref",
+        "context_ref",
+        "schema_version",
+        "correlation_id",
+        "project_id",
+        "workspace_id",
+    }
 )
 _SAFE_EVENT_KEYS = frozenset(
     {
@@ -86,6 +94,7 @@ class WorkflowTask:
     plan_digest: str | None
     error_code: str | None
     metadata: Mapping[str, Any]
+    created_at: datetime | None = None
 
     @classmethod
     def from_record(cls, row: Mapping[str, Any]) -> WorkflowTask:
@@ -114,6 +123,7 @@ class WorkflowTask:
             plan_digest=row["plan_digest"],
             error_code=row["error_code"],
             metadata=raw_metadata or {},
+            created_at=row["created_at"],
         )
 
 
@@ -206,6 +216,166 @@ class PostgresWorkflowStore:
         if pool is None or not callable(getattr(pool, "acquire", None)):
             raise ValueError("async_postgres_pool_required")
         self._pool = pool
+
+    @staticmethod
+    def _validate_worker_registration(
+        *, tenant_id: str, worker_id: str, task_types: Sequence[str]
+    ) -> tuple[str, ...]:
+        _validate_text("tenant_id", tenant_id, 128)
+        _validate_text("worker_id", worker_id, 128)
+        if (
+            not isinstance(task_types, Sequence)
+            or isinstance(task_types, (str, bytes))
+            or not 1 <= len(task_types) <= 32
+            or any(not isinstance(item, str) or not item.strip() or len(item) > 128 for item in task_types)
+        ):
+            raise ValueError("worker_task_types_invalid")
+        normalized = tuple(sorted(set(task_types)))
+        if len(normalized) != len(task_types):
+            raise ValueError("worker_task_types_must_be_unique")
+        return normalized
+
+    async def register_worker(
+        self, *, tenant_id: str, worker_id: str, task_types: Sequence[str]
+    ) -> None:
+        normalized = self._validate_worker_registration(
+            tenant_id=tenant_id, worker_id=worker_id, task_types=task_types
+        )
+        async with self._pool.acquire() as connection:
+            async with connection.transaction():
+                await connection.fetchval(
+                    "SELECT set_config('app.ugai_tenant_id', $1, true)", tenant_id
+                )
+                await connection.execute(
+                    """
+                    INSERT INTO ugai_workflow.workers (
+                        tenant_id, worker_id, task_types, status, heartbeat_at, updated_at
+                    )
+                    VALUES ($1, $2, $3::text[], 'active', clock_timestamp(), clock_timestamp())
+                    ON CONFLICT (tenant_id, worker_id) DO UPDATE
+                    SET task_types = EXCLUDED.task_types,
+                        status = 'active',
+                        heartbeat_at = clock_timestamp(),
+                        updated_at = clock_timestamp()
+                    """,
+                    tenant_id, worker_id, list(normalized),
+                )
+
+    async def heartbeat_worker(self, *, tenant_id: str, worker_id: str) -> bool:
+        _validate_text("tenant_id", tenant_id, 128)
+        _validate_text("worker_id", worker_id, 128)
+        async with self._pool.acquire() as connection:
+            async with connection.transaction():
+                await connection.fetchval(
+                    "SELECT set_config('app.ugai_tenant_id', $1, true)", tenant_id
+                )
+                result = await connection.execute(
+                    """
+                    UPDATE ugai_workflow.workers
+                    SET heartbeat_at = clock_timestamp(), updated_at = clock_timestamp()
+                    WHERE tenant_id = $1 AND worker_id = $2 AND status = 'active'
+                    """,
+                    tenant_id, worker_id,
+                )
+        return result.endswith(" 1")
+
+    async def deregister_worker(self, *, tenant_id: str, worker_id: str) -> None:
+        _validate_text("tenant_id", tenant_id, 128)
+        _validate_text("worker_id", worker_id, 128)
+        async with self._pool.acquire() as connection:
+            async with connection.transaction():
+                await connection.fetchval(
+                    "SELECT set_config('app.ugai_tenant_id', $1, true)", tenant_id
+                )
+                await connection.execute(
+                    """
+                    UPDATE ugai_workflow.workers
+                    SET status = 'stopped', updated_at = clock_timestamp()
+                    WHERE tenant_id = $1 AND worker_id = $2
+                    """,
+                    tenant_id, worker_id,
+                )
+
+    async def workspace_is_bound(
+        self, *, tenant_id: str, workspace_id: UUID, project_id: str
+    ) -> bool:
+        _validate_text("tenant_id", tenant_id, 128)
+        _validate_text("project_id", project_id, 128)
+        if not isinstance(workspace_id, UUID):
+            raise ValueError("workspace_id_invalid")
+        async with self._pool.acquire() as connection:
+            async with connection.transaction():
+                await connection.fetchval(
+                    "SELECT set_config('app.ugai_tenant_id', $1, true)", tenant_id
+                )
+                return bool(await connection.fetchval(
+                    """
+                    SELECT EXISTS (
+                        SELECT 1
+                        FROM ugai_workflow.workspace_bindings
+                        WHERE tenant_id = $1
+                          AND workspace_id = $2
+                          AND project_id = $3
+                          AND status = 'active'
+                    )
+                    """,
+                    tenant_id, workspace_id, project_id,
+                ))
+
+    async def has_active_worker(
+        self, *, tenant_id: str, task_type: str, max_age_seconds: int = 60
+    ) -> bool:
+        _validate_text("tenant_id", tenant_id, 128)
+        _validate_text("task_type", task_type, 128)
+        if (
+            not isinstance(max_age_seconds, int)
+            or isinstance(max_age_seconds, bool)
+            or not 5 <= max_age_seconds <= 300
+        ):
+            raise ValueError("worker_heartbeat_max_age_out_of_bounds")
+        async with self._pool.acquire() as connection:
+            async with connection.transaction():
+                await connection.fetchval(
+                    "SELECT set_config('app.ugai_tenant_id', $1, true)", tenant_id
+                )
+                return bool(await connection.fetchval(
+                    """
+                    SELECT EXISTS (
+                        SELECT 1
+                        FROM ugai_workflow.workers
+                        WHERE tenant_id = $1
+                          AND status = 'active'
+                          AND task_types @> ARRAY[$2]::text[]
+                          AND heartbeat_at >= clock_timestamp()
+                              - make_interval(secs => $3)
+                    )
+                    """,
+                    tenant_id, task_type, max_age_seconds,
+                ))
+
+    async def list_outcome_unknown(
+        self, *, tenant_id: str, limit: int = 50
+    ) -> list[WorkflowTask]:
+        _validate_text("tenant_id", tenant_id, 128)
+        if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 200:
+            raise ValueError("outcome_unknown_batch_size_out_of_bounds")
+        async with self._pool.acquire() as connection:
+            async with connection.transaction():
+                await connection.fetchval(
+                    "SELECT set_config('app.ugai_tenant_id', $1, true)", tenant_id
+                )
+                rows = await connection.fetch(
+                    """
+                    SELECT * FROM ugai_workflow.tasks
+                    WHERE tenant_id = $1
+                      AND state = 'outcome_unknown'
+                      AND lease_token IS NULL
+                    ORDER BY updated_at ASC, created_at ASC
+                    LIMIT $2
+                    """,
+                    tenant_id, limit,
+                )
+        return [WorkflowTask.from_record(row) for row in rows]
 
     async def create_task(
         self,
@@ -330,6 +500,38 @@ class PostgresWorkflowStore:
                 await connection.fetchval(
                     "SELECT set_config('app.ugai_tenant_id', $1, true)", tenant_id
                 )
+                # An expired execution lease is quarantined, never replayed:
+                # the remote provider may have completed a side effect before
+                # the worker lost its connection.
+                await connection.execute(
+                    """
+                    WITH expired AS (
+                        UPDATE ugai_workflow.tasks
+                        SET state = 'outcome_unknown',
+                            version = version + 1,
+                            retryable = false,
+                            error_code = 'outcome_unknown',
+                            lease_owner = NULL,
+                            lease_token = NULL,
+                            lease_expires_at = NULL,
+                            updated_at = clock_timestamp()
+                        WHERE tenant_id = $1
+                          AND state = 'executing'
+                          AND lease_token IS NOT NULL
+                          AND lease_expires_at <= clock_timestamp()
+                        RETURNING task_id, version, lease_owner
+                    )
+                    INSERT INTO ugai_workflow.events (
+                        task_id, task_version, actor_id, worker_id,
+                        event_type, from_state, to_state, details
+                    )
+                    SELECT task_id, version, 'system:lease-reaper', lease_owner,
+                           'execution_lease_expired', 'executing', 'outcome_unknown',
+                           jsonb_build_object('reason_code', 'execution_lease_expired')
+                    FROM expired
+                    """,
+                    tenant_id,
+                )
                 row = await connection.fetchrow(
                     """
                     WITH candidate AS (
@@ -424,6 +626,7 @@ class PostgresWorkflowStore:
         approval_verified: bool = False,
         clarification_received: bool = False,
         operator_override: bool = False,
+        reconciliation_verified: bool = False,
         retry_delay_seconds: int = 0,
         error_code: str | None = None,
         approval_reference: str | None = None,
@@ -452,6 +655,8 @@ class PostgresWorkflowStore:
         if plan_digest is not None and not _SHA256.fullmatch(plan_digest):
             raise ValueError("plan_digest_must_be_sha256")
 
+        if not isinstance(reconciliation_verified, bool):
+            raise TypeError("reconciliation_verified_must_be_boolean")
         event_details = _safe_event_details(metadata)
         event_details["reason_code"] = reason_code
         if error_code is not None:
@@ -496,8 +701,30 @@ class PostgresWorkflowStore:
                     )
                     if not live:
                         raise LeaseLost("worker_lease_expired")
-                elif lease is not None:
-                    raise ValueError("lease_not_allowed_for_unleased_transition")
+                else:
+                    if lease is not None:
+                        raise ValueError("lease_not_allowed_for_unleased_transition")
+                    # User/API transitions must never revoke a worker lease. A
+                    # live or expired lease means an external side effect may be
+                    # in flight or uncertain; reconcile it before cancellation.
+                    if current.lease_token is not None:
+                        raise LeaseLost("unleased_transition_has_worker_lease")
+
+                if reconciliation_verified and not (
+                    current.state is TaskState.OUTCOME_UNKNOWN
+                    and target is TaskState.VERIFYING
+                ):
+                    raise ValueError("reconciliation_flag_not_applicable")
+                if current.state is TaskState.OUTCOME_UNKNOWN and target is TaskState.VERIFYING:
+                    evidence_digest = event_details.get("evidence_digest")
+                    if (
+                        reconciliation_verified is not True
+                        or require_lease
+                        or lease is not None
+                        or not isinstance(evidence_digest, str)
+                        or not _SHA256.fullmatch(evidence_digest)
+                    ):
+                        raise PermissionError("reconciliation_evidence_required")
 
                 validate_transition(
                     current.state,
@@ -508,6 +735,7 @@ class PostgresWorkflowStore:
                     approval_verified=approval_verified,
                     clarification_received=clarification_received,
                     operator_override=operator_override,
+                    reconciliation_verified=reconciliation_verified,
                 )
 
                 retry_count = current.retry_count
@@ -525,7 +753,7 @@ class PostgresWorkflowStore:
                         version = version + 1,
                         retry_count = $4,
                         retryable = $5,
-                        error_code = CASE WHEN $3 = 'failed' THEN $6 ELSE NULL END,
+                        error_code = CASE WHEN $3 IN ('failed', 'outcome_unknown') THEN $6 ELSE NULL END,
                         approval_reference = CASE
                             WHEN $3 = 'received' THEN NULL
                             ELSE COALESCE($9, approval_reference)

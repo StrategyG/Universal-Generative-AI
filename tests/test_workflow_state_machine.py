@@ -45,6 +45,29 @@ def test_retry_requires_explicit_retryable_failure_and_remaining_budget() -> Non
     )
 
 
+
+def test_unknown_external_outcome_requires_evidence_before_verification() -> None:
+    assert validate_transition(TaskState.EXECUTING, TaskState.OUTCOME_UNKNOWN) == (
+        TaskState.EXECUTING,
+        TaskState.OUTCOME_UNKNOWN,
+    )
+    with pytest.raises(TransitionDenied, match="reconciliation_evidence_required"):
+        validate_transition(TaskState.OUTCOME_UNKNOWN, TaskState.VERIFYING)
+    assert validate_transition(
+        TaskState.OUTCOME_UNKNOWN,
+        TaskState.VERIFYING,
+        reconciliation_verified=True,
+    ) == (TaskState.OUTCOME_UNKNOWN, TaskState.VERIFYING)
+
+
+def test_unknown_external_outcome_cannot_be_retried() -> None:
+    from ugai_workflow.state_machine import CLAIMABLE_STATES
+
+    assert TaskState.OUTCOME_UNKNOWN not in CLAIMABLE_STATES
+    for target in (TaskState.EXECUTING, TaskState.RECEIVED, TaskState.SUCCEEDED):
+        with pytest.raises(TransitionDenied):
+            validate_transition(TaskState.OUTCOME_UNKNOWN, target)
+
 def test_blocked_recovery_requires_operator_override() -> None:
     with pytest.raises(TransitionDenied, match="operator_override"):
         validate_transition(TaskState.BLOCKED, TaskState.OBSERVING)

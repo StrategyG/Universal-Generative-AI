@@ -49,6 +49,17 @@ class Settings(BaseSettings):
     external_worker_token: str = ""
     worker_admin_token: str = ""
     database_url: str = ""
+    workflow_database_url: str = ""
+    workflow_input_keyring_json: str = "{}"
+    workflow_input_active_key_id: str = ""
+    workflow_task_acceptance_enabled: bool = False
+    workflow_enabled_task_types: str = ""
+    workflow_worker_enabled: bool = False
+    workflow_worker_id: str = "ugai-notebook-worker"
+    workflow_worker_tenant_id: str = ""
+    workflow_worker_poll_seconds: float = Field(default=2.0, gt=0.1, le=30.0)
+    workflow_worker_lease_seconds: int = Field(default=45, ge=5, le=900)
+    workflow_worker_heartbeat_seconds: int = Field(default=12, ge=1, le=400)
     model_registry_enforcement: bool = False
     auth_mode: str = "disabled"
     oidc_issuer: str = ""

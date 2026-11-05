@@ -5,7 +5,11 @@ on:
     paths:
       - "src/ugai_workflow/**"
       - "tests/integration/test_postgres_workflow.py"
+      - "app/workflow_tasks.py"
+      - "app/workflow_runtime.py"
       - "postgres/migrations/0003_ugai_workflow_runtime.sql"
+      - "postgres/migrations/0004_ugai_workflow_encrypted_inputs.sql"
+      - "src/ugai_workflow/input_vault.py"
       - "docs/architecture/ugai-workflow-schema-blueprint.sql"
       - "pyproject.toml"
       - ".github/workflows/durable-workflow-postgres.yml"
