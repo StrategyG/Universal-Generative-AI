@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
+import json
 from functools import lru_cache
 from typing import Any
 
@@ -27,6 +29,18 @@ class Principal:
     project_ids: frozenset[str]
     auth_mode: str
     issuer: str = ""
+
+    @property
+    def actor_id(self) -> str:
+        """Stable issuer-scoped actor key; raw subjects are never cross-issuer IDs."""
+        if self.auth_mode == "oidc" and not self.issuer.strip():
+            raise ValueError("verified_oidc_issuer_required")
+        canonical = json.dumps(
+            [self.issuer, self.subject],
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return "principal:" + hashlib.sha256(canonical).hexdigest()
 
     @property
     def is_tenant_admin(self) -> bool:
