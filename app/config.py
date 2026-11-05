@@ -41,7 +41,7 @@ def apply_secret_file_environment(
         if source.get(name, "").strip():
             raise RuntimeError(f"{name} and {name}_FILE cannot both be configured")
         try:
-            value = Path(file_value).read_text(encoding="utf-8").rstrip("\\r\\n")
+            value = Path(file_value).read_text(encoding="utf-8").rstrip("\r\n")
         except (OSError, UnicodeError) as exc:
             raise RuntimeError(f"{name}_FILE could not be read") from exc
         if not value:
