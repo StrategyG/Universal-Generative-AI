@@ -61,7 +61,7 @@ def test_production_accepts_verify_full():
 
 def test_secret_file_loader_reads_value_and_strips_only_trailing_newlines(tmp_path):
     secret_file = tmp_path / "database-url"
-    secret_file.write_text("postgresql://user:pa\\ss@db.example/app\\n", encoding="utf-8")
+    secret_file.write_text("postgresql://user:pa\\ss@db.example/app\n", encoding="utf-8")
     environ = {"DATABASE_URL_FILE": str(secret_file)}
     apply_secret_file_environment(environ)
     assert environ["DATABASE_URL"] == "postgresql://user:pa\\ss@db.example/app"
