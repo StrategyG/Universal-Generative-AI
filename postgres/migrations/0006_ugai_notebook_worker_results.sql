@@ -102,8 +102,11 @@ CREATE TABLE ugai_workflow.workers (
     last_heartbeat_at timestamptz NOT NULL DEFAULT clock_timestamp(),
     updated_at timestamptz NOT NULL DEFAULT clock_timestamp(),
     CONSTRAINT pk_ugai_workflow_workers PRIMARY KEY (tenant_id, worker_id),
-    CONSTRAINT ck_ugai_workflow_worker_task_types_unique
-        CHECK (cardinality(task_types) = cardinality(ARRAY(SELECT DISTINCT unnest(task_types))))
+    CONSTRAINT ck_ugai_workflow_worker_task_types_valid
+        CHECK (
+            cardinality(task_types) BETWEEN 1 AND 32
+            AND array_position(task_types, NULL) IS NULL
+        )
 );
 
 CREATE INDEX ugai_workflow_workers_health_idx
@@ -136,6 +139,7 @@ GRANT SELECT, UPDATE (
     decision_digest, plan_digest, error_code, updated_at
 ) ON ugai_workflow.tasks TO ugai_workflow_worker;
 GRANT SELECT, INSERT ON ugai_workflow.events TO ugai_workflow_worker;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA ugai_workflow TO ugai_workflow_worker;
 GRANT SELECT ON ugai_workflow.task_payloads TO ugai_workflow_worker;
 
 CREATE POLICY ugai_workflow_tasks_worker
