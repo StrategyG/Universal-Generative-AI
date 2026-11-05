@@ -83,6 +83,7 @@ async def workflow_database():
         for table_name, migration_name in (
             ("results", "0005_ugai_workflow_encrypted_results.sql"),
             ("workers", "0006_ugai_workflow_worker_registry.sql"),
+            ("workspace_bindings", "0007_ugai_workflow_workspace_bindings.sql"),
         ):
             table_exists = await admin.fetchval(
                 """
