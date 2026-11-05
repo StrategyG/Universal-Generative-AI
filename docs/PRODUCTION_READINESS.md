@@ -73,3 +73,29 @@ parameter before initializing the PostgreSQL-backed queue. CI covers the rejecte
 accepted `verify-full` mode. This is a configuration gate; a live connection using the actual
 production CA, hostname and database credential remains required before the database transport
 gate can be marked DEPLOYED or production-verified.
+
+
+## Notebook task API implementation candidate
+
+The current UGAI integration branch adds authenticated
+`POST /api/v1/tasks`, `GET /api/v1/tasks/{task_id}`, and
+`POST /api/v1/tasks/{task_id}/cancel` routes. The API encrypts task inputs
+before persistence and uses an isolated PostgreSQL login with forced RLS.
+The ordered task migration is `postgres/migrations/0004_ugai_task_api_contract.sql`
+after workflow migration 0003.
+
+This does not close the release gate. The following remain mandatory:
+- Deploy and verify the two ordered migrations on an isolated staging database.
+- Provision and independently verify the restricted workflow DB login.
+- Provision the Fernet key in an approved secret manager and exercise rotation
+  and recovery with old key IDs.
+- Run Notebook → UGAI submission/status/restart/reconciliation on staging.
+- Implement and verify worker-side encrypted payload resolution and a real
+  task handler.
+- Prove cooperative cancellation and unknown-outcome reconciliation for real
+  tool/worker side effects.
+- Verify live OIDC, cross-tenant/project negative cases, monitoring, backups,
+  restore, load and rollback on the target staging environment.
+
+Status remains NO-GO until these gates are evidenced on one frozen commit and
+one deployed artifact digest.
