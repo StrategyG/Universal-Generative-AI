@@ -81,9 +81,20 @@ class WorkflowInputVault:
         input_ref: UUID,
         key_id: str,
     ) -> bytes:
-        return (
-            "ugai-workflow-input:v1:"
-            f"{tenant_id}:{actor_id}:{project_id}:{workspace_id}:{input_ref}:{key_id}"
+        # Canonical JSON preserves field boundaries even when identifiers
+        # contain punctuation; this byte string is authenticated as AES-GCM AAD.
+        return json.dumps(
+            [
+                "ugai-workflow-input:v1",
+                tenant_id,
+                actor_id,
+                project_id,
+                str(workspace_id),
+                str(input_ref),
+                key_id,
+            ],
+            ensure_ascii=False,
+            separators=(",", ":"),
         ).encode("utf-8")
 
     @staticmethod
