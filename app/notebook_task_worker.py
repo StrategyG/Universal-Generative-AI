@@ -14,11 +14,9 @@ from uuid import UUID
 from app.ai_schemas import AICompletionRequest
 from app.config import settings
 from app.providers.router import TextModelRouter
-from app.providers.text_errors import TextGenerationProviderError
 from app.reasoning.catalog import ReasoningRouteCatalogError, load_approved_text_routes
 from app.reasoning.execution import (
     PolicyRoutedTextExecutor,
-    ReasoningEvaluatorUnavailable,
     ReasoningRouteConfigurationError,
 )
 from app.reasoning.routing import NoEligibleModelRoute, RoutingRequirements
