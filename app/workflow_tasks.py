@@ -206,6 +206,22 @@ async def submit_task(
             status_code=422,
             detail={"code": "task_type_not_enabled"},
         )
+    try:
+        worker_available = await runtime.store.has_active_worker(
+            tenant_id=principal.tenant_id,
+            task_type=payload.task_type,
+            max_age_seconds=60,
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "worker_registry_unavailable"},
+        ) from exc
+    if not worker_available:
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "task_worker_unavailable"},
+        )
 
     try:
         stored_input = await runtime.inputs.get_metadata(
@@ -321,3 +337,44 @@ async def cancel_task(
     except (TransitionDenied, ValueError) as exc:
         raise HTTPException(status_code=409, detail={"code": "task_state_not_cancellable"}) from exc
     return _status(cancelled)
+
+
+@router.get("/tasks/{task_id}/result")
+async def get_task_result(
+    task_id: UUID,
+    principal: Principal = Depends(get_current_principal),
+    runtime: WorkflowRuntime = Depends(_runtime),
+):
+    require_job_read_role(principal)
+    try:
+        task = await runtime.store.get_task(task_id=task_id, tenant_id=principal.tenant_id)
+    except TaskNotFound as exc:
+        raise HTTPException(status_code=404, detail={"code": "task_not_found"}) from exc
+    project_id = task.metadata.get("project_id")
+    if not isinstance(project_id, str):
+        raise HTTPException(status_code=404, detail={"code": "task_not_found"})
+    try:
+        ensure_project_access(principal, project_id)
+    except HTTPException as exc:
+        raise HTTPException(status_code=404, detail={"code": "task_not_found"}) from exc
+    if task.actor_id != principal.subject and not principal.roles.intersection(
+        {"tenant_admin", "platform_admin"}
+    ):
+        raise HTTPException(status_code=404, detail={"code": "task_not_found"})
+    if task.state is not TaskState.SUCCEEDED:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "task_result_not_ready"},
+        )
+    try:
+        result = await runtime.results.get(
+            tenant_id=principal.tenant_id,
+            actor_id=task.actor_id,
+            project_id=project_id,
+            task_id=task.task_id,
+        )
+    except WorkflowInputNotFound as exc:
+        raise HTTPException(status_code=404, detail={"code": "task_result_not_found"}) from exc
+    except WorkflowInputError as exc:
+        raise HTTPException(status_code=503, detail={"code": "task_result_unavailable"}) from exc
+    return {"task_id": str(task.task_id), "result": result}
