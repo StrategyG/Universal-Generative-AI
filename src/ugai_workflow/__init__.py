@@ -13,6 +13,7 @@ from .postgres_store import (
     PostgresWorkflowStore,
     StaleWorkflowVersion,
     TaskNotFound,
+    TaskResultConflict,
     WorkflowTask,
 )
 from .state_machine import (
@@ -51,6 +52,7 @@ __all__ = [
     "RetryableWorkerError",
     "StaleWorkflowVersion",
     "TaskNotFound",
+    "TaskResultConflict",
     "TaskState",
     "TransitionDenied",
     "WorkerOutcome",
