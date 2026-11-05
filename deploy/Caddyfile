@@ -5,5 +5,15 @@
 
 {$DOMAIN} {
     encode zstd gzip
-    reverse_proxy api:8000
+
+    # Operational endpoints are internal-only. Scrapers must attach to the
+    # private Docker network and authenticate directly to /metrics.
+    @operations path /health /readyz /metrics
+    handle @operations {
+        respond 404
+    }
+
+    handle {
+        reverse_proxy api:8000
+    }
 }
