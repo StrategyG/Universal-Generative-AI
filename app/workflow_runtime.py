@@ -9,6 +9,7 @@ from urllib.parse import parse_qs, urlsplit
 from app.config import Settings, settings
 from ugai_workflow.input_vault import WorkflowInputVault
 from ugai_workflow.postgres_store import PostgresWorkflowStore
+from ugai_workflow.result_vault import WorkflowResultVault
 
 
 @dataclass(slots=True)
@@ -16,6 +17,7 @@ class WorkflowRuntime:
     pool: object
     store: PostgresWorkflowStore
     inputs: WorkflowInputVault
+    results: WorkflowResultVault
     task_acceptance_enabled: bool
     enabled_task_types: frozenset[str]
 
@@ -106,7 +108,13 @@ async def _assert_restricted_runtime_role(pool: object) -> None:
                 ) AS input_select,
                 has_table_privilege(
                     current_user, 'ugai_workflow.inputs', 'INSERT'
-                ) AS input_insert
+                ) AS input_insert,
+                has_table_privilege(
+                    current_user, 'ugai_workflow.results', 'SELECT'
+                ) AS result_select,
+                has_table_privilege(
+                    current_user, 'ugai_workflow.results', 'INSERT'
+                ) AS result_insert
             FROM pg_roles AS role
             CROSS JOIN pg_namespace AS namespace
             WHERE role.rolname = current_user
@@ -123,6 +131,8 @@ async def _assert_restricted_runtime_role(pool: object) -> None:
         "event_insert",
         "input_select",
         "input_insert",
+        "result_select",
+        "result_insert",
     )
     if (
         row is None
@@ -177,10 +187,16 @@ async def open_workflow_runtime(config: Settings = settings) -> WorkflowRuntime 
             active_key_id=config.workflow_input_active_key_id,
             keyring=keyring,
         )
+        results = WorkflowResultVault(
+            pool=pool,
+            active_key_id=config.workflow_input_active_key_id,
+            keyring=keyring,
+        )
         return WorkflowRuntime(
             pool=pool,
             store=store,
             inputs=inputs,
+            results=results,
             task_acceptance_enabled=config.workflow_task_acceptance_enabled,
             enabled_task_types=enabled_types,
         )
