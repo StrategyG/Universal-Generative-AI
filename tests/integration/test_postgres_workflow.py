@@ -25,6 +25,7 @@ from ugai_workflow.input_vault import (
     WorkflowInputNotFound,
     WorkflowInputVault,
 )
+from ugai_workflow.result_vault import WorkflowResultConflict, WorkflowResultVault
 
 ADMIN_DSN = os.getenv("UGAI_WORKFLOW_TEST_ADMIN_URL")
 RUNTIME_DSN = os.getenv("UGAI_WORKFLOW_TEST_RUNTIME_URL")
@@ -539,6 +540,132 @@ async def test_decision_approval_reference_and_digests_are_durable(workflow_data
     assert persisted.approval_reference == approval_reference
     assert persisted.decision_digest == decision_digest
     assert persisted.plan_digest == plan_digest
+
+@pytest.mark.asyncio
+async def test_encrypted_result_vault_is_immutable_and_actor_scoped(workflow_database) -> None:
+    pool, _admin = workflow_database
+    store = PostgresWorkflowStore(pool)
+    tenant = f"tenant-{uuid4()}"
+    actor = "principal:" + "a" * 64
+    task = await store.create_task(**new_task_args(
+        tenant_id=tenant,
+        actor_id=actor,
+        suffix=str(uuid4()),
+    ))
+    key = bytes(range(32))
+    vault = WorkflowResultVault(
+        pool=pool,
+        active_key_id="test-result-v1",
+        keyring={"test-result-v1": key},
+    )
+    payload = {
+        "task_id": str(task.task_id),
+        "candidate_answer": "reviewable answer",
+        "human_review_required": True,
+    }
+    digest = await vault.put(
+        tenant_id=tenant,
+        actor_id=actor,
+        project_id="project-1",
+        task_id=task.task_id,
+        payload=payload,
+    )
+    repeated = await vault.put(
+        tenant_id=tenant,
+        actor_id=actor,
+        project_id="project-1",
+        task_id=task.task_id,
+        payload=payload,
+    )
+    assert repeated == digest
+    assert await vault.get(
+        tenant_id=tenant,
+        actor_id=actor,
+        project_id="project-1",
+        task_id=task.task_id,
+    ) == payload
+
+    with pytest.raises(WorkflowInputNotFound):
+        await vault.get(
+            tenant_id=tenant,
+            actor_id="principal:" + "b" * 64,
+            project_id="project-1",
+            task_id=task.task_id,
+        )
+    with pytest.raises(WorkflowResultConflict):
+        await vault.put(
+            tenant_id=tenant,
+            actor_id=actor,
+            project_id="project-1",
+            task_id=task.task_id,
+            payload={**payload, "candidate_answer": "different answer"},
+        )
+
+
+@pytest.mark.asyncio
+async def test_worker_registry_requires_fresh_tenant_scoped_heartbeat(workflow_database) -> None:
+    pool, _admin = workflow_database
+    store = PostgresWorkflowStore(pool)
+    tenant = f"tenant-{uuid4()}"
+    worker_id = f"notebook-worker-{uuid4()}"
+    assert not await store.has_active_worker(
+        tenant_id=tenant,
+        task_type="notebook_request",
+    )
+    await store.register_worker(
+        tenant_id=tenant,
+        worker_id=worker_id,
+        task_types=("notebook_request",),
+    )
+    assert await store.has_active_worker(
+        tenant_id=tenant,
+        task_type="notebook_request",
+    )
+    assert not await store.has_active_worker(
+        tenant_id=tenant,
+        task_type="decision_evaluation",
+    )
+    assert await store.heartbeat_worker(tenant_id=tenant, worker_id=worker_id)
+    await store.deregister_worker(tenant_id=tenant, worker_id=worker_id)
+    assert not await store.has_active_worker(
+        tenant_id=tenant,
+        task_type="notebook_request",
+    )
+
+
+@pytest.mark.asyncio
+async def test_workspace_binding_is_tenant_project_scoped(workflow_database) -> None:
+    pool, admin = workflow_database
+    store = PostgresWorkflowStore(pool)
+    tenant = f"tenant-{uuid4()}"
+    workspace = uuid4()
+    await admin.execute(
+        """
+        INSERT INTO ugai_workflow.workspace_bindings (
+            tenant_id, workspace_id, project_id, status
+        )
+        VALUES ($1, $2, $3, 'active')
+        """,
+        tenant,
+        workspace,
+        "project-1",
+    )
+    assert await store.workspace_is_bound(
+        tenant_id=tenant,
+        workspace_id=workspace,
+        project_id="project-1",
+    )
+    assert not await store.workspace_is_bound(
+        tenant_id=tenant,
+        workspace_id=workspace,
+        project_id="project-2",
+    )
+    assert not await store.workspace_is_bound(
+        tenant_id=f"other-{tenant}",
+        workspace_id=workspace,
+        project_id="project-1",
+    )
+
 
 @pytest.mark.asyncio
 async def test_encrypted_input_vault_is_actor_scoped_and_idempotent(workflow_database) -> None:
