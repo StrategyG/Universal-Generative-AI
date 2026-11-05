@@ -47,6 +47,7 @@ create table if not exists ugai_workflow.tasks (
     created_at timestamptz not null default now(),
     updated_at timestamptz not null default now(),
     constraint uq_ugai_workflow_task_idempotency unique (tenant_id, idempotency_key),
+    constraint uq_ugai_workflow_task_tenant_id unique (tenant_id, task_id),
     constraint ck_ugai_workflow_lease_consistency check (
         (lease_owner is null and lease_token is null and lease_expires_at is null)
         or
