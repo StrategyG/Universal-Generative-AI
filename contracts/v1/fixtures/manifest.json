@@ -1,0 +1,63 @@
+{
+  "contract_version": "1.0.0",
+  "valid": [
+    {
+      "schema": "schemas/identity-context.schema.json",
+      "document": "valid/identity-context.json"
+    },
+    {
+      "schema": "schemas/task.schema.json",
+      "document": "valid/task.json"
+    },
+    {
+      "schema": "schemas/task-event.schema.json",
+      "document": "valid/task-event.json"
+    },
+    {
+      "schema": "schemas/approval-receipt.schema.json",
+      "document": "valid/approval-receipt.json"
+    },
+    {
+      "schema": "schemas/tool-invocation.schema.json",
+      "document": "valid/tool-invocation.json"
+    },
+    {
+      "schema": "schemas/evidence-record.schema.json",
+      "document": "valid/evidence-record.json"
+    },
+    {
+      "schema": "schemas/error-envelope.schema.json",
+      "document": "valid/error-envelope.json"
+    },
+    {
+      "schema": "schemas/a2a-dispatch.schema.json",
+      "document": "valid/a2a-dispatch.json"
+    },
+    {
+      "schema": "schemas/platform-event-envelope.schema.json",
+      "document": "valid/platform-event-envelope.json"
+    }
+  ],
+  "invalid": [
+    {
+      "schema": "schemas/task.schema.json",
+      "document": "invalid/task-invalid-terminal-state.json"
+    },
+    {
+      "schema": "schemas/task.schema.json",
+      "document": "invalid/task-missing-user-identity.json"
+    },
+    {
+      "schema": "schemas/identity-context.schema.json",
+      "document": "invalid/identity-context-http-issuer.json"
+    },
+    {
+      "schema": "schemas/platform-event-envelope.schema.json",
+      "document": "invalid/platform-event-http-issuer.json"
+    },
+    {
+      "schema": "schemas/platform-event-envelope.schema.json",
+      "document": "invalid/platform-event-secret-field.json"
+    }
+  ]
+}

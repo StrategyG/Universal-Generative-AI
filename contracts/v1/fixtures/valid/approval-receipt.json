@@ -1,0 +1,19 @@
+{
+  "contract_version": "1.0.0",
+  "approval_id": "approval-01",
+  "tenant_id": "tenant-01",
+  "task_id": "task-01",
+  "approver": {
+    "actor_type": "user",
+    "actor_id": "usr-02",
+    "issuer": "https://id.example.test",
+    "subject": "opaque-sub-456"
+  },
+  "action": "cloudbrowser.execute",
+  "stage_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "decision": "approved",
+  "policy_version": "policy-1",
+  "human_decision": true,
+  "created_at": "2026-11-05T00:00:00Z",
+  "expires_at": "2026-11-05T01:00:00Z"
+}

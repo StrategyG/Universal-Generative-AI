@@ -1,0 +1,15 @@
+{
+  "contract_version": "1.0.0",
+  "evidence_id": "evidence-01",
+  "tenant_id": "tenant-01",
+  "task_id": "task-01",
+  "evidence_type": "test_report",
+  "source_ref": "ci://workflow/123",
+  "source_version": "sha-abc",
+  "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "captured_at": "2026-11-05T00:00:00Z",
+  "provenance": {
+    "producer": "github-actions",
+    "producer_version": "v1"
+  }
+}
