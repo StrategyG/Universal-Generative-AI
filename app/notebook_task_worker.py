@@ -226,14 +226,15 @@ class NotebookReasoningTaskHandler:
                 request=request,
                 requirements=requirements,
             )
-        except (
-            TextGenerationProviderError,
-            ReasoningEvaluatorUnavailable,
-            TimeoutError,
-            OSError,
-        ) as exc:
-            # A provider may have completed and billed the call even when the
-            # client sees a timeout. Never replay an uncertain generation.
+        except NoEligibleModelRoute:
+            # Route selection occurs before any provider call.
+            return self._blocked(
+                "notebook_reasoning_route_unavailable",
+                "notebook_reasoning_route_unavailable",
+            )
+        except Exception as exc:
+            # Once execution starts, a provider or evaluator error may follow a
+            # successful upstream completion. Never replay uncertain generation.
             raise ExternalOutcomeUnknown(
                 "Notebook provider outcome is uncertain; reconcile before retry"
             ) from exc
