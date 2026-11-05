@@ -83,6 +83,21 @@ class NotebookReasoningTaskHandler:
             and isinstance(result.get("evaluator_route"), dict)
         )
 
+    async def _workspace_is_active(self, task: WorkflowTask) -> bool:
+        project_id = task.metadata.get("project_id")
+        workspace_value = task.metadata.get("workspace_id")
+        if not isinstance(project_id, str) or not isinstance(workspace_value, str):
+            return False
+        try:
+            workspace_id = UUID(workspace_value)
+        except ValueError:
+            return False
+        return await self._store.workspace_is_bound(
+            tenant_id=task.tenant_id,
+            workspace_id=workspace_id,
+            project_id=project_id,
+        )
+
     async def _load_result(self, task: WorkflowTask) -> dict | None:
         project_id = task.metadata.get("project_id")
         if not isinstance(project_id, str):
@@ -322,6 +337,11 @@ class NotebookReasoningTaskHandler:
                 reason_code="notebook_execution_started",
             )
         if task.state is TaskState.EXECUTING:
+            if not await self._workspace_is_active(task):
+                return self._blocked(
+                    "notebook_workspace_binding_revoked",
+                    "notebook_workspace_binding_revoked",
+                )
             # A previous worker may have persisted a result before losing its
             # lease. Read it first so an accepted result is never regenerated.
             existing = await self._load_result(task)
@@ -344,6 +364,11 @@ class NotebookReasoningTaskHandler:
                 )
             return await self._generate_result(task)
         if task.state is TaskState.VERIFYING:
+            if not await self._workspace_is_active(task):
+                return self._blocked(
+                    "notebook_workspace_binding_revoked",
+                    "notebook_workspace_binding_revoked",
+                )
             result = await self._load_result(task)
             if result is None or not self._valid_result(result, task):
                 return self._blocked(
@@ -368,6 +393,12 @@ async def reconcile_outcome_unknown_once(runtime, *, tenant_id: str, limit: int 
     for task in tasks:
         project_id = task.metadata.get("project_id")
         if not isinstance(project_id, str):
+            continue
+        if not await runtime.store.workspace_is_bound(
+            tenant_id=task.tenant_id,
+            workspace_id=UUID(task.metadata.get("workspace_id", "")),
+            project_id=project_id,
+        ):
             continue
         try:
             result = await runtime.results.get(
