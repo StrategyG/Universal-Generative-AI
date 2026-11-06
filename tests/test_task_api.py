@@ -12,7 +12,7 @@ from app.auth import Principal, get_current_principal
 from app.main import app
 from ugai_workflow.payload_cipher import TaskPayloadCipher
 from ugai_workflow.postgres_store import IdempotencyConflict, StaleWorkflowVersion, TaskNotFound
-from ugai_workflow.state_machine import TaskState, validate_transition
+from ugai_workflow.state_machine import TaskState, TransitionDenied, validate_transition
 
 
 class MemoryWorkflowStore:
