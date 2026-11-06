@@ -59,7 +59,7 @@ def make_request(**overrides: object) -> DecisionRequest:
 def test_water_fill_handles_zero_scores_empty_candidates_and_zero_capacity():
     assert _water_fill([], available=1.0, request_cap=0.5) == {}
     assert _water_fill([(option("zero", "bet"), 0.0)], available=1.0, request_cap=0.5) == {}
-    assert _water_fill([(option("positive", "bet"), 0.8)], available=0.0, request_cap=0.5) == {}
+    assert _water_fill([(option("positive", "bet"), 0.8)], available=0.0, request_cap=0.5) == {"positive": 0.0}
 
 
 def test_water_fill_caps_each_option_then_redistributes_remaining_capacity():
