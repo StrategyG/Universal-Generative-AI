@@ -175,7 +175,13 @@ async def test_executor_requires_independent_evaluator_and_builds_stable_plan_di
 
     decision.independent_evaluator = evaluator
     monkeypatch.setattr(worker_module, "load_approved_text_routes", _async_value([route, evaluator]))
-    monkeypatch.setattr(worker_module, "TextModelRouter", SimpleNamespace(from_settings=lambda: "router"))
+    from app.providers import router as provider_router
+
+    monkeypatch.setattr(
+        provider_router.TextModelRouter,
+        "from_settings",
+        staticmethod(lambda: "router"),
+    )
     captured = {}
 
     class FakeExecutor:
