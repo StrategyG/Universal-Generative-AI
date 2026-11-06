@@ -18,7 +18,7 @@ permissions:
 
 jobs:
   e2e:
-    if: ${ inputs.suite == 'e2e' }}
+    if: ${{ inputs.suite == 'e2e' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -29,9 +29,9 @@ jobs:
           cache: pip
       - name: Validate staging credentials
         env:
-          BASE_URL: ${ secrets.RUSA_STAGING_BASE_URL }}
-          BEARER_TOKEN: ${ secrets.RUSA_STAGING_BEARER_TOKEN }}
-          PROJECT_ID: ${ secrets.RUSA_STAGING_PROJECT_ID }}
+          BASE_URL: ${{ secrets.RUSA_STAGING_BASE_URL }}
+          BEARER_TOKEN: ${{ secrets.RUSA_STAGING_BEARER_TOKEN }}
+          PROJECT_ID: ${{ secrets.RUSA_STAGING_PROJECT_ID }}
         run: |
           set -eu
           test -n "$BASE_URL" || (echo "Missing RUSA_STAGING_BASE_URL" >&2; exit 1)
@@ -41,24 +41,24 @@ jobs:
         run: python -m pip install -e ".[dev,mcp,postgres,worker]"
       - name: Run real user-to-agent lifecycle
         env:
-          RUSA_E2E_BASE_URL: ${ secrets.RUSA_STAGING_BASE_URL }}
-          RUSA_E2E_BEARER_TOKEN: ${ secrets.RUSA_STAGING_BEARER_TOKEN }}
-          RUSA_E2E_PROJECT_ID: ${ secrets.RUSA_STAGING_PROJECT_ID }}
-          RUSA_E2E_WORKSPACE_ID: ${ secrets.RUSA_STAGING_WORKSPACE_ID }}
+          RUSA_E2E_BASE_URL: ${{ secrets.RUSA_STAGING_BASE_URL }}
+          RUSA_E2E_BEARER_TOKEN: ${{ secrets.RUSA_STAGING_BEARER_TOKEN }}
+          RUSA_E2E_PROJECT_ID: ${{ secrets.RUSA_STAGING_PROJECT_ID }}
+          RUSA_E2E_WORKSPACE_ID: ${{ secrets.RUSA_STAGING_WORKSPACE_ID }}
           RUSA_E2E_TIMEOUT_SECONDS: "300"
         run: pytest -q -m e2e tests/e2e
 
   load:
-    if: ${ inputs.suite == 'load' }}
+    if: ${{ inputs.suite == 'load' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      BASE_URL: ${ secrets.RUSA_STAGING_BASE_URL }}
-      AUTH_TOKEN: ${ secrets.RUSA_STAGING_BEARER_TOKEN }}
-      PROJECT_ID: ${ secrets.RUSA_STAGING_PROJECT_ID }}
-      WORKSPACE_ID: ${ secrets.RUSA_STAGING_WORKSPACE_ID }}
-      RPS: ${ vars.RUSA_LOAD_RPS || '50' }}
-      DURATION: ${ vars.RUSA_LOAD_DURATION || '10m' }}
+      BASE_URL: ${{ secrets.RUSA_STAGING_BASE_URL }}
+      AUTH_TOKEN: ${{ secrets.RUSA_STAGING_BEARER_TOKEN }}
+      PROJECT_ID: ${{ secrets.RUSA_STAGING_PROJECT_ID }}
+      WORKSPACE_ID: ${{ secrets.RUSA_STAGING_WORKSPACE_ID }}
+      RPS: ${{ vars.RUSA_LOAD_RPS || '50' }}
+      DURATION: ${{ vars.RUSA_LOAD_DURATION || '10m' }}
     steps:
       - uses: actions/checkout@v4
       - name: Validate staging credentials
@@ -75,14 +75,14 @@ jobs:
             grafana/k6:0.54.0 run tests/performance/k6/load.js
 
   stress:
-    if: ${ inputs.suite == 'stress' }}
+    if: ${{ inputs.suite == 'stress' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      BASE_URL: ${ secrets.RUSA_STAGING_BASE_URL }}
-      AUTH_TOKEN: ${ secrets.RUSA_STAGING_BEARER_TOKEN }}
-      PROJECT_ID: ${ secrets.RUSA_STAGING_PROJECT_ID }}
-      WORKSPACE_ID: ${ secrets.RUSA_STAGING_WORKSPACE_ID }}
+      BASE_URL: ${{ secrets.RUSA_STAGING_BASE_URL }}
+      AUTH_TOKEN: ${{ secrets.RUSA_STAGING_BEARER_TOKEN }}
+      PROJECT_ID: ${{ secrets.RUSA_STAGING_PROJECT_ID }}
+      WORKSPACE_ID: ${{ secrets.RUSA_STAGING_WORKSPACE_ID }}
     steps:
       - uses: actions/checkout@v4
       - name: Validate staging credentials
