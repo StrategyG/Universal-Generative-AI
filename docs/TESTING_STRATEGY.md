@@ -26,6 +26,13 @@ at least 90% branch coverage for each listed critical module**. A missing module
 in the coverage report is a failure. The gate is not an aggregate average:
 strong coverage in one module cannot hide a weak critical module.
 
+The FastAPI composition module (app.main) is validated through a separate API
+operation gate rather than the per-file logic threshold: every non-public
+OpenAPI operation is probed without credentials and must reject the request.
+Operation-specific functional tests remain responsible for success, validation,
+authorization and failure behavior. This separation prevents route wiring from
+being mistaken for business-logic coverage.
+
 Coverage is only a floor. Assertions must check meaningful outputs, state
 transitions, authorization outcomes, persistence effects and failure behavior.
 Tests that merely execute a line without checking its result do not establish
