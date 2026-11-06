@@ -55,3 +55,28 @@ inference capacity must be measured separately.
 Store each run's k6 summary, candidate SHA, staging image digest, database
 topology, worker/GPU topology and environment configuration as release evidence.
 Never include bearer tokens, connection strings or other secrets in test output.
+
+
+## Safety, cost and staging preconditions
+
+The load and stress profiles submit real durable notebook_task records. A
+registered Notebook worker may execute model inference for each accepted task.
+These are **not** harmless synthetic HTTP pings: an active worker can incur
+provider/GPU cost and generate persistent queue, event and result data.
+
+Before running either profile:
+
+1. Use a disposable environment whose /health reports
+   environment=staging, queue_backend=postgresql,
+   queue_persistent=true and worker_scoped_credentials_enabled=true.
+2. Configure a synthetic, deterministic or explicitly cost-capped inference
+   route; do not point these profiles at live production model capacity.
+3. Approve the request rate, duration, maximum spend and test window.
+4. Define cleanup/retention for generated tasks, events, results and telemetry.
+5. Use the manual workflow's explicit confirm_nonproduction_load_test input.
+   The workflow refuses load/stress runs without it and checks staging health
+   before starting k6.
+
+The E2E test performs a separate identity preflight and refuses to submit a task
+unless the API reports the expected staging environment and persistent
+PostgreSQL-backed queue.
