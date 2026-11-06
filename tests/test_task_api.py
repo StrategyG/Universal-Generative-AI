@@ -355,6 +355,9 @@ def test_task_result_is_decrypted_only_after_success_and_keeps_human_review_requ
 def test_task_result_does_not_cross_project_scope(runtime):
     store, cipher = runtime
     client = TestClient(app)
+    # Create the task under the same verified tenant used by the cross-project
+    # assertion; otherwise tenant isolation masks the project authorization path.
+    app.dependency_overrides[get_current_principal] = lambda: principal()
     created = client.post(
         "/api/v1/tasks",
         headers={"Idempotency-Key": "notebook-task-0011"},
