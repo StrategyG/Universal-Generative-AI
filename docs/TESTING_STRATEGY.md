@@ -38,15 +38,7 @@ green report.
 python -m pip install -e ".[dev,mcp,postgres,worker]"
 ruff check app src tests scripts
 bandit -q -r app src -ll -x tests
-pytest -q -m "not e2e" \\
-  --cov=app \\
-  --cov=ugai_decision \\
-  --cov=ugai_mcp \\
-  --cov=ugai_replication \\
-  --cov=ugai_workflow \\
-  --cov-branch \\
-  --cov-report=term-missing \\
-  --cov-report=json:coverage.json
+pytest -q -m "not e2e" --cov=app --cov=ugai_decision --cov=ugai_mcp --cov=ugai_replication --cov=ugai_workflow --cov-branch --cov-report=term-missing --cov-report=json:coverage.json
 python scripts/check_critical_coverage.py coverage.json
 ```
 
