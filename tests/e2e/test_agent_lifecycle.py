@@ -42,12 +42,26 @@ def test_authenticated_user_task_reaches_verified_agent_result():
         "requested_capabilities": ["reasoning:read"],
     }
 
+    expected_environment = os.getenv("RUSA_E2E_EXPECTED_ENVIRONMENT", "staging").strip().lower()
     with httpx.Client(
         base_url=base_url,
         headers={"Authorization": f"Bearer {bearer_token}"},
         timeout=httpx.Timeout(15.0, connect=5.0),
         follow_redirects=False,
     ) as client:
+        health = client.get("/health")
+        assert health.status_code == 200, (
+            f"Staging health check failed with HTTP {health.status_code}"
+        )
+        health_body = health.json()
+        assert str(health_body.get("environment", "")).lower() == expected_environment, (
+            "E2E target environment mismatch; refusing to create a task outside "
+            f"the expected {expected_environment!r} environment"
+        )
+        assert health_body.get("queue_backend") == "postgresql"
+        assert health_body.get("queue_persistent") is True
+        assert health_body.get("worker_scoped_credentials_enabled") is True
+
         submitted = client.post(
             "/api/v1/tasks",
             json=payload,
