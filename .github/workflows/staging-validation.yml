@@ -1,0 +1,138 @@
+name: Staging E2E and Performance Validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: "Staging validation suite"
+        required: true
+        type: choice
+        options:
+          - e2e
+          - load
+          - stress
+        default: e2e
+      confirm_nonproduction_load_test:
+        description: "Confirm isolated staging, synthetic/cost-capped inference, cleanup plan, and approved test window"
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rusa-staging-validation
+  cancel-in-progress: false
+
+jobs:
+  require-load-approval:
+    if: ${{ (inputs.suite == 'load' || inputs.suite == 'stress') && inputs.confirm_nonproduction_load_test != true }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require explicit load-test approval
+        run: |
+          echo "Load/stress validation requires explicit confirmation of isolated staging, synthetic or cost-capped inference, cleanup plan, and approved test window." >&2
+          exit 1
+
+  e2e:
+    if: ${{ inputs.suite == 'e2e' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Validate staging credentials
+        env:
+          BASE_URL: ${{ secrets.RUSA_STAGING_BASE_URL }}
+          BEARER_TOKEN: ${{ secrets.RUSA_STAGING_BEARER_TOKEN }}
+          PROJECT_ID: ${{ secrets.RUSA_STAGING_PROJECT_ID }}
+        run: |
+          set -eu
+          test -n "$BASE_URL" || (echo "Missing RUSA_STAGING_BASE_URL" >&2; exit 1)
+          test -n "$BEARER_TOKEN" || (echo "Missing RUSA_STAGING_BEARER_TOKEN" >&2; exit 1)
+          test -n "$PROJECT_ID" || (echo "Missing RUSA_STAGING_PROJECT_ID" >&2; exit 1)
+      - name: Install test dependencies
+        run: python -m pip install -e ".[dev,mcp,postgres,worker]"
+      - name: Run real user-to-agent lifecycle after staging identity preflight
+        env:
+          RUSA_E2E_BASE_URL: ${{ secrets.RUSA_STAGING_BASE_URL }}
+          RUSA_E2E_BEARER_TOKEN: ${{ secrets.RUSA_STAGING_BEARER_TOKEN }}
+          RUSA_E2E_PROJECT_ID: ${{ secrets.RUSA_STAGING_PROJECT_ID }}
+          RUSA_E2E_WORKSPACE_ID: ${{ secrets.RUSA_STAGING_WORKSPACE_ID }}
+          RUSA_E2E_EXPECTED_ENVIRONMENT: "staging"
+          RUSA_E2E_TIMEOUT_SECONDS: "300"
+        run: pytest -q -m e2e tests/e2e
+
+  load:
+    if: ${{ inputs.suite == 'load' && inputs.confirm_nonproduction_load_test == true }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      BASE_URL: ${{ secrets.RUSA_STAGING_BASE_URL }}
+      AUTH_TOKEN: ${{ secrets.RUSA_STAGING_BEARER_TOKEN }}
+      PROJECT_ID: ${{ secrets.RUSA_STAGING_PROJECT_ID }}
+      WORKSPACE_ID: ${{ secrets.RUSA_STAGING_WORKSPACE_ID }}
+      RPS: ${{ vars.RUSA_LOAD_RPS || '50' }}
+      DURATION: ${{ vars.RUSA_LOAD_DURATION || '10m' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate staging credentials
+        run: |
+          set -eu
+          test -n "$BASE_URL" || (echo "Missing RUSA_STAGING_BASE_URL" >&2; exit 1)
+          test -n "$AUTH_TOKEN" || (echo "Missing RUSA_STAGING_BEARER_TOKEN" >&2; exit 1)
+          test -n "$PROJECT_ID" || (echo "Missing RUSA_STAGING_PROJECT_ID" >&2; exit 1)
+      - name: Verify exact staging topology
+        run: |
+          set -eu
+          health="$(curl --fail --silent --show-error "$BASE_URL/health")"
+          printf '%s' "$health" | jq -e '
+            .environment == "staging" and
+            .queue_backend == "postgresql" and
+            .queue_persistent == true and
+            .worker_scoped_credentials_enabled == true
+          ' >/dev/null
+      - name: Run baseline load profile
+        run: |
+          docker run --rm \
+            -e BASE_URL -e AUTH_TOKEN -e PROJECT_ID -e WORKSPACE_ID -e RPS -e DURATION \
+            -v "$PWD:/work" -w /work \
+            grafana/k6:0.54.0 run tests/performance/k6/load.js
+
+  stress:
+    if: ${{ inputs.suite == 'stress' && inputs.confirm_nonproduction_load_test == true }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      BASE_URL: ${{ secrets.RUSA_STAGING_BASE_URL }}
+      AUTH_TOKEN: ${{ secrets.RUSA_STAGING_BEARER_TOKEN }}
+      PROJECT_ID: ${{ secrets.RUSA_STAGING_PROJECT_ID }}
+      WORKSPACE_ID: ${{ secrets.RUSA_STAGING_WORKSPACE_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate staging credentials
+        run: |
+          set -eu
+          test -n "$BASE_URL" || (echo "Missing RUSA_STAGING_BASE_URL" >&2; exit 1)
+          test -n "$AUTH_TOKEN" || (echo "Missing RUSA_STAGING_BEARER_TOKEN" >&2; exit 1)
+          test -n "$PROJECT_ID" || (echo "Missing RUSA_STAGING_PROJECT_ID" >&2; exit 1)
+      - name: Verify exact staging topology
+        run: |
+          set -eu
+          health="$(curl --fail --silent --show-error "$BASE_URL/health")"
+          printf '%s' "$health" | jq -e '
+            .environment == "staging" and
+            .queue_backend == "postgresql" and
+            .queue_persistent == true and
+            .worker_scoped_credentials_enabled == true
+          ' >/dev/null
+      - name: Run controlled-overload stress profile
+        run: |
+          docker run --rm \
+            -e BASE_URL -e AUTH_TOKEN -e PROJECT_ID -e WORKSPACE_ID \
+            -v "$PWD:/work" -w /work \
+            grafana/k6:0.54.0 run tests/performance/k6/stress.js

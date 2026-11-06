@@ -178,8 +178,7 @@ def _safe_event_details(value: Mapping[str, Any] | None) -> dict[str, str | int 
         if key not in _SAFE_EVENT_KEYS:
             raise ValueError("event_metadata_key_not_allowlisted")
         if (
-            isinstance(item, bool)
-            or (isinstance(item, int) and 0 <= item <= 2**31 - 1)
+            (isinstance(item, int) and not isinstance(item, bool) and 0 <= item <= 2**31 - 1)
             or (isinstance(item, str) and item.strip() and len(item) <= 255)
         ):
             result[key] = item

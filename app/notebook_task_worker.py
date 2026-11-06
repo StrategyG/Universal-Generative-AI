@@ -19,7 +19,6 @@ from app.reasoning.catalog import (
 )
 from app.reasoning.execution import (
     PolicyRoutedTextExecutor,
-    ReasoningEvaluatorUnavailable,
     ReasoningRouteConfigurationError,
 )
 from app.reasoning.routing import (
