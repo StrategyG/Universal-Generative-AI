@@ -5,16 +5,35 @@ import asyncio
 import pytest
 from fastapi import HTTPException
 
+from app.auth import Principal
 from app.config import settings
 from app.providers.text_errors import TextGenerationProviderError
-from app.reasoning.api import complete_reasoning
+from app.reasoning.api import ReasoningCompletionRequest, complete_reasoning
 from app.reasoning.catalog import ReasoningRouteCatalogError
 from app.reasoning.execution import (
     ReasoningEvaluatorUnavailable,
     ReasoningRouteConfigurationError,
 )
 from app.reasoning.routing import NoEligibleModelRoute
-from tests_reasoning_helpers import make_request, principal
+
+
+def make_request():
+    return ReasoningCompletionRequest(
+        project_id="project-1",
+        domain="coding",
+        objective="Exercise reasoning failure paths",
+        context="Test context",
+    )
+
+
+def principal():
+    return Principal(
+        subject="user-1",
+        tenant_id="tenant-1",
+        roles=frozenset({"developer"}),
+        project_ids=frozenset({"project-1"}),
+        auth_mode="oidc",
+    )
 
 
 @pytest.mark.parametrize(
