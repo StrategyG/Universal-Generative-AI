@@ -148,6 +148,8 @@ def install_worker_fakes(monkeypatch, *, mode="success", role=None):
     async def reconcile(**_kwargs):
         calls["reconcile"] += 1
         if mode == "reconcile_failure":
+            if calls["reconcile"] >= 2:
+                event_holder["event"].set()
             raise RuntimeError("reconciliation unavailable")
         return 0
 
@@ -275,4 +277,4 @@ def test_worker_main_configures_logging_and_runs_async_entrypoint(monkeypatch):
         return None
     monkeypatch.setattr(module, "run_worker", fake_run_worker)
     module.main()
-    assert calls == ["logging"]
+    assert calls == ["logging", "run"]
