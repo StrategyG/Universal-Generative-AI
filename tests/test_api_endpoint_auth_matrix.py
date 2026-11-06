@@ -1,6 +1,4 @@
 from __future__ import annotations
-
-import re
 from uuid import UUID
 
 import pytest
