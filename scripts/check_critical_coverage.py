@@ -12,6 +12,7 @@ CRITICAL_FILES = (
     "app/auth.py",
     "app/config.py",
     "app/task_api.py",
+    "app/notebook_task_worker.py",
     "app/reasoning/api.py",
     "app/providers/router.py",
     "app/services/postgres_gpu_queue.py",
