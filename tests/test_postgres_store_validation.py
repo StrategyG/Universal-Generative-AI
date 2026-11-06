@@ -132,7 +132,8 @@ def test_safe_metadata_and_event_details_enforce_allowlists_and_scalar_types():
         _safe_event_details([])
     with pytest.raises(ValueError, match="event_metadata_key_not_allowlisted"):
         _safe_event_details({"secret": "value"})
-    assert _safe_event_details({"attempt": True}) == {"attempt": True}
+    with pytest.raises(ValueError, match="event_metadata_value_invalid"):
+        _safe_event_details({"attempt": True})
     with pytest.raises(ValueError, match="event_metadata_value_invalid"):
         _safe_event_details({"attempt": -1})
 
@@ -247,6 +248,7 @@ def test_claim_and_heartbeat_validate_worker_lease_inputs():
         ({"plan_digest": "bad"}, "plan_digest_must_be_sha256"),
         ({"reconciliation_verified": "yes"}, "reconciliation_verified_must_be_boolean"),
         ({"metadata": {"private_prompt": "secret"}}, "event_metadata_key_not_allowlisted"),
+        ({"metadata": {"attempt": True}}, "event_metadata_value_invalid"),
         ({"metadata": {"attempt": -1}}, "event_metadata_value_invalid"),
     ],
 )
