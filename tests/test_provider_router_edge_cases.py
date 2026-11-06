@@ -260,3 +260,95 @@ def test_streaming_error_after_first_token_is_not_switched_to_another_provider()
     error = asyncio.run(run_and_capture())
     assert error.code == "stream_interrupted"
     assert fallback.calls == 0
+
+
+def test_from_settings_builds_explicit_fallback_provider(monkeypatch):
+    clear_provider_settings(monkeypatch)
+    monkeypatch.setattr(settings, "text_generation_base_url", "https://primary.example.test/v1")
+    monkeypatch.setattr(settings, "text_generation_model", "primary-model")
+    monkeypatch.setattr(settings, "text_generation_fallback_base_url", "https://fallback.example.test/v1")
+    monkeypatch.setattr(settings, "text_generation_fallback_model", "fallback-model")
+    monkeypatch.setattr(
+        settings,
+        "text_generation_provider_order",
+        "openai-compatible-chat,openai-compatible-chat-fallback",
+    )
+
+    class FakeOpenAI:
+        @classmethod
+        def from_settings(cls):
+            return Provider("openai-compatible-chat")
+
+        def __init__(self, **kwargs):
+            self.name = "openai-compatible-chat-fallback"
+            self.model = kwargs["model"]
+            self.model_id = kwargs["model_id"]
+            self.model_revision = kwargs["model_revision"]
+            self.capabilities = TextModelCapabilities(streaming=True)
+
+    monkeypatch.setattr(router_module, "OpenAICompatibleTextProvider", FakeOpenAI)
+    router = TextModelRouter.from_settings()
+    assert [provider.name for provider in router.providers] == [
+        "openai-compatible-chat",
+        "openai-compatible-chat-fallback",
+    ]
+
+
+def test_stream_retries_before_first_token_and_never_splices_after_emission():
+    class RetryBeforeToken(Provider):
+        def __init__(self):
+            super().__init__("retry-before-token")
+            self.stream_calls = 0
+
+        async def stream(self, _request):
+            self.stream_calls += 1
+            if self.stream_calls == 1:
+                raise TextGenerationProviderError(
+                    "temporary stream startup failure",
+                    code="stream_startup",
+                    retryable=True,
+                    retry_after_seconds=0,
+                )
+            yield "recovered-token"
+
+    provider = RetryBeforeToken()
+    router = TextModelRouter([provider], max_retries=1, retry_backoff_seconds=0)
+
+    async def collect():
+        return [token async for token in router.stream(request())]
+
+    assert asyncio.run(collect()) == ["recovered-token"]
+    assert provider.stream_calls == 2
+
+
+def test_stream_falls_back_only_before_the_first_token_and_reports_no_capability():
+    class FailingBeforeToken(Provider):
+        async def stream(self, _request):
+            if False:
+                yield ""
+            raise TextGenerationProviderError(
+                "provider unavailable before first token",
+                code="stream_startup",
+                retryable=False,
+            )
+
+    first = FailingBeforeToken("first")
+    second = Provider("second")
+    router = TextModelRouter([first, second])
+
+    async def collect():
+        return [token async for token in router.stream(request())]
+
+    assert asyncio.run(collect()) == ["second-token"]
+
+    class NoStreamingProvider(Provider):
+        capabilities = TextModelCapabilities(streaming=False)
+
+    no_stream = TextModelRouter([NoStreamingProvider("text-only")])
+
+    async def collect_without_capability():
+        return [token async for token in no_stream.stream(request())]
+
+    with pytest.raises(TextGenerationProviderError) as caught:
+        asyncio.run(collect_without_capability())
+    assert caught.value.code == "capability_unavailable"
