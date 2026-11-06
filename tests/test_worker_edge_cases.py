@@ -50,6 +50,11 @@ class Store:
         self.heartbeat_error = heartbeat_error
         self.transitions = []
         self.heartbeats = []
+        self.requeues = []
+
+    async def requeue_due_retries(self, **kwargs):
+        self.requeues.append(kwargs)
+        return []
 
     async def claim_next(self, **_kwargs):
         return self.claimed
@@ -180,10 +185,11 @@ def test_retry_scheduler_repeats_after_poll_timeout_then_observes_shutdown(monke
     stop = asyncio.Event()
     calls = 0
 
-    async def wait_for(_awaitable, *, timeout):
+    async def wait_for(awaitable, *, timeout):
         nonlocal calls
         calls += 1
         assert timeout == 0.5
+        awaitable.close()
         if calls == 1:
             raise TimeoutError
         stop.set()
@@ -191,7 +197,8 @@ def test_retry_scheduler_repeats_after_poll_timeout_then_observes_shutdown(monke
 
     monkeypatch.setattr("ugai_workflow.worker.asyncio.wait_for", wait_for)
     asyncio.run(scheduler.run(stop))
-    assert len(store.transitions) == 0
+    assert store.transitions == []
+    assert len(store.requeues) == 2
     assert calls == 2
 
 
