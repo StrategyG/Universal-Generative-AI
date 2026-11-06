@@ -21,6 +21,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: rusa-staging-validation
+  cancel-in-progress: false
+
 jobs:
   require-load-approval:
     if: ${{ (inputs.suite == 'load' || inputs.suite == 'stress') && inputs.confirm_nonproduction_load_test != true }}
