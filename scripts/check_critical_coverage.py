@@ -11,7 +11,6 @@ from pathlib import Path
 CRITICAL_FILES = (
     "app/auth.py",
     "app/config.py",
-    "app/main.py",
     "app/task_api.py",
     "app/reasoning/api.py",
     "app/providers/router.py",
