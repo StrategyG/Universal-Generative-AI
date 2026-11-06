@@ -55,7 +55,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: coverage-$GITHUB_SHA
+          name: coverage-${{ github.sha }}
           path: coverage.json
           if-no-files-found: ignore
           retention-days: 30
