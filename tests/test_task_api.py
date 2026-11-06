@@ -387,3 +387,265 @@ def test_task_result_does_not_cross_project_scope(runtime):
     finally:
         app.dependency_overrides.clear()
     assert response.status_code == 403
+
+
+def _create_task(client, key: str):
+    response = client.post(
+        "/api/v1/tasks",
+        headers={"Idempotency-Key": key},
+        json=payload(),
+    )
+    assert response.status_code == 202, response.text
+    return __import__("uuid").UUID(response.json()["task_id"])
+
+
+def test_task_submission_maps_store_validation_and_persistence_errors(runtime, monkeypatch):
+    store, _cipher = runtime
+    client = TestClient(app)
+
+    async def invalid_create(**_kwargs):
+        raise ValueError("private persistence detail")
+
+    monkeypatch.setattr(store, "create_task", invalid_create)
+    invalid = client.post(
+        "/api/v1/tasks",
+        headers={"Idempotency-Key": "notebook-task-101"},
+        json=payload(),
+    )
+    assert invalid.status_code == 422
+    assert invalid.json()["detail"]["code"] == "task_payload_invalid"
+
+    async def unavailable_create(**_kwargs):
+        raise RuntimeError("database credentials must not leak")
+
+    monkeypatch.setattr(store, "create_task", unavailable_create)
+    unavailable = client.post(
+        "/api/v1/tasks",
+        headers={"Idempotency-Key": "notebook-task-102"},
+        json=payload(),
+    )
+    assert unavailable.status_code == 503
+    assert unavailable.json()["detail"]["code"] == "workflow_task_persistence_unavailable"
+    assert "database credentials" not in unavailable.text
+
+
+def test_task_submission_maps_worker_registry_unavailability(runtime, monkeypatch):
+    store, _cipher = runtime
+    client = TestClient(app)
+
+    async def registry_unavailable(**_kwargs):
+        raise RuntimeError("private worker registry detail")
+
+    monkeypatch.setattr(store, "has_healthy_worker", registry_unavailable)
+    response = client.post(
+        "/api/v1/tasks",
+        headers={"Idempotency-Key": "notebook-task-103"},
+        json=payload(),
+    )
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "notebook_worker_registry_unavailable"
+    assert "private worker registry detail" not in response.text
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "body"),
+    [
+        ("POST", "/api/v1/tasks", payload()),
+        ("GET", "/api/v1/tasks/00000000-0000-0000-0000-000000000001", None),
+        ("GET", "/api/v1/tasks/00000000-0000-0000-0000-000000000001/result", None),
+        ("POST", "/api/v1/tasks/00000000-0000-0000-0000-000000000001/cancel", None),
+    ],
+)
+def test_all_task_routes_fail_closed_when_runtime_is_missing(runtime, method, path, body):
+    app.state.workflow_task_store = None
+    client = TestClient(app)
+    response = client.request(
+        method,
+        path,
+        headers={"Idempotency-Key": "notebook-task-104"} if method == "POST" and path.endswith("/tasks") else {},
+        json=body,
+    )
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "workflow_task_runtime_unavailable"
+
+
+def test_task_status_maps_missing_rows_database_errors_and_missing_project_scope(runtime, monkeypatch):
+    store, _cipher = runtime
+    client = TestClient(app)
+    task_id = _create_task(client, "notebook-task-105")
+
+    async def missing(**_kwargs):
+        raise TaskNotFound("private task id")
+
+    monkeypatch.setattr(store, "get_task", missing)
+    not_found = client.get(f"/api/v1/tasks/{task_id}")
+    assert not_found.status_code == 404
+    assert not_found.json()["detail"] == "Task not found"
+
+    async def unavailable(**_kwargs):
+        raise RuntimeError("private database detail")
+
+    monkeypatch.setattr(store, "get_task", unavailable)
+    failed_read = client.get(f"/api/v1/tasks/{task_id}")
+    assert failed_read.status_code == 503
+    assert failed_read.json()["detail"]["code"] == "workflow_task_read_unavailable"
+
+    monkeypatch.undo()
+    task = store.tasks[store.by_id[task_id]]
+    task.project_id = None
+    missing_project = client.get(f"/api/v1/tasks/{task_id}")
+    assert missing_project.status_code == 404
+
+
+def test_status_correlation_id_fallback_and_invalid_state_are_explicit():
+    from app.task_api import _public_state, _status
+
+    request_id = uuid4()
+    value = SimpleNamespace(
+        task_id=uuid4(),
+        metadata={"correlation_id": "not-a-uuid"},
+        correlation_id=None,
+        project_id="project-a",
+        state=TaskState.RECEIVED,
+        version=1,
+        retry_count=0,
+        retryable=False,
+        error_code=None,
+        created_at=None,
+        updated_at=None,
+    )
+    assert _status(value, request_id).correlation_id == request_id
+
+    valid_correlation = uuid4()
+    value.metadata = {"correlation_id": str(valid_correlation)}
+    assert _status(value, request_id).correlation_id == valid_correlation
+
+    value.state = "not-a-state"
+    with pytest.raises(ValueError):
+        _public_state(value)
+
+
+def test_task_result_maps_store_read_missing_cipher_and_contract_errors(runtime, monkeypatch):
+    store, cipher = runtime
+    client = TestClient(app)
+    task_id = _create_task(client, "notebook-task-106")
+    task = store.tasks[store.by_id[task_id]]
+    task.state = TaskState.SUCCEEDED
+
+    async def unavailable_result(**_kwargs):
+        raise RuntimeError("private result store detail")
+
+    monkeypatch.setattr(store, "get_encrypted_result", unavailable_result)
+    unavailable = client.get(f"/api/v1/tasks/{task_id}/result")
+    assert unavailable.status_code == 503
+    assert unavailable.json()["detail"]["code"] == "notebook_task_result_read_unavailable"
+
+    async def missing_result(**_kwargs):
+        return None
+
+    monkeypatch.setattr(store, "get_encrypted_result", missing_result)
+    missing = client.get(f"/api/v1/tasks/{task_id}/result")
+    assert missing.status_code == 503
+    assert missing.json()["detail"]["code"] == "notebook_task_result_missing"
+
+    async def invalid_result(**_kwargs):
+        return (cipher.key_id, b"tampered", "a" * 64)
+
+    monkeypatch.setattr(store, "get_encrypted_result", invalid_result)
+    integrity = client.get(f"/api/v1/tasks/{task_id}/result")
+    assert integrity.status_code == 503
+    assert integrity.json()["detail"]["code"] == "notebook_task_result_integrity_failure"
+
+    valid_but_wrong_contract, digest = cipher.encrypt(
+        {
+            "task_id": str(task_id),
+            "project_id": "project-a",
+            "verification_status": "verified",
+            "human_review_required": False,
+            "tool_execution_performed": True,
+        }
+    )
+
+    async def wrong_contract(**_kwargs):
+        return (cipher.key_id, valid_but_wrong_contract, digest)
+
+    monkeypatch.setattr(store, "get_encrypted_result", wrong_contract)
+    contract = client.get(f"/api/v1/tasks/{task_id}/result")
+    assert contract.status_code == 503
+    assert contract.json()["detail"]["code"] == "notebook_task_result_contract_invalid"
+
+
+def test_task_result_maps_missing_task_and_database_errors(runtime, monkeypatch):
+    store, _cipher = runtime
+    client = TestClient(app)
+    task_id = _create_task(client, "notebook-task-107")
+
+    async def missing(**_kwargs):
+        raise TaskNotFound("not found")
+
+    monkeypatch.setattr(store, "get_task", missing)
+    response = client.get(f"/api/v1/tasks/{task_id}/result")
+    assert response.status_code == 404
+
+    async def unavailable(**_kwargs):
+        raise RuntimeError("private database error")
+
+    monkeypatch.setattr(store, "get_task", unavailable)
+    response = client.get(f"/api/v1/tasks/{task_id}/result")
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "workflow_task_read_unavailable"
+
+
+@pytest.mark.parametrize(
+    ("state", "status_code", "error_code"),
+    [
+        (TaskState.SUCCEEDED, 409, "task_already_terminal"),
+        (TaskState.OUTCOME_UNKNOWN, 409, "task_outcome_requires_reconciliation"),
+        (TaskState.EXECUTING, 409, "task_stage_requires_cooperative_cancellation"),
+    ],
+)
+def test_task_cancellation_rejects_terminal_unknown_and_inflight_states(
+    runtime, state, status_code, error_code
+):
+    store, _cipher = runtime
+    client = TestClient(app)
+    task_id = _create_task(client, f"notebook-task-{state.value[:12]}")
+    store.tasks[store.by_id[task_id]].state = state
+    response = client.post(f"/api/v1/tasks/{task_id}/cancel")
+    assert response.status_code == status_code
+    assert response.json()["detail"]["code"] == error_code
+
+
+@pytest.mark.parametrize(
+    ("error", "status_code", "error_code"),
+    [
+        (StaleWorkflowVersion("stale"), 409, "task_state_changed_retry_read"),
+        (TransitionDenied("not allowed"), 409, "task_cancellation_not_allowed"),
+        (ValueError("invalid transition"), 409, "task_cancellation_not_allowed"),
+        (RuntimeError("database unavailable"), 503, "workflow_task_cancel_unavailable"),
+    ],
+)
+def test_task_cancellation_maps_transition_conflicts_and_storage_failures(
+    runtime, monkeypatch, error, status_code, error_code
+):
+    store, _cipher = runtime
+    client = TestClient(app)
+    task_id = _create_task(client, "notebook-task-108")
+
+    async def fail_transition(**_kwargs):
+        raise error
+
+    monkeypatch.setattr(store, "transition", fail_transition)
+    response = client.post(f"/api/v1/tasks/{task_id}/cancel")
+    assert response.status_code == status_code
+    assert response.json()["detail"]["code"] == error_code
+
+
+def test_failed_task_can_be_cancelled_before_retry_is_claimed(runtime):
+    store, _cipher = runtime
+    client = TestClient(app)
+    task_id = _create_task(client, "notebook-task-109")
+    store.tasks[store.by_id[task_id]].state = TaskState.FAILED
+    response = client.post(f"/api/v1/tasks/{task_id}/cancel")
+    assert response.status_code == 200
+    assert response.json()["state"] == "cancelled"
