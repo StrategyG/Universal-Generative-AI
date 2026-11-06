@@ -575,3 +575,39 @@ async def test_worker_role_is_separate_and_results_are_immutable_and_tenant_scop
     assert await api_store.has_healthy_worker(
         tenant_id=tenant, task_type="notebook_task"
     ) is False
+
+
+@pytest.mark.asyncio
+async def test_outcome_unknown_listing_and_absent_encrypted_payload_are_tenant_scoped(
+    workflow_database,
+) -> None:
+    pool, _admin = workflow_database
+    store = PostgresWorkflowStore(pool)
+    tenant = f"tenant-{uuid4()}"
+    task = await store.create_task(
+        **new_task_args(tenant_id=tenant, suffix=str(uuid4()))
+    )
+
+    assert await store.get_encrypted_payload(
+        task_id=task.task_id, tenant_id=tenant
+    ) is None
+
+    for target in (
+        TaskState.OBSERVING,
+        TaskState.PLANNING,
+        TaskState.EXECUTING,
+        TaskState.OUTCOME_UNKNOWN,
+    ):
+        task = await store.transition(
+            task_id=task.task_id,
+            tenant_id=tenant,
+            expected_version=task.version,
+            target=target,
+            actor_id="system:integration-test",
+            reason_code="integration_transition",
+            require_lease=False,
+        )
+
+    quarantined = await store.list_outcome_unknown(tenant_id=tenant)
+    assert [item.task_id for item in quarantined] == [task.task_id]
+    assert await store.list_outcome_unknown(tenant_id=f"other-{uuid4()}") == []
